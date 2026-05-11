@@ -189,5 +189,5 @@ src/               Renderer process (React / TypeScript)
 ## Development Plan
 
 See [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the full staged roadmap.  
-Stages 1–5 are implemented. Stages 6–8 are in active implementation (Dropbox file browsing, Habits/Tags views, and sync controls). Stage 9 remains release-readiness.
+Stages 1–5 are complete. Stages 6–8 are in active development (Dropbox file browsing, Habits/Tags views, and sync reliability). Stage 9 is release readiness.
 
