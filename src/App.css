@@ -1,0 +1,6 @@
+/* App-level layout overrides — global styles live in index.css */
+#root {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}

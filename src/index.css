@@ -1,0 +1,98 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, system-ui, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #101010;
+  color: #e8e8e8;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* TipTap editor styles */
+.ProseMirror {
+  outline: none;
+  min-height: 200px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.ProseMirror > * + * {
+  margin-top: 0.6em;
+}
+
+.ProseMirror h1 {
+  font-size: 1.75em;
+  font-weight: 700;
+  margin-top: 1.4em;
+  margin-bottom: 0.4em;
+  color: #f0f0f0;
+}
+
+.ProseMirror h2 {
+  font-size: 1.35em;
+  font-weight: 600;
+  margin-top: 1.2em;
+  margin-bottom: 0.3em;
+  color: #e8e8e8;
+}
+
+.ProseMirror h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+  color: #e0e0e0;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: #adb5bd;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.ProseMirror .mention {
+  background-color: #dbeafe;
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: #1d4ed8;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.dark .ProseMirror .mention {
+  background-color: #1e3a5f;
+  color: #93c5fd;
+}
+
