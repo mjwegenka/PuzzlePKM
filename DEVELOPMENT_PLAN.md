@@ -10,34 +10,15 @@ Stage status should be updated here first, then summarized elsewhere only as a p
 ## Goal
 Deliver a CLI-first local-first knowledge management tool with Dropbox sync. The CLI (`cli.mjs`) is the primary interface — all features must be usable without Electron. The Electron desktop UI is a secondary, optional interface that may not be actively maintained.
 
-## Stage 1: Scope Lock
-- Confirm all MVP object types from `README.md` are represented in backlog.
-- Confirm high-priority flows: create/edit/link/tag/browse/open-in-default-app.
-- Exit criteria: product scope and decision log are internally consistent.
+## Completed Stages (1–5)
 
-## Stage 2: Architecture Baseline
-- Establish Electron main/renderer boundaries and IPC contracts.
-- Choose renderer state shape and local persistence abstraction.
-- Define Dropbox auth/sync boundaries and metadata ownership.
-- Exit criteria: architecture skeleton supports local-first CRUD with mock sync hooks.
+Stages 1 through 5 have been fully implemented:
 
-## Stage 3: Runnable Foundation
-- Scaffold minimal Electron app and developer scripts.
-- Implement secure Dropbox token handling (`DEC-11`).
-- Implement repository layer for local CRUD.
-- Exit criteria: app boots, CRUD works locally, auth flow wiring exists.
-
-## Stage 4: Domain Linking Core
-- Implement schemas for all MVP objects.
-- Implement ID-based links + bi-directional reference resolution (`DEC-05`).
-- Enforce Daily Note uniqueness by local date (`DEC-06`).
-- Exit criteria: linking integrity and uniqueness constraints are test-covered.
-
-## Stage 5: Notes Editing UX
-- Build Topic and Daily editors on TipTap (`DEC-15`).
-- Add mentions/backlinks and cross-object autocomplete (`DEC-16`).
-- Add markdown import/export pipeline (`DEC-17`).
-- Exit criteria: end-to-end note authoring and link insertion are stable.
+- **Stage 1 – Scope Lock**: Product scope and decision log are internally consistent.
+- **Stage 2 – Architecture Baseline**: Electron main/renderer boundaries, IPC contracts, Zustand state, and Dropbox auth/sync boundaries are established.
+- **Stage 3 – Runnable Foundation**: Electron app boots, CRUD works locally, auth flow is wired. CLI runs standalone.
+- **Stage 4 – Domain Linking Core**: All MVP object schemas implemented. ID-based links and bi-directional reference resolution are in place. Daily Note uniqueness by local date is enforced.
+- **Stage 5 – Notes Editing UX**: Topic and Daily editors built on TipTap v3. Mentions, backlinks, and cross-object autocomplete are stable. Markdown import pipeline is available in the CLI.
 
 ## Stage 6: Dropbox File Objects
 Status: **In progress** (directory browsing + open-in-Dropbox app/web wiring implemented)

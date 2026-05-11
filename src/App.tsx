@@ -18,9 +18,6 @@ function App() {
   const { setAuthState, setSyncStatus, setSearchOpen } = useUIStore()
   const [isReady, setIsReady] = useState(false)
 
-  // Debug: Confirm App component is rendering
-  console.log('[App] Rendering, window.dropith =', typeof window.dropith !== 'undefined');
-
   useEffect(() => {
     // Load initial data
     const init = async () => {
@@ -36,14 +33,12 @@ function App() {
         return;
       }
 
-      console.log('[App] IPC bridge is available, starting initialization');
       const [notesRes, tagsRes, authRes, syncRes] = await Promise.all([
         window.dropith.topicNote.list(),
         window.dropith.tag.list(),
         window.dropith.auth.getState(),
         window.dropith.sync.getStatus(),
       ])
-      console.log('[App] Init results:', { notesRes, tagsRes, authRes, syncRes });
       if (notesRes.success && notesRes.data) setTopicNotes(notesRes.data)
       if (tagsRes.success && tagsRes.data) setTags(tagsRes.data)
       if (authRes.success && authRes.data) setAuthState(authRes.data)
