@@ -12,6 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { URL, pathToFileURL } from 'node:url';
 
 const KEYCHAIN_ACCESS_TOKEN = 'dropbox_access_token';
+const KEYCHAIN_REFRESH_TOKEN = 'dropbox_refresh_token';
 const KEYCHAIN_ACCOUNT_EMAIL = 'dropbox_account_email';
 const KEYCHAIN_ROOT_FOLDER = 'dropbox_root_folder';
 const KEYCHAIN_APP_KEY = 'dropbox_app_key';
@@ -23,6 +24,9 @@ const SHELL_HISTORY_SIZE = 200;
 const DEFAULT_NOTES_ROOT = '/Dropith';
 const DAILY_NOTES_SUBFOLDER = 'daily-notes';
 const TOPIC_NOTES_SUBFOLDER = 'topic-notes';
+const PROJECTS_SUBFOLDER = 'projects';
+const REF_MATERIALS_SUBFOLDER = 'ref-materials';
+const HABITS_SUBFOLDER = 'habits';
 const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 
@@ -33,6 +37,7 @@ const schema = `
     content TEXT NOT NULL DEFAULT '{}',
     content_markdown TEXT NOT NULL DEFAULT '',
     linked_object_ids TEXT NOT NULL DEFAULT '[]',
+    dropbox_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -43,6 +48,7 @@ const schema = `
     content TEXT NOT NULL DEFAULT '{}',
     content_markdown TEXT NOT NULL DEFAULT '',
     linked_object_ids TEXT NOT NULL DEFAULT '[]',
+    dropbox_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -69,6 +75,7 @@ const schema = `
     id TEXT PRIMARY KEY,
     text TEXT NOT NULL,
     date TEXT NOT NULL,
+    dropbox_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -113,10 +120,43 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_object_links_target ON object_links(target_id);
   CREATE INDEX IF NOT EXISTS idx_sync_state_object_type ON sync_state(object_type, object_id);
   CREATE INDEX IF NOT EXISTS idx_habits_date ON habits(date);
-  CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
-`;
+   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
+ `;
 
-function defaultAppDataDir() {
+ // DEC-20: Ensure schema is migrated for new dropbox_path columns (DEC-21)
+ function ensureSchemaMigrations(db) {
+   try {
+     // Add dropbox_path column to topic_notes if it doesn't exist
+     const topicColumnsCheck = db.prepare("PRAGMA table_info(topic_notes)").all();
+     if (!topicColumnsCheck.some(c => c.name === 'dropbox_path')) {
+       db.prepare("ALTER TABLE topic_notes ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+     }
+   } catch (e) {
+     // Column may already exist or table doesn't exist yet
+   }
+
+   try {
+     // Add dropbox_path column to daily_notes if it doesn't exist
+     const dailyColumnsCheck = db.prepare("PRAGMA table_info(daily_notes)").all();
+     if (!dailyColumnsCheck.some(c => c.name === 'dropbox_path')) {
+       db.prepare("ALTER TABLE daily_notes ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+     }
+   } catch (e) {
+     // Column may already exist or table doesn't exist yet
+   }
+
+   try {
+     // Add dropbox_path column to habits if it doesn't exist
+     const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
+     if (!habitsColumnsCheck.some(c => c.name === 'dropbox_path')) {
+       db.prepare("ALTER TABLE habits ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+     }
+   } catch (e) {
+     // Column may already exist or table doesn't exist yet
+   }
+ }
+
+ function defaultAppDataDir() {
   const home = homedir();
   if (platform() === 'darwin') return join(home, 'Library', 'Application Support', 'dropith');
   if (platform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'dropith');
@@ -171,10 +211,10 @@ function parseCsv(value) {
 
 function parseFrontMatter(content) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content.trimStart());
-  if (!match) return { data: {}, body: content };
 
-  const yamlBlock = match[1];
-  const body = match[2].replace(/^\n+/, '');
+  // Parse the YAML block (front matter block, or the whole content for plain meta.yaml files)
+  const yamlBlock = match ? match[1] : content.trim();
+  const body = match ? match[2].replace(/^\n+/, '') : '';
   const data = {};
 
   for (const line of yamlBlock.split(/\r?\n/)) {
@@ -351,12 +391,63 @@ function openDb() {
   mkdirSync(dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
   ensureSchema(db);
+  backfillMissingDropboxPaths(db);
   return db;
 }
 
 function ensureSchema(db) {
   for (const statement of schema.split(';').map((part) => part.trim()).filter(Boolean)) {
     db.prepare(statement).run();
+  }
+  // DEC-20, DEC-21: Ensure schema is migrated for new dropbox_path columns
+  ensureSchemaMigrations(db);
+}
+
+function isMissingDropboxPath(path) {
+  const value = String(path ?? '').trim();
+  return value === '' || value === '(no path)';
+}
+
+function backfillMissingDropboxPaths(db) {
+  const rootFolder = getDropboxRootFolder();
+
+  const missingDaily = db.prepare("SELECT id, date, dropbox_path FROM daily_notes WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  for (const row of missingDaily) {
+    db.prepare('UPDATE daily_notes SET dropbox_path = ? WHERE id = ?').run(dailyNoteDropboxPath(rootFolder, row.date), row.id);
+  }
+
+  const missingTopic = db.prepare("SELECT id, title, dropbox_path FROM topic_notes WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  for (const row of missingTopic) {
+    db.prepare('UPDATE topic_notes SET dropbox_path = ? WHERE id = ?').run(topicNoteDropboxPath(rootFolder, row.title, row.id), row.id);
+  }
+
+  const missingProject = db.prepare("SELECT id, name, dropbox_path FROM projects WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  for (const row of missingProject) {
+    const slug = slugify(row.name || row.id);
+    db.prepare('UPDATE projects SET dropbox_path = ? WHERE id = ?').run(projectDirectoryPath(rootFolder, slug), row.id);
+  }
+
+  const missingRefMat = db.prepare("SELECT id, name, dropbox_path FROM ref_materials WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  for (const row of missingRefMat) {
+    const slug = slugify(row.name || row.id);
+    db.prepare('UPDATE ref_materials SET dropbox_path = ? WHERE id = ?').run(refMaterialDirectoryPath(rootFolder, slug), row.id);
+  }
+
+  const missingHabit = db.prepare("SELECT id, date, dropbox_path FROM habits WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  for (const row of missingHabit) {
+    const tags = getTagDisplayNames(db, row.id);
+    db.prepare('UPDATE habits SET dropbox_path = ? WHERE id = ?').run(habitDropboxPath(rootFolder, row.id, row.date, tags), row.id);
+  }
+
+  // Safety pass for any legacy placeholder value persisted from older flows.
+  for (const table of ['daily_notes', 'topic_notes', 'projects', 'ref_materials', 'habits']) {
+    const rows = db.prepare(`SELECT id, dropbox_path FROM ${table} WHERE dropbox_path = '(no path)'`).all();
+    if (!rows.length) continue;
+    for (const row of rows) {
+      if (!isMissingDropboxPath(row.dropbox_path)) continue;
+      // Placeholder gets rewritten by type-specific pass on next open.
+      db.prepare(`UPDATE ${table} SET dropbox_path = '' WHERE id = ?`).run(row.id);
+    }
   }
 }
 
@@ -457,6 +548,7 @@ function getTopicNote(db, id) {
     id: row.id,
     type: 'topic-note',
     title: row.title,
+    dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown: row.content_markdown,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
@@ -467,9 +559,10 @@ function getTopicNote(db, id) {
 }
 
 function listTopicNotes(db) {
-  return db.prepare('SELECT id, title, content_markdown, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
+  return db.prepare('SELECT id, title, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
     id: row.id,
     title: row.title,
+    dropboxPath: row.dropbox_path || '',
     preview: row.content_markdown.slice(0, 80),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -480,14 +573,15 @@ function listTopicNotes(db) {
 function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO topic_notes (id, title, content, content_markdown, linked_object_ids, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO topic_notes (id, title, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.title,
       JSON.stringify(input.content ?? {}),
       input.contentMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
+      input.dropboxPath || '',
       input.createdAt,
       input.updatedAt,
     );
@@ -517,6 +611,10 @@ function updateTopicNoteRecord(db, id, input) {
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
+  }
+  if (input.dropboxPath !== undefined) {
+    fields.push('dropbox_path = ?');
+    values.push(input.dropboxPath);
   }
 
   values.push(id);
@@ -549,6 +647,7 @@ function mapDailyNote(db, row) {
     id: row.id,
     type: 'daily-note',
     date: row.date,
+    dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown: row.content_markdown,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
@@ -567,6 +666,7 @@ function listDailyNotes(db) {
   return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => ({
     id: row.id,
     date: row.date,
+    dropboxPath: row.dropbox_path || '',
     preview: row.content_markdown.slice(0, 80),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -582,14 +682,15 @@ function createDailyNoteRecord(db, input) {
 
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO daily_notes (id, date, content, content_markdown, linked_object_ids, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO daily_notes (id, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.date,
       JSON.stringify(input.content ?? {}),
       input.contentMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
+      input.dropboxPath || '',
       input.createdAt,
       input.updatedAt,
     );
@@ -625,6 +726,10 @@ function updateDailyNoteRecord(db, reference, input) {
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
+  }
+  if (input.dropboxPath !== undefined) {
+    fields.push('dropbox_path = ?');
+    values.push(input.dropboxPath);
   }
 
   values.push(existing.id);
@@ -728,6 +833,7 @@ function deleteProjectRecord(db, id) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    clearSyncState(db, 'project', id);
     const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -799,6 +905,7 @@ function deleteRefMatRecord(db, id) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    clearSyncState(db, 'ref-material', id);
     const result = db.prepare('DELETE FROM ref_materials WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -807,26 +914,32 @@ function deleteRefMatRecord(db, id) {
 function getHabit(db, id) {
   const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
   if (!row) return null;
+  const tags = getTagDisplayNames(db, row.id);
   return {
     id: row.id,
     type: 'habit',
     text: row.text,
     date: row.date,
-    tags: getTagDisplayNames(db, row.id),
+    dropboxPath: row.dropbox_path || '',
+    tags,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 function listHabits(db) {
-  return db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all().map((row) => ({
-    id: row.id,
-    text: row.text,
-    date: row.date,
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all().map((row) => {
+    const tags = getTagDisplayNames(db, row.id);
+    return {
+      id: row.id,
+      text: row.text,
+      date: row.date,
+      dropboxPath: row.dropbox_path || '',
+      tags,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 function sanitizeHabitText(text) {
@@ -838,10 +951,12 @@ function sanitizeHabitText(text) {
 function createHabitRecord(db, input) {
   const sanitized = sanitizeHabitText(input.text);
   return withTransaction(db, () => {
+    // DEC-21: Calculate dropboxPath from dropbox_path parameter or generate from date/tags/id
+    const dropboxPath = input.dropboxPath || '';
     db.prepare(`
-      INSERT INTO habits (id, text, date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(input.id, sanitized.text, input.date, input.createdAt, input.updatedAt);
+      INSERT INTO habits (id, text, date, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(input.id, sanitized.text, input.date, dropboxPath, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'habit', input.tags ?? []);
     return { ...getHabit(db, input.id), truncated: sanitized.truncated };
   });
@@ -864,6 +979,10 @@ function updateHabitRecord(db, id, input) {
     fields.push('date = ?');
     values.push(input.date);
   }
+  if (input.dropboxPath !== undefined) {
+    fields.push('dropbox_path = ?');
+    values.push(input.dropboxPath);
+  }
 
   values.push(id);
 
@@ -880,6 +999,7 @@ function deleteHabitRecord(db, id) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    clearSyncState(db, 'habit', id);
     const result = db.prepare('DELETE FROM habits WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -1050,6 +1170,10 @@ function formatCompact(value) {
   return JSON.stringify(value, null, 2);
 }
 
+function listField(value) {
+  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+}
+
 function printRecords(type, rows) {
   if (!rows.length) {
     console.log(`No ${type} found.`);
@@ -1059,28 +1183,28 @@ function printRecords(type, rows) {
   for (const row of rows) {
     switch (type) {
       case 'topic-note':
-        console.log(`${row.id}\t${row.updatedAt}\t${row.title}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+        console.log(`${row.id}\t${row.updatedAt}\t${listField(row.title)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'daily-note':
-        console.log(`${row.id}\t${row.date}\t${row.preview}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+        console.log(`${row.id}\t${row.date}\t${listField(row.preview)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'project':
-        console.log(`${row.id}\t${row.name}\t${row.dropboxPath || '(no path)'}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}\t${row.startDate || ''}`);
         break;
       case 'ref-material':
-        console.log(`${row.id}\t${row.name}\t${row.dropboxPath || '(no path)'}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}`);
         break;
-      case 'habit':
-        console.log(`${row.id}\t${row.date}\t${row.text}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
-        break;
-      case 'tag':
-        console.log(`${row.id}\t${row.displayName}\t${row.objectCount} objects`);
-        break;
-      case 'link':
-        console.log(`${row.id}\t${row.sourceType}:${row.sourceId} -> ${row.targetType}:${row.targetId}`);
-        break;
-      default:
-        console.log(formatCompact(row));
+       case 'habit':
+         console.log(`${row.id}\t${row.date}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+         break;
+       case 'tag':
+         console.log(`${row.id}\t${row.displayName}\t${row.objectCount} objects`);
+         break;
+       case 'link':
+         console.log(`${row.id}\t${row.sourceType}:${row.sourceId} -> ${row.targetType}:${row.targetId}`);
+         break;
+       default:
+         console.log(formatCompact(row));
     }
   }
 }
@@ -1265,15 +1389,21 @@ function getDropboxAccessToken() {
   return decodeUnencryptedSecret(store.values[KEYCHAIN_ACCESS_TOKEN]) ?? null;
 }
 
+function getDropboxRefreshToken() {
+  const store = readSecretStore();
+  return decodeUnencryptedSecret(store.values[KEYCHAIN_REFRESH_TOKEN]) ?? null;
+}
+
 function getDropboxRootFolder() {
   const store = readSecretStore();
   return decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? DEFAULT_NOTES_ROOT;
 }
 
-function saveDropboxToken(accessToken, email) {
+function saveDropboxToken(accessToken, email, refreshToken) {
   const store = readSecretStore();
   store.values[KEYCHAIN_ACCESS_TOKEN] = encodeUnencryptedSecret(accessToken);
   if (email) store.values[KEYCHAIN_ACCOUNT_EMAIL] = encodeUnencryptedSecret(email);
+  if (refreshToken) store.values[KEYCHAIN_REFRESH_TOKEN] = encodeUnencryptedSecret(refreshToken);
   writeSecretStore(store);
 }
 
@@ -1338,6 +1468,7 @@ function clearDropboxSettings() {
 function disconnectDropboxSettings() {
   const store = readSecretStore();
   delete store.values[KEYCHAIN_ACCESS_TOKEN];
+  delete store.values[KEYCHAIN_REFRESH_TOKEN];
   delete store.values[KEYCHAIN_ACCOUNT_EMAIL];
   delete store.values[KEYCHAIN_ROOT_FOLDER];
   writeSecretStore(store);
@@ -1348,6 +1479,14 @@ function disconnectDropboxSettings() {
 
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'untitled';
+}
+
+/** Convert a Dropbox folder slug (e.g. "my-project-name") to a display title ("My Project Name"). */
+function folderNameToTitle(slug) {
+  return (slug || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim() || 'Untitled';
 }
 
 function dailyNoteDropboxPath(rootFolder, date) {
@@ -1372,11 +1511,81 @@ function topicNotesFolderPath(rootFolder) {
   return `${root}/${TOPIC_NOTES_SUBFOLDER}`;
 }
 
+function projectsFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${PROJECTS_SUBFOLDER}`;
+}
+
+function refMaterialsFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${REF_MATERIALS_SUBFOLDER}`;
+}
+
+function habitsFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${HABITS_SUBFOLDER}`;
+}
+
+function projectDirectoryPath(rootFolder, slug) {
+  return `${projectsFolderPath(rootFolder)}/${slug}`;
+}
+
+function projectMetaPath(rootFolder, slug) {
+  return `${projectDirectoryPath(rootFolder, slug)}/meta.yaml`;
+}
+
+function refMaterialDirectoryPath(rootFolder, slug) {
+  return `${refMaterialsFolderPath(rootFolder)}/${slug}`;
+}
+
+function refMaterialMetaPath(rootFolder, slug) {
+  return `${refMaterialDirectoryPath(rootFolder, slug)}/meta.yaml`;
+}
+
+// DEC-20: Generate habit filename from date, first tag, and last 6 chars of ID
+function habitFilename(id, date, tagNames) {
+  const shortId = id.slice(-6);
+  const firstTag = tagNames && tagNames.length > 0 ? tagNames[0] : '';
+  return `${date}-${firstTag}-${shortId}.md`;
+}
+
+function habitDropboxPath(rootFolder, id, date, tagNames) {
+  const filename = habitFilename(id, date, tagNames);
+  return `${habitsFolderPath(rootFolder)}/${filename}`;
+}
+
+function allSyncFolderPaths(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return [
+    root,
+    dailyNotesFolderPath(rootFolder),
+    topicNotesFolderPath(rootFolder),
+    projectsFolderPath(rootFolder),
+    refMaterialsFolderPath(rootFolder),
+    habitsFolderPath(rootFolder),
+  ].filter((path) => path && path !== '/');
+}
+
 // ── Note sync: YAML front matter ──────────────────────────────────────────────
 
 function yamlStringArray(values) {
   if (values.length === 0) return '[]';
   return `[${values.map((v) => JSON.stringify(v)).join(', ')}]`;
+}
+
+function serializeMetaYaml(data) {
+  const lines = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (Array.isArray(value)) {
+      lines.push(`${key}: ${yamlStringArray(value)}`);
+    } else if (value === null || value === undefined || value === '') {
+      // Skip empty values
+      continue;
+    } else {
+      lines.push(`${key}: ${JSON.stringify(String(value))}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 function serializeFrontMatter(data) {
@@ -1399,6 +1608,7 @@ function dailyNoteToMarkdown(fields) {
     id: fields.id,
     type: 'daily-note',
     date: fields.date,
+    dropboxPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -1412,12 +1622,79 @@ function topicNoteToMarkdown(fields) {
     id: fields.id,
     type: 'topic-note',
     title: fields.title,
+    dropboxPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
   return fields.contentMarkdown ? `${fm}\n\n${fields.contentMarkdown}` : `${fm}\n`;
+}
+
+function projectToMarkdown(fields) {
+  const fm = serializeFrontMatter({
+    id: fields.id,
+    type: 'project',
+    name: fields.name,
+    dropboxPath: fields.dropboxPath,
+    startDate: fields.startDate || '',
+    endDate: fields.endDate || '',
+    tags: fields.tagNames,
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+  return `${fm}\n`;
+}
+
+function projectToMetaYaml(fields) {
+  return serializeMetaYaml({
+    id: fields.id,
+    name: fields.name,
+    dropboxPath: fields.dropboxPath,
+    startDate: fields.startDate,
+    endDate: fields.endDate,
+    tags: fields.tagNames,
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+}
+
+function refMaterialToMarkdown(fields) {
+  const fm = serializeFrontMatter({
+    id: fields.id,
+    type: 'ref-material',
+    name: fields.name,
+    dropboxPath: fields.dropboxPath,
+    tags: fields.tagNames,
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+  return `${fm}\n`;
+}
+
+function refMaterialToMetaYaml(fields) {
+  return serializeMetaYaml({
+    id: fields.id,
+    name: fields.name,
+    dropboxPath: fields.dropboxPath,
+    tags: fields.tagNames,
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+}
+
+function habitToMarkdown(fields) {
+  const fm = serializeFrontMatter({
+    id: fields.id,
+    type: 'habit',
+    text: fields.text,
+    date: fields.date,
+    dropboxPath: fields.dropboxPath || '',
+    tags: fields.tagNames,
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+  return `${fm}\n`;
 }
 
 function parseDailyNoteMarkdown(content) {
@@ -1427,6 +1704,7 @@ function parseDailyNoteMarkdown(content) {
   return {
     id: data.id,
     date: data.date,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
     contentMarkdown: body,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     linkedObjectIds: Array.isArray(data.linkedObjectIds) ? data.linkedObjectIds.map(String) : [],
@@ -1442,12 +1720,170 @@ function parseTopicNoteMarkdown(content) {
   return {
     id: data.id,
     title: data.title,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
     contentMarkdown: body,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     linkedObjectIds: Array.isArray(data.linkedObjectIds) ? data.linkedObjectIds.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
   };
+}
+
+function parseProjectMarkdown(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  if (typeof data.name !== 'string') return null;
+  return {
+    id: data.id,
+    name: data.name,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    startDate: typeof data.startDate === 'string' ? data.startDate : '',
+    endDate: typeof data.endDate === 'string' ? data.endDate : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseProjectMetaYaml(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  if (typeof data.name !== 'string') return null;
+  return {
+    id: data.id,
+    name: data.name,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    startDate: typeof data.startDate === 'string' ? data.startDate : '',
+    endDate: typeof data.endDate === 'string' ? data.endDate : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseRefMaterialMarkdown(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  if (typeof data.name !== 'string') return null;
+  return {
+    id: data.id,
+    name: data.name,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseRefMaterialMetaYaml(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  if (typeof data.name !== 'string') return null;
+  return {
+    id: data.id,
+    name: data.name,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseHabitMarkdown(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  if (typeof data.text !== 'string') return null;
+  if (typeof data.date !== 'string' || !data.date) return null;
+  return {
+    id: data.id,
+    text: data.text,
+    date: data.date,
+    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function normalizeStringArray(values) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function sameStringArrayAsSet(left, right) {
+  const a = normalizeStringArray(left);
+  const b = normalizeStringArray(right);
+  if (a.length !== b.length) return false;
+  for (let idx = 0; idx < a.length; idx += 1) {
+    if (a[idx] !== b[idx]) return false;
+  }
+  return true;
+}
+
+function shouldApplyRemoteDailyNote(existing, remote) {
+  if (!existing) return true;
+  // Last-write-wins: only apply remote if it's newer than local (DEC-37)
+  const remoteUpdatedAt = new Date(remote.updatedAt ?? 0).getTime();
+  const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
+  if (remoteUpdatedAt > localUpdatedAt) return true;
+  if (remoteUpdatedAt < localUpdatedAt) return false;
+  // If timestamps are equal, detect actual content changes
+  if (remote.contentMarkdown !== existing.contentMarkdown) return true;
+  if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
+  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  return false;
+}
+
+function shouldApplyRemoteTopicNote(existing, remote) {
+  if (!existing) return true;
+  // Last-write-wins: only apply remote if it's newer than local (DEC-37)
+  const remoteUpdatedAt = new Date(remote.updatedAt ?? 0).getTime();
+  const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
+  if (remoteUpdatedAt > localUpdatedAt) return true;
+  if (remoteUpdatedAt < localUpdatedAt) return false;
+  // If timestamps are equal, detect actual content changes
+  if ((remote.title ?? '') !== (existing.title ?? '')) return true;
+  if (remote.contentMarkdown !== existing.contentMarkdown) return true;
+  if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
+  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  return false;
+}
+
+function shouldApplyRemoteProject(existing, remote) {
+  if (!existing) return true;
+  const remoteUpdatedAt = new Date(remote.updatedAt ?? 0).getTime();
+  const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
+  if (remoteUpdatedAt > localUpdatedAt) return true;
+  if (remoteUpdatedAt < localUpdatedAt) return false;
+  if ((remote.name ?? '') !== (existing.name ?? '')) return true;
+  if ((remote.dropboxPath ?? '') !== (existing.dropboxPath ?? '')) return true;
+  if ((remote.startDate ?? '') !== (existing.startDate ?? '')) return true;
+  if ((remote.endDate ?? '') !== (existing.endDate ?? '')) return true;
+  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  return false;
+}
+
+function shouldApplyRemoteRefMaterial(existing, remote) {
+  if (!existing) return true;
+  const remoteUpdatedAt = new Date(remote.updatedAt ?? 0).getTime();
+  const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
+  if (remoteUpdatedAt > localUpdatedAt) return true;
+  if (remoteUpdatedAt < localUpdatedAt) return false;
+  if ((remote.name ?? '') !== (existing.name ?? '')) return true;
+  if ((remote.dropboxPath ?? '') !== (existing.dropboxPath ?? '')) return true;
+  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  return false;
+}
+
+function shouldApplyRemoteHabit(existing, remote) {
+  if (!existing) return true;
+  const remoteUpdatedAt = new Date(remote.updatedAt ?? 0).getTime();
+  const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
+  if (remoteUpdatedAt > localUpdatedAt) return true;
+  if (remoteUpdatedAt < localUpdatedAt) return false;
+  if ((remote.text ?? '') !== (existing.text ?? '')) return true;
+  if ((remote.date ?? '') !== (existing.date ?? '')) return true;
+  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  return false;
 }
 
 // ── Dropbox API helpers ───────────────────────────────────────────────────────
@@ -1501,6 +1937,27 @@ async function dropboxEnsureFolder(token, path) {
   }
 }
 
+async function dropboxMoveFolder(token, fromPath, toPath) {
+  const response = await fetch('https://api.dropboxapi.com/2/files/move_v2', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from_path: fromPath, to_path: toPath, autorename: false }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Dropbox move folder failed (${response.status}): ${detail || response.statusText}`);
+  }
+}
+
+async function ensureSyncFolders(token, rootFolder) {
+  for (const folderPath of allSyncFolderPaths(rootFolder)) {
+    await dropboxEnsureFolder(token, folderPath);
+  }
+}
+
 async function dropboxListMdFiles(token, folderPath) {
   const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
     method: 'POST',
@@ -1526,7 +1983,44 @@ async function dropboxListMdFiles(token, folderPath) {
     folderFound: true,
     files: raw.entries
       .filter((e) => e['.tag'] === 'file' && e.name.endsWith('.md'))
-      .map((e) => ({ name: e.name, path: e.path_display })),
+      .map((e) => ({
+        name: e.name,
+        path: e.path_display,
+        serverModified: e.server_modified,
+        contentHash: e.content_hash,
+      })),
+  };
+}
+
+async function dropboxListFolders(token, folderPath) {
+  const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ path: folderPath }),
+  });
+  if (response.status === 409) {
+    const detail = await response.text().catch(() => '');
+    if (detail.includes('path/not_found') || detail.includes('not_found')) {
+      return { folders: [], folderFound: false };
+    }
+    throw new Error(`Dropbox list_folder failed (409): ${detail || response.statusText}`);
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Dropbox list_folder failed (${response.status}): ${detail || response.statusText}`);
+  }
+  const raw = await response.json();
+  return {
+    folderFound: true,
+    folders: raw.entries
+      .filter((e) => e['.tag'] === 'folder')
+      .map((e) => ({
+        name: e.name,
+        path: e.path_display,
+      })),
   };
 }
 
@@ -1572,6 +2066,61 @@ async function exchangeDropboxCode(code, appKey, appSecret) {
   return response.json();
 }
 
+async function refreshDropboxAccessToken() {
+  const store = readSecretStore();
+  const refreshToken = decodeUnencryptedSecret(store.values[KEYCHAIN_REFRESH_TOKEN]);
+  const appKey = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_KEY]) ?? normalize(process.env.DROPBOX_APP_KEY);
+  const appSecret = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_SECRET]) ?? normalize(process.env.DROPBOX_APP_SECRET);
+
+  if (!refreshToken) throw new Error('No Dropbox refresh token stored. Run: dropith auth connect');
+  if (!appKey || !appSecret) throw new Error('Dropbox App Key and Secret are not configured. Run: dropith settings set dropbox <key> <secret>');
+
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: appKey,
+    client_secret: appSecret,
+  });
+
+  const response = await fetch('https://api.dropbox.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Dropbox token refresh failed (${response.status}): ${body}`);
+  }
+
+  const tokens = await response.json();
+  // Save new access token (refresh token is reusable — Dropbox does not rotate it)
+  store.values[KEYCHAIN_ACCESS_TOKEN] = encodeUnencryptedSecret(tokens.access_token);
+  writeSecretStore(store);
+  return tokens.access_token;
+}
+
+/**
+ * Returns a valid Dropbox access token, refreshing it automatically if a
+ * refresh token is available. Falls back to the stored access token when no
+ * refresh token exists (legacy behaviour for users who connected before the
+ * refresh-token feature was added).
+ */
+async function getValidDropboxToken() {
+  const refreshToken = getDropboxRefreshToken();
+  if (refreshToken) {
+    try {
+      return await refreshDropboxAccessToken();
+    } catch (err) {
+      // If refresh itself fails, fall back to the stored access token and let
+      // the downstream call surface the real error.
+      console.error(`Warning: token refresh failed — ${err.message}`);
+      return getDropboxAccessToken();
+    }
+  }
+  return getDropboxAccessToken();
+}
+
 function openUrlInBrowser(url) {
   try {
     if (platform() === 'darwin') {
@@ -1612,6 +2161,45 @@ function listTopicNotesForSync(db) {
   }));
 }
 
+function listProjectsForSync(db) {
+  return db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all().map((row) => ({
+    id: row.id,
+    name: row.name,
+    dropboxPath: row.dropbox_path,
+    startDate: row.start_date ?? '',
+    endDate: row.end_date ?? '',
+    tagNames: getTagDisplayNames(db, row.id),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+function listRefMaterialsForSync(db) {
+  return db.prepare('SELECT * FROM ref_materials ORDER BY updated_at DESC').all().map((row) => ({
+    id: row.id,
+    name: row.name,
+    dropboxPath: row.dropbox_path,
+    tagNames: getTagDisplayNames(db, row.id),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+function listHabitsForSync(db) {
+  return db.prepare('SELECT * FROM habits ORDER BY updated_at DESC').all().map((row) => {
+    const tags = getTagDisplayNames(db, row.id);
+    return {
+      id: row.id,
+      text: row.text,
+      date: row.date,
+      dropboxPath: row.dropbox_path || '',
+      tagNames: tags,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
+}
+
 // ── Sync: reconcile helpers ───────────────────────────────────────────────────
 
 async function fetchAllDailyNotesFromDropbox(token, rootFolder) {
@@ -1619,7 +2207,14 @@ async function fetchAllDailyNotesFromDropbox(token, rootFolder) {
   const settled = await Promise.allSettled(
     files.map(async (f) => {
       const content = await dropboxDownloadText(token, f.path);
-      return content ? parseDailyNoteMarkdown(content) : null;
+      if (!content) return null;
+      const parsed = parseDailyNoteMarkdown(content);
+      if (!parsed) return null;
+      return {
+        ...parsed,
+        serverModified: f.serverModified,
+        contentHash: f.contentHash,
+      };
     }),
   );
   return {
@@ -1635,12 +2230,95 @@ async function fetchAllTopicNotesFromDropbox(token, rootFolder) {
   const settled = await Promise.allSettled(
     files.map(async (f) => {
       const content = await dropboxDownloadText(token, f.path);
-      return content ? parseTopicNoteMarkdown(content) : null;
+      if (!content) return null;
+      const parsed = parseTopicNoteMarkdown(content);
+      if (!parsed) return null;
+      return {
+        ...parsed,
+        serverModified: f.serverModified,
+        contentHash: f.contentHash,
+      };
     }),
   );
   return {
     folderFound,
     notes: settled
+      .filter((r) => r.status === 'fulfilled' && r.value !== null)
+      .map((r) => r.value),
+  };
+}
+
+async function fetchAllProjectsFromDropbox(token, rootFolder) {
+  const { folders, folderFound } = await dropboxListFolders(token, projectsFolderPath(rootFolder));
+  const settled = await Promise.allSettled(
+    folders.map(async (folder) => {
+      const metaPath = `${folder.path}/meta.yaml`;
+      const content = await dropboxDownloadText(token, metaPath);
+      if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
+      const parsed = parseProjectMetaYaml(content);
+      if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
+      return {
+        ...parsed,
+        slug: folder.name,
+        folderPath: folder.path,
+        serverModified: new Date().toISOString(),
+      };
+    }),
+  );
+  const all = settled
+    .filter((r) => r.status === 'fulfilled' && r.value !== null)
+    .map((r) => r.value);
+  return {
+    folderFound,
+    items: all.filter((r) => !r._stub),
+    stubs: all.filter((r) => r._stub),
+  };
+}
+
+async function fetchAllRefMaterialsFromDropbox(token, rootFolder) {
+  const { folders, folderFound } = await dropboxListFolders(token, refMaterialsFolderPath(rootFolder));
+  const settled = await Promise.allSettled(
+    folders.map(async (folder) => {
+      const metaPath = `${folder.path}/meta.yaml`;
+      const content = await dropboxDownloadText(token, metaPath);
+      if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
+      const parsed = parseRefMaterialMetaYaml(content);
+      if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
+      return {
+        ...parsed,
+        slug: folder.name,
+        folderPath: folder.path,
+        serverModified: new Date().toISOString(),
+      };
+    }),
+  );
+  const all = settled
+    .filter((r) => r.status === 'fulfilled' && r.value !== null)
+    .map((r) => r.value);
+  return {
+    folderFound,
+    items: all.filter((r) => !r._stub),
+    stubs: all.filter((r) => r._stub),
+  };
+}
+
+async function fetchAllHabitsFromDropbox(token, rootFolder) {
+  const { files, folderFound } = await dropboxListMdFiles(token, habitsFolderPath(rootFolder));
+  const settled = await Promise.allSettled(
+    files.map(async (f) => {
+      const content = await dropboxDownloadText(token, f.path);
+      if (!content) return null;
+      const parsed = parseHabitMarkdown(content);
+      if (!parsed) return null;
+      return {
+        ...parsed,
+        serverModified: f.serverModified,
+      };
+    }),
+  );
+  return {
+    folderFound,
+    items: settled
       .filter((r) => r.status === 'fulfilled' && r.value !== null)
       .map((r) => r.value),
   };
@@ -1652,64 +2330,82 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
   const { notes: dropboxNotes, folderFound } = await fetchAllDailyNotesFromDropbox(token, rootFolder);
   const dropboxByDate = new Map(dropboxNotes.map((n) => [n.date, n]));
 
-  for (const fields of dropboxNotes) {
-    try {
-      const existing = getDailyNote(db, fields.date);
-      if (!existing) {
-        createDailyNoteRecord(db, {
-          id: fields.id,
-          date: fields.date,
-          content: {},
-          contentMarkdown: fields.contentMarkdown,
-          linkedObjectIds: fields.linkedObjectIds,
-          tags: fields.tagNames,
-          createdAt: fields.createdAt,
-          updatedAt: fields.updatedAt,
-        });
-        result.imported++;
-      } else if (new Date(fields.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
-        updateDailyNoteRecord(db, existing.id, {
-          contentMarkdown: fields.contentMarkdown,
-          linkedObjectIds: fields.linkedObjectIds,
-          tags: fields.tagNames,
-          updatedAt: fields.updatedAt,
-        });
-        result.updated++;
-      }
-      markRemotePresence(db, 'daily-note', fields.id, fields.updatedAt);
-    } catch (e) {
-      result.errors.push(`daily-note ${fields.date}: ${String(e)}`);
-    }
-  }
+   for (const fields of dropboxNotes) {
+     try {
+       const existing = getDailyNote(db, fields.date);
+       if (!existing) {
+         createDailyNoteRecord(db, {
+           id: fields.id,
+           date: fields.date,
+           content: {},
+           contentMarkdown: fields.contentMarkdown,
+           linkedObjectIds: fields.linkedObjectIds,
+           dropboxPath: fields.dropboxPath || dailyNoteDropboxPath(rootFolder, fields.date),
+           tags: fields.tagNames,
+           createdAt: fields.createdAt,
+           updatedAt: fields.updatedAt,
+         });
+         result.imported++;
+       } else if (shouldApplyRemoteDailyNote(existing, fields)) {
+         updateDailyNoteRecord(db, existing.id, {
+           contentMarkdown: fields.contentMarkdown,
+           linkedObjectIds: fields.linkedObjectIds,
+           dropboxPath: fields.dropboxPath || dailyNoteDropboxPath(rootFolder, existing.date),
+           tags: fields.tagNames,
+           updatedAt: fields.updatedAt,
+         });
+         result.updated++;
+       }
+       markRemotePresence(db, 'daily-note', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
+     } catch (e) {
+       result.errors.push(`daily-note ${fields.date}: ${String(e)}`);
+     }
+   }
 
-  const localNotes = listDailyNotesForSync(db);
-  if (!folderFound) {
-    if (localNotes.length > 0) {
-      result.warnings.push('Dropbox daily-notes folder is missing; skipped remote-deletion reconciliation for local daily notes.');
-    }
-    return result;
-  }
+   const localNotes = listDailyNotesForSync(db);
+   if (!folderFound) {
+      await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
+     if (localNotes.length > 0) {
+        result.warnings.push('Dropbox daily-notes folder was missing and has been created; skipped remote-deletion reconciliation for local daily notes.');
+     }
+     return result;
+   }
 
-  for (const note of localNotes) {
-    if (!dropboxByDate.has(note.date)) {
-      try {
-        if (hasKnownRemoteCopy(db, 'daily-note', note.id)) {
-          if (deleteDailyNoteRecord(db, note.id)) {
-            result.deleted++;
-          }
-        } else {
-          await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
-          await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
-          markRemotePresence(db, 'daily-note', note.id, getIsoNow());
-          result.uploaded++;
-        }
-      } catch (e) {
-        result.errors.push(`daily-note reconcile ${note.date}: ${String(e)}`);
-      }
-    }
-  }
+   for (const note of localNotes) {
+     if (!dropboxByDate.has(note.date)) {
+       try {
+         if (hasKnownRemoteCopy(db, 'daily-note', note.id)) {
+           if (deleteDailyNoteRecord(db, note.id)) {
+             result.deleted++;
+           }
+         } else {
+           await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
+           await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+           markRemotePresence(db, 'daily-note', note.id, getIsoNow());
+           result.uploaded++;
+         }
+       } catch (e) {
+         result.errors.push(`daily-note reconcile ${note.date}: ${String(e)}`);
+       }
+     } else {
+       // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
+       const remoteNote = dropboxByDate.get(note.date);
+       if (remoteNote) {
+         const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
+         const localTime = new Date(note.updatedAt ?? 0).getTime();
+         if (localTime > remoteTime) {
+           try {
+             await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+             result.uploaded++;
+           } catch (e) {
+             result.errors.push(`daily-note upload ${note.date}: ${String(e)}`);
+           }
+         }
+       }
+     }
+   }
 
-  return result;
+   return result;
 }
 
 async function reconcileTopicNotesDb(db, token, rootFolder) {
@@ -1718,60 +2414,211 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
   const { notes: dropboxNotes, folderFound } = await fetchAllTopicNotesFromDropbox(token, rootFolder);
   const dropboxById = new Map(dropboxNotes.map((n) => [n.id, n]));
 
-  for (const fields of dropboxNotes) {
+   for (const fields of dropboxNotes) {
+     try {
+       const existing = getTopicNote(db, fields.id);
+       if (!existing) {
+         createTopicNoteRecord(db, {
+           id: fields.id,
+           title: fields.title,
+           content: {},
+           contentMarkdown: fields.contentMarkdown,
+           linkedObjectIds: fields.linkedObjectIds,
+           dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
+           tags: fields.tagNames,
+           createdAt: fields.createdAt,
+           updatedAt: fields.updatedAt,
+         });
+         result.imported++;
+       } else if (shouldApplyRemoteTopicNote(existing, fields)) {
+         updateTopicNoteRecord(db, existing.id, {
+           title: fields.title,
+           contentMarkdown: fields.contentMarkdown,
+           linkedObjectIds: fields.linkedObjectIds,
+           dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
+           tags: fields.tagNames,
+           updatedAt: fields.updatedAt,
+         });
+         result.updated++;
+       }
+       markRemotePresence(db, 'topic-note', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
+     } catch (e) {
+       result.errors.push(`topic-note ${fields.id}: ${String(e)}`);
+     }
+   }
+
+   const localNotes = listTopicNotesForSync(db);
+   if (!folderFound) {
+      await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
+     if (localNotes.length > 0) {
+        result.warnings.push('Dropbox topic-notes folder was missing and has been created; skipped remote-deletion reconciliation for local topic notes.');
+     }
+     return result;
+   }
+
+   for (const note of localNotes) {
+     if (!dropboxById.has(note.id)) {
+       try {
+         if (hasKnownRemoteCopy(db, 'topic-note', note.id)) {
+           if (deleteTopicNoteRecord(db, note.id)) {
+             result.deleted++;
+           }
+         } else {
+           await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
+           await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+           markRemotePresence(db, 'topic-note', note.id, getIsoNow());
+           result.uploaded++;
+         }
+       } catch (e) {
+         result.errors.push(`topic-note reconcile ${note.id}: ${String(e)}`);
+       }
+     } else {
+       // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
+       const remoteNote = dropboxById.get(note.id);
+       if (remoteNote) {
+         const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
+         const localTime = new Date(note.updatedAt ?? 0).getTime();
+         if (localTime > remoteTime) {
+           try {
+             await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+             result.uploaded++;
+           } catch (e) {
+             result.errors.push(`topic-note upload ${note.id}: ${String(e)}`);
+           }
+         }
+       }
+     }
+   }
+
+   return result;
+}
+
+async function reconcileProjectsDb(db, token, rootFolder) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  const { items: dropboxItems, stubs, folderFound } = await fetchAllProjectsFromDropbox(token, rootFolder);
+  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+
+  for (const fields of dropboxItems) {
     try {
-      const existing = getTopicNote(db, fields.id);
+      const existing = getProject(db, fields.id);
       if (!existing) {
-        createTopicNoteRecord(db, {
+        createProjectRecord(db, {
           id: fields.id,
-          title: fields.title,
-          content: {},
-          contentMarkdown: fields.contentMarkdown,
-          linkedObjectIds: fields.linkedObjectIds,
+          name: fields.name,
+          dropboxPath: fields.dropboxPath,
+          startDate: fields.startDate,
+          endDate: fields.endDate,
           tags: fields.tagNames,
           createdAt: fields.createdAt,
           updatedAt: fields.updatedAt,
         });
         result.imported++;
-      } else if (new Date(fields.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
-        updateTopicNoteRecord(db, existing.id, {
-          title: fields.title,
-          contentMarkdown: fields.contentMarkdown,
-          linkedObjectIds: fields.linkedObjectIds,
+      } else if (shouldApplyRemoteProject(existing, fields)) {
+        updateProjectRecord(db, existing.id, {
+          name: fields.name,
+          dropboxPath: fields.dropboxPath,
+          startDate: fields.startDate,
+          endDate: fields.endDate,
           tags: fields.tagNames,
           updatedAt: fields.updatedAt,
         });
         result.updated++;
       }
-      markRemotePresence(db, 'topic-note', fields.id, fields.updatedAt);
+      markRemotePresence(db, 'project', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
     } catch (e) {
-      result.errors.push(`topic-note ${fields.id}: ${String(e)}`);
+      result.errors.push(`project ${fields.id}: ${String(e)}`);
     }
   }
 
-  const localNotes = listTopicNotesForSync(db);
+  // Auto-create records for Dropbox folders that have no meta.yaml yet
+  for (const stub of stubs) {
+    try {
+      // Avoid duplicates: skip if a project already tracks this folder path
+      const existing = db.prepare('SELECT id FROM projects WHERE dropbox_path = ?').get(stub.folderPath);
+      if (existing) {
+        // Make sure the existing project is in dropboxById so it isn't deleted
+        if (!dropboxById.has(existing.id)) {
+          dropboxById.set(existing.id, { id: existing.id });
+        }
+        continue;
+      }
+      const now = getIsoNow();
+      const newProject = createProjectRecord(db, {
+        id: randomUUID(),
+        name: folderNameToTitle(stub.slug),
+        dropboxPath: stub.folderPath,
+        startDate: null,
+        endDate: null,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      // Upload a meta.yaml so future syncs recognise this record by ID
+      await dropboxUploadText(token, projectMetaPath(rootFolder, stub.slug), projectToMetaYaml({
+        id: newProject.id,
+        name: newProject.name,
+        dropboxPath: newProject.dropboxPath,
+        startDate: newProject.startDate,
+        endDate: newProject.endDate,
+        tagNames: [],
+        createdAt: newProject.createdAt,
+        updatedAt: newProject.updatedAt,
+      }));
+      markRemotePresence(db, 'project', newProject.id, getIsoNow());
+      // Add to dropboxById so the local-cleanup loop below won't see it as "deleted remotely"
+      dropboxById.set(newProject.id, { id: newProject.id, name: newProject.name, slug: stub.slug, updatedAt: now });
+      result.imported++;
+    } catch (e) {
+      result.errors.push(`project stub ${stub.slug}: ${String(e)}`);
+    }
+  }
+
+  const localItems = listProjectsForSync(db);
   if (!folderFound) {
-    if (localNotes.length > 0) {
-      result.warnings.push('Dropbox topic-notes folder is missing; skipped remote-deletion reconciliation for local topic notes.');
+    await dropboxEnsureFolder(token, projectsFolderPath(rootFolder));
+    if (localItems.length > 0) {
+      result.warnings.push('Dropbox projects folder was missing and has been created; skipped remote-deletion reconciliation for local projects.');
     }
     return result;
   }
 
-  for (const note of localNotes) {
-    if (!dropboxById.has(note.id)) {
+  for (const item of localItems) {
+    if (!dropboxById.has(item.id)) {
       try {
-        if (hasKnownRemoteCopy(db, 'topic-note', note.id)) {
-          if (deleteTopicNoteRecord(db, note.id)) {
+        if (hasKnownRemoteCopy(db, 'project', item.id)) {
+          if (deleteProjectRecord(db, item.id)) {
             result.deleted++;
           }
         } else {
-          await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
-          await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
-          markRemotePresence(db, 'topic-note', note.id, getIsoNow());
+          const slug = slugify(item.name);
+          await dropboxEnsureFolder(token, projectDirectoryPath(rootFolder, slug));
+          await dropboxUploadText(token, projectMetaPath(rootFolder, slug), projectToMetaYaml(item));
+          markRemotePresence(db, 'project', item.id, getIsoNow());
           result.uploaded++;
         }
       } catch (e) {
-        result.errors.push(`topic-note reconcile ${note.id}: ${String(e)}`);
+        result.errors.push(`project reconcile ${item.id}: ${String(e)}`);
+      }
+    } else {
+      const remoteItem = dropboxById.get(item.id);
+      if (remoteItem) {
+        const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
+        const localTime = new Date(item.updatedAt ?? 0).getTime();
+        if (localTime > remoteTime) {
+          try {
+            const newSlug = slugify(item.name);
+            const remoteSlug = remoteItem.slug;
+            if (newSlug !== remoteSlug) {
+              // Name changed; rename directory by moving to new slug
+              await dropboxMoveFolder(token, projectDirectoryPath(rootFolder, remoteSlug), projectDirectoryPath(rootFolder, newSlug));
+            }
+            await dropboxUploadText(token, projectMetaPath(rootFolder, newSlug), projectToMetaYaml(item));
+            result.uploaded++;
+          } catch (e) {
+            result.errors.push(`project upload ${item.id}: ${String(e)}`);
+          }
+        }
       }
     }
   }
@@ -1779,22 +2626,230 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
   return result;
 }
 
+async function reconcileRefMaterialsDb(db, token, rootFolder) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  const { items: dropboxItems, stubs, folderFound } = await fetchAllRefMaterialsFromDropbox(token, rootFolder);
+  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+
+  for (const fields of dropboxItems) {
+    try {
+      const existing = getRefMat(db, fields.id);
+      if (!existing) {
+        createRefMatRecord(db, {
+          id: fields.id,
+          name: fields.name,
+          dropboxPath: fields.dropboxPath,
+          tags: fields.tagNames,
+          createdAt: fields.createdAt,
+          updatedAt: fields.updatedAt,
+        });
+        result.imported++;
+      } else if (shouldApplyRemoteRefMaterial(existing, fields)) {
+        updateRefMatRecord(db, existing.id, {
+          name: fields.name,
+          dropboxPath: fields.dropboxPath,
+          tags: fields.tagNames,
+          updatedAt: fields.updatedAt,
+        });
+        result.updated++;
+      }
+      markRemotePresence(db, 'ref-material', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
+    } catch (e) {
+      result.errors.push(`ref-material ${fields.id}: ${String(e)}`);
+    }
+  }
+
+  // Auto-create records for Dropbox folders that have no meta.yaml yet
+  for (const stub of stubs) {
+    try {
+      const existing = db.prepare('SELECT id FROM ref_materials WHERE dropbox_path = ?').get(stub.folderPath);
+      if (existing) {
+        if (!dropboxById.has(existing.id)) {
+          dropboxById.set(existing.id, { id: existing.id });
+        }
+        continue;
+      }
+      const now = getIsoNow();
+      const newRefMat = createRefMatRecord(db, {
+        id: randomUUID(),
+        name: folderNameToTitle(stub.slug),
+        dropboxPath: stub.folderPath,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      await dropboxUploadText(token, refMaterialMetaPath(rootFolder, stub.slug), refMaterialToMetaYaml({
+        id: newRefMat.id,
+        name: newRefMat.name,
+        dropboxPath: newRefMat.dropboxPath,
+        tagNames: [],
+        createdAt: newRefMat.createdAt,
+        updatedAt: newRefMat.updatedAt,
+      }));
+      markRemotePresence(db, 'ref-material', newRefMat.id, getIsoNow());
+      // Add to dropboxById so the local-cleanup loop below won't see it as "deleted remotely"
+      dropboxById.set(newRefMat.id, { id: newRefMat.id, name: newRefMat.name, slug: stub.slug, updatedAt: now });
+      result.imported++;
+    } catch (e) {
+      result.errors.push(`ref-material stub ${stub.slug}: ${String(e)}`);
+    }
+  }
+
+  const localItems = listRefMaterialsForSync(db);
+  if (!folderFound) {
+    await dropboxEnsureFolder(token, refMaterialsFolderPath(rootFolder));
+    if (localItems.length > 0) {
+      result.warnings.push('Dropbox ref-materials folder was missing and has been created; skipped remote-deletion reconciliation for local reference materials.');
+    }
+    return result;
+  }
+
+  for (const item of localItems) {
+    if (!dropboxById.has(item.id)) {
+      try {
+        if (hasKnownRemoteCopy(db, 'ref-material', item.id)) {
+          if (deleteRefMatRecord(db, item.id)) {
+            result.deleted++;
+          }
+        } else {
+          const slug = slugify(item.name);
+          await dropboxEnsureFolder(token, refMaterialDirectoryPath(rootFolder, slug));
+          await dropboxUploadText(token, refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml(item));
+          markRemotePresence(db, 'ref-material', item.id, getIsoNow());
+          result.uploaded++;
+        }
+      } catch (e) {
+        result.errors.push(`ref-material reconcile ${item.id}: ${String(e)}`);
+      }
+    } else {
+      const remoteItem = dropboxById.get(item.id);
+      if (remoteItem) {
+        const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
+        const localTime = new Date(item.updatedAt ?? 0).getTime();
+        if (localTime > remoteTime) {
+          try {
+            const newSlug = slugify(item.name);
+            const remoteSlug = remoteItem.slug;
+            if (newSlug !== remoteSlug) {
+              // Name changed; rename directory by moving to new slug
+              await dropboxMoveFolder(token, refMaterialDirectoryPath(rootFolder, remoteSlug), refMaterialDirectoryPath(rootFolder, newSlug));
+            }
+            await dropboxUploadText(token, refMaterialMetaPath(rootFolder, newSlug), refMaterialToMetaYaml(item));
+            result.uploaded++;
+          } catch (e) {
+            result.errors.push(`ref-material upload ${item.id}: ${String(e)}`);
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+async function reconcileHabitsDb(db, token, rootFolder) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  const { items: dropboxItems, folderFound } = await fetchAllHabitsFromDropbox(token, rootFolder);
+  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+
+   for (const fields of dropboxItems) {
+     try {
+       const existing = getHabit(db, fields.id);
+       if (!existing) {
+         createHabitRecord(db, {
+           id: fields.id,
+           text: fields.text,
+           date: fields.date,
+           dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+           tags: fields.tagNames,
+           createdAt: fields.createdAt,
+           updatedAt: fields.updatedAt,
+         });
+         result.imported++;
+       } else if (shouldApplyRemoteHabit(existing, fields)) {
+         updateHabitRecord(db, existing.id, {
+           text: fields.text,
+           date: fields.date,
+           dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+           tags: fields.tagNames,
+           updatedAt: fields.updatedAt,
+         });
+         result.updated++;
+       }
+       markRemotePresence(db, 'habit', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
+     } catch (e) {
+       result.errors.push(`habit ${fields.id}: ${String(e)}`);
+     }
+   }
+
+  const localItems = listHabitsForSync(db);
+  if (!folderFound) {
+    await dropboxEnsureFolder(token, habitsFolderPath(rootFolder));
+    if (localItems.length > 0) {
+      result.warnings.push('Dropbox habits folder was missing and has been created; skipped remote-deletion reconciliation for local habits.');
+    }
+    return result;
+  }
+
+   for (const item of localItems) {
+     if (!dropboxById.has(item.id)) {
+       try {
+         if (hasKnownRemoteCopy(db, 'habit', item.id)) {
+           if (deleteHabitRecord(db, item.id)) {
+             result.deleted++;
+           }
+         } else {
+           await dropboxUploadText(token, habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+           markRemotePresence(db, 'habit', item.id, getIsoNow());
+           result.uploaded++;
+         }
+       } catch (e) {
+         result.errors.push(`habit reconcile ${item.id}: ${String(e)}`);
+       }
+     } else {
+       const remoteItem = dropboxById.get(item.id);
+       if (remoteItem) {
+         const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
+         const localTime = new Date(item.updatedAt ?? 0).getTime();
+         if (localTime > remoteTime) {
+           try {
+             await dropboxUploadText(token, habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+             result.uploaded++;
+           } catch (e) {
+             result.errors.push(`habit upload ${item.id}: ${String(e)}`);
+           }
+         }
+       }
+     }
+   }
+
+  return result;
+}
+
 async function runSync() {
-  const token = getDropboxAccessToken();
+  const storedToken = getDropboxAccessToken();
+  if (!storedToken && !getDropboxRefreshToken()) throw new Error('Not connected to Dropbox. Run: dropith auth connect');
+  const token = await getValidDropboxToken();
   if (!token) throw new Error('Not connected to Dropbox. Run: dropith auth connect');
   const rootFolder = getDropboxRootFolder();
   return withDbAsync(async (db) => {
-    const [dailyResult, topicResult] = await Promise.all([
+    await ensureSyncFolders(token, rootFolder);
+    const [dailyResult, topicResult, projectResult, refMaterialResult, habitResult] = await Promise.all([
       reconcileDailyNotesDb(db, token, rootFolder),
       reconcileTopicNotesDb(db, token, rootFolder),
+      reconcileProjectsDb(db, token, rootFolder),
+      reconcileRefMaterialsDb(db, token, rootFolder),
+      reconcileHabitsDb(db, token, rootFolder),
     ]);
     return {
-      imported: dailyResult.imported + topicResult.imported,
-      updated: dailyResult.updated + topicResult.updated,
-      uploaded: dailyResult.uploaded + topicResult.uploaded,
-      deleted: dailyResult.deleted + topicResult.deleted,
-      warnings: [...dailyResult.warnings, ...topicResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors],
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated,
+      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
+      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted,
+      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors],
     };
   });
 }
@@ -1876,7 +2931,7 @@ async function runAuthConnect() {
       try {
         const tokens = await exchangeDropboxCode(code, appKey, appSecret);
         const email = await dropboxGetAccountEmail(tokens.access_token);
-        saveDropboxToken(tokens.access_token, email);
+        saveDropboxToken(tokens.access_token, email, tokens.refresh_token);
         res.end('<html><body>Connected to Dropbox! You can close this window.</body></html>');
         server.close();
         resolve({ email });
@@ -2204,7 +3259,7 @@ Dropbox auth:
   dropith auth disconnect   Clear stored Dropbox connection token
 
 Sync:
-  dropith sync              Sync notes with Dropbox (one-shot)
+  dropith sync              Sync notes, habits, and Dropbox-backed directories (one-shot)
   dropith sync --watch      Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
     [--interval <minutes>]    Override sync interval in minutes
 
@@ -2324,6 +3379,138 @@ async function executeTokens(tokens, context = {}) {
     const type = resolveType(args[0] ?? 'topic-note');
     if (!type) throw new Error(`Unknown type: ${args[0]}`);
     printRecords(type, listObjects(type));
+    return;
+  }
+
+  // DEC-18: Non-interactive write command for desktop UI integration.
+  // Usage: dropith write <type> <json-string>
+  // Creates or updates the object based on presence of a matching id/date.
+  if (action === 'write') {
+    const type = resolveType(args[0]);
+    const jsonStr = args.slice(1).join(' ');
+    if (!type || !jsonStr) throw new Error('Usage: dropith write <type> <json>');
+    let input;
+    try {
+      input = JSON.parse(jsonStr);
+    } catch {
+      throw new Error('Invalid JSON input for write command');
+    }
+    const now = getIsoNow();
+    const result = withDb((db) => {
+      switch (type) {
+        case 'topic-note': {
+          const id = input.id;
+          if (id && getTopicNote(db, id)) {
+            return updateTopicNoteRecord(db, id, {
+              title: input.title,
+              contentMarkdown: input.contentMarkdown,
+              linkedObjectIds: input.linkedObjectIds,
+              tags: input.tags,
+              updatedAt: now,
+            });
+          }
+          return createTopicNoteRecord(db, {
+            id: id ?? randomUUID(),
+            title: input.title ?? 'Untitled',
+            content: {},
+            contentMarkdown: input.contentMarkdown ?? '',
+            linkedObjectIds: input.linkedObjectIds ?? [],
+            tags: input.tags ?? [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        case 'daily-note': {
+          const date = input.date;
+          if (!date) throw new Error('daily-note write requires a date field');
+          const existingRow = db.prepare('SELECT id FROM daily_notes WHERE date = ?').get(date);
+          const existingId = existingRow?.id ?? input.id;
+          if (existingId && getDailyNote(db, existingId)) {
+            return updateDailyNoteRecord(db, existingId, {
+              date: input.date,
+              contentMarkdown: input.contentMarkdown,
+              linkedObjectIds: input.linkedObjectIds,
+              tags: input.tags,
+              updatedAt: now,
+            });
+          }
+          return createDailyNoteRecord(db, {
+            id: input.id ?? randomUUID(),
+            date,
+            content: {},
+            contentMarkdown: input.contentMarkdown ?? '',
+            linkedObjectIds: input.linkedObjectIds ?? [],
+            tags: input.tags ?? [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        case 'project': {
+          const id = input.id;
+          if (id && getProject(db, id)) {
+            return updateProjectRecord(db, id, {
+              name: input.name,
+              dropboxPath: input.dropboxPath,
+              startDate: input.startDate,
+              endDate: input.endDate,
+              tags: input.tags,
+              updatedAt: now,
+            });
+          }
+          return createProjectRecord(db, {
+            id: id ?? randomUUID(),
+            name: input.name ?? 'Untitled',
+            dropboxPath: input.dropboxPath ?? '',
+            startDate: input.startDate ?? null,
+            endDate: input.endDate ?? null,
+            tags: input.tags ?? [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        case 'ref-material': {
+          const id = input.id;
+          if (id && getRefMat(db, id)) {
+            return updateRefMatRecord(db, id, {
+              name: input.name,
+              dropboxPath: input.dropboxPath,
+              tags: input.tags,
+              updatedAt: now,
+            });
+          }
+          return createRefMatRecord(db, {
+            id: id ?? randomUUID(),
+            name: input.name ?? 'Untitled',
+            dropboxPath: input.dropboxPath ?? '',
+            tags: input.tags ?? [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        case 'habit': {
+          const id = input.id;
+          if (id && getHabit(db, id)) {
+            return updateHabitRecord(db, id, {
+              text: input.text,
+              date: input.date,
+              tags: input.tags,
+              updatedAt: now,
+            });
+          }
+          return createHabitRecord(db, {
+            id: id ?? randomUUID(),
+            text: input.text ?? '',
+            date: input.date ?? localDateString(),
+            tags: input.tags ?? [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        default:
+          throw new Error(`Unsupported type for write: ${type}`);
+      }
+    });
+    console.log(formatCompact(result));
     return;
   }
 

@@ -3,7 +3,7 @@
 This file is the single source of truth for **delivery order and stage boundaries**.
 Do not restate domain rules here; reference:
 - `README.md` for product/domain scope
-- `IMPLEMENTATION_QUESTIONS.md` for implementation decisions (`DEC-*`)
+- `IMPLEMENTATION_DECISIONS.md` for implementation decisions (`DEC-*`)
 
 Stage status should be updated here first, then summarized elsewhere only as a pointer.
 

@@ -1,221 +1,141 @@
-import { useMemo, useState } from 'react'
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Paper,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { invoke } from '@tauri-apps/api/core'
+import { useState, useCallback } from 'react'
+import { Box, Stack } from '@mui/material'
+import NavigationSidebar from './components/NavigationSidebar'
+import CalendarPage from './components/CalendarPage'
+import FileExplorer from './components/FileExplorer'
+import ObjectEditor from './components/ObjectEditor'
+import NotesPage from './components/NotesPage'
+import TagsPage from './components/TagsPage'
+import SettingsPage from './components/SettingsPage'
+import { getObject } from './lib/cliService'
 
-interface CliRunResult {
-  exitCode: number
-  stdout: string
-  stderr: string
-}
-
-const presetCommands = [
-  'help',
-  'auth status',
-  'settings show',
-  'list topic-note',
-  'list daily-note',
-  'sync',
-]
-
-function tokenizeCommand(input: string): string[] {
-  const trimmed = input.trim()
-  if (!trimmed) return []
-
-  const tokens: string[] = []
-  let current = ''
-  let quote: 'single' | 'double' | null = null
-  let escaped = false
-
-  for (const char of trimmed) {
-    if (escaped) {
-      current += char
-      escaped = false
-      continue
-    }
-
-    if (char === '\\') {
-      escaped = true
-      continue
-    }
-
-    if (quote === 'single') {
-      if (char === "'") {
-        quote = null
-      } else {
-        current += char
-      }
-      continue
-    }
-
-    if (quote === 'double') {
-      if (char === '"') {
-        quote = null
-      } else {
-        current += char
-      }
-      continue
-    }
-
-    if (char === "'") {
-      quote = 'single'
-      continue
-    }
-
-    if (char === '"') {
-      quote = 'double'
-      continue
-    }
-
-    if (/\s/.test(char)) {
-      if (current) {
-        tokens.push(current)
-        current = ''
-      }
-      continue
-    }
-
-    current += char
-  }
-
-  if (current) {
-    tokens.push(current)
-  }
-
-  return tokens
-}
-
-async function runDropithCli(args: string[]): Promise<CliRunResult> {
-  return invoke<CliRunResult>('run_dropith_cli', { args })
-}
+type Section = 'calendar' | 'files' | 'notes' | 'tags' | 'settings'
+type FileObjType = 'project' | 'ref-material'
 
 export default function App() {
-  const [commandText, setCommandText] = useState('help')
-  const [output, setOutput] = useState('')
-  const [errorOutput, setErrorOutput] = useState('')
-  const [exitCode, setExitCode] = useState<number | null>(null)
-  const [running, setRunning] = useState(false)
-  const [transportError, setTransportError] = useState<string | null>(null)
+  const [currentSection, setCurrentSection] = useState<Section>('calendar')
+  const [fileSelectedId, setFileSelectedId] = useState<string | undefined>()
+  const [fileSelectedType, setFileSelectedType] = useState<FileObjType>('project')
+  const [fileObject, setFileObject] = useState<Record<string, unknown> | undefined>()
+  const [fileExplorerRefreshKey, setFileExplorerRefreshKey] = useState(0)
 
-  const parsedArgs = useMemo(() => tokenizeCommand(commandText), [commandText])
-
-  const execute = async () => {
-    setTransportError(null)
-    setRunning(true)
-    try {
-      const result = await runDropithCli(parsedArgs)
-      setOutput(result.stdout || '')
-      setErrorOutput(result.stderr || '')
-      setExitCode(result.exitCode)
-    } catch (error) {
-      setTransportError(String(error))
-      setOutput('')
-      setErrorOutput('')
-      setExitCode(null)
-    } finally {
-      setRunning(false)
-    }
+  const handleNavigate = (section: string) => {
+    setCurrentSection(section as Section)
   }
 
+  // ── Files section handlers ───────────────────────────────────────────────
+  const handleFileSelect = useCallback(async (id: string, type: FileObjType) => {
+    setFileSelectedId(id)
+    setFileSelectedType(type)
+    try {
+      const full = await getObject(type, id)
+      setFileObject({ ...full, type })
+    } catch (err) {
+      console.error('Failed to load file object:', err)
+      setFileObject(undefined)
+    }
+  }, [])
+
+  const handleCreateNew = useCallback((type: FileObjType) => {
+    setFileSelectedId(undefined)
+    setFileSelectedType(type)
+    setFileObject(undefined)
+  }, [])
+
+  const handleFileSave = useCallback(
+    async (saved: Record<string, unknown>) => {
+      setFileObject({ ...saved, type: fileSelectedType })
+      setFileSelectedId(saved.id as string)
+      setFileExplorerRefreshKey((k) => k + 1)
+    },
+    [fileSelectedType],
+  )
+
+  // ── New Note: after save, jump to calendar ───────────────────────────────
   return (
-    <Box sx={{ minHeight: '100vh', py: 6, px: 2, bgcolor: '#0b1828' }}>
-      <Container maxWidth="lg">
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, bgcolor: '#0e2038' }}>
-          <Stack spacing={3}>
-            <div>
-              <Typography variant="h4" fontWeight={700} gutterBottom>
-                Dropith Desktop
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                This desktop shell runs the same `cli.mjs` commands you already use in the terminal.
-              </Typography>
-            </div>
+    <Box sx={{ display: 'flex', bgcolor: '#0b1828', minHeight: '100vh', color: '#e4f0fb' }}>
+      <NavigationSidebar currentSection={currentSection} onNavigate={handleNavigate} />
 
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              {presetCommands.map((preset) => (
-                <Chip
-                  key={preset}
-                  label={preset}
-                  onClick={() => setCommandText(preset)}
-                  variant="outlined"
-                  sx={{ borderColor: '#1c3558', color: '#e4f0fb' }}
+      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            p: 2,
+          }}
+        >
+          {/* ── CALENDAR ─────────────────────────────────────────────────── */}
+          {currentSection === 'calendar' && <CalendarPage />}
+
+          {/* ── FILES ────────────────────────────────────────────────────── */}
+          {currentSection === 'files' && (
+            <Stack direction="row" spacing={2} sx={{ height: '100%', minHeight: 0 }}>
+              <Box sx={{ width: 300, flexShrink: 0 }}>
+                <FileExplorer
+                  onSelect={handleFileSelect}
+                  selectedId={fileSelectedId}
+                  onCreateNew={handleCreateNew}
+                  refreshKey={fileExplorerRefreshKey}
                 />
-              ))}
-            </Stack>
-
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-              <TextField
-                fullWidth
-                label="CLI command"
-                value={commandText}
-                onChange={(event) => setCommandText(event.target.value)}
-                placeholder="Examples: list daily-note | get topic-note <id> | sync --watch --interval 5"
-                helperText="Enter command arguments without the leading `dropith` keyword."
-              />
-              <Button
-                variant="contained"
-                onClick={() => void execute()}
-                disabled={running || parsedArgs.length === 0}
-                sx={{ minWidth: 140 }}
-              >
-                {running ? 'Running...' : 'Run'}
-              </Button>
-            </Stack>
-
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="body2" color="text.secondary">
-                Parsed args:
-              </Typography>
-              <Box component="code" sx={{ fontSize: 12, color: '#7dbad6' }}>
-                {JSON.stringify(parsedArgs)}
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                {fileObject ? (
+                  <ObjectEditor
+                    object={fileObject}
+                    type={fileSelectedType}
+                    onSave={handleFileSave}
+                  />
+                ) : (
+                  <EmptyFilesPrompt />
+                )}
               </Box>
             </Stack>
+          )}
 
-            {transportError ? (
-              <Alert severity="error">
-                Could not reach the desktop command bridge. Start the app with Tauri (`npm run tauri:dev`).
-                <br />
-                {transportError}
-              </Alert>
-            ) : null}
+          {/* ── NOTES ────────────────────────────────────────────────────── */}
+          {currentSection === 'notes' && (
+            <NotesPage />
+          )}
 
-            {exitCode !== null ? (
-              <Alert severity={exitCode === 0 ? 'success' : 'warning'}>
-                Command finished with exit code {exitCode}.
-              </Alert>
-            ) : null}
+          {/* ── TAGS ─────────────────────────────────────────────────────── */}
+          {currentSection === 'tags' && <TagsPage />}
 
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-              <Paper variant="outlined" sx={{ flex: 1, p: 2, bgcolor: '#0b1828', borderColor: '#1c3558' }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  stdout
-                </Typography>
-                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12, minHeight: 200 }}>
-                  {output || '(empty)'}
-                </Box>
-              </Paper>
-              <Paper variant="outlined" sx={{ flex: 1, p: 2, bgcolor: '#0b1828', borderColor: '#1c3558' }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  stderr
-                </Typography>
-                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12, minHeight: 200 }}>
-                  {errorOutput || '(empty)'}
-                </Box>
-              </Paper>
-            </Stack>
-          </Stack>
-        </Paper>
-      </Container>
+          {/* ── SETTINGS ─────────────────────────────────────────────────── */}
+          {currentSection === 'settings' && (
+            <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <SettingsPage />
+            </Box>
+          )}
+        </Box>
+      </Box>
     </Box>
   )
 }
 
+function EmptyFilesPrompt() {
+  return (
+    <Box
+      sx={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px dashed #1c3558',
+        borderRadius: '8px',
+        p: 4,
+        gap: 2,
+        color: '#4a6a8a',
+      }}
+    >
+      <Box sx={{ fontSize: 40, opacity: 0.35 }}>🗂</Box>
+      <Box component="p" sx={{ m: 0, fontSize: '14px', textAlign: 'center' }}>
+        Select a project or reference material to view and edit.
+        <br />
+        Add new ones by creating folders in Dropbox.
+      </Box>
+    </Box>
+  )
+}

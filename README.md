@@ -6,7 +6,7 @@ A local-first knowledge management app with Dropbox sync. The core product surfa
 
 - **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects
 - **Daily Notes** – One note per calendar day (date-anchored routing, uniqueness enforced)
-- **Projects & Reference Materials** – Dropbox-backed directories browsable inside the app
+- **Projects & Reference Materials** – Dropbox-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
 - **Habits** – Lightweight dated text entries (≤ 255 chars) with tags
 - **Tags** – Case-insensitive, aggregate any object type
 - **Dropbox OAuth** – CLI-driven browser-based OAuth; token stored locally in secrets file
@@ -20,10 +20,24 @@ A local-first knowledge management app with Dropbox sync. The core product surfa
 | CLI | Pure Node.js (`cli.mjs`) — no build step required |
 | Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
 | Companion web shell | React 18 + TypeScript + Vite |
+| Desktop UI | Material-UI v5 + custom components |
 | Local store | node:sqlite (built-in SQLite) |
 | Styling | Material UI + TailwindCSS v4 |
 | Secure storage | app-managed secrets file (see `DEC-31`) |
 | Dropbox | `fetch`-based Dropbox API integration |
+
+## Desktop UI Features
+
+The desktop wrapper provides a full-featured interface for knowledge management:
+
+- **Calendar View** – Navigate daily notes by date
+- **File Browser** – Browse and manage projects and reference materials
+- **Object Editor** – Create and edit notes with rich text support
+- **@ Mentions** – Link to other objects by typing `@` in note content
+- **Tag Management** – Organize content with tags (bottom of editor)
+- **Sidebar Navigation** – Quick access to all views
+
+See [DESKTOP_UI_GUIDE.md](./DESKTOP_UI_GUIDE.md) for detailed UI architecture and layout specifications.
 
 ## Development Setup
 
@@ -109,7 +123,17 @@ dropith sync --watch
 dropith sync --watch --interval 5
 ```
 
-If a note has previously been synced to Dropbox and then its Markdown file is deleted from an existing Dropbox notes folder, the next sync deletes the local copy instead of recreating it. If an entire Dropbox notes folder is missing, Dropith leaves local notes unchanged and reports a warning to avoid accidental mass deletion.
+`dropith sync` syncs daily notes, topic notes, habits, projects, and reference materials. If sync folders are missing in Dropbox, Dropith creates them automatically. Projects and reference materials are stored as directories:
+
+- **Daily notes**: `{rootFolder}/daily-notes/{date}.md`
+- **Topic notes**: `{rootFolder}/topic-notes/{slug}-{shortId}.md`
+- **Habits**: `{rootFolder}/habits/{id}.md`
+- **Projects**: `{rootFolder}/projects/{slug}/meta.yaml` (directory can contain user files)
+- **Reference Materials**: `{rootFolder}/ref-materials/{slug}/meta.yaml` (directory can contain user files)
+
+When a project or reference material name changes, its directory is renamed to match the new slug. Dropbox directory names are automatically determined by the project/reference material title.
+
+If a note has previously been synced to Dropbox and then its Markdown file is deleted from an existing Dropbox notes folder, the next sync deletes the local copy instead of recreating it. If an entire Dropbox notes folder is missing, Dropith recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
 
 #### Notes and objects
 

@@ -7,7 +7,7 @@
 
 ## Canonical Ownership (avoid drift)
 - `README.md`: product/domain truth (what the app is, object definitions).
-- `IMPLEMENTATION_QUESTIONS.md`: implementation decision log (how behavior is decided; `DEC-*` IDs).
+- `IMPLEMENTATION_DECISIONS.md`: implementation decision log (behavior decisions; `DEC-*` IDs).
 - `DEVELOPMENT_PLAN.md`: stage sequencing and delivery boundaries (when work lands).
 - `AGENTS.md` (this file): workflow rules for coding agents.
 
@@ -15,7 +15,7 @@ If information must change, update the canonical file above instead of duplicati
 
 ## Read Order for Any Task
 1. `README.md`
-2. `IMPLEMENTATION_QUESTIONS.md`
+2. `IMPLEMENTATION_DECISIONS.md`
 3. `DEVELOPMENT_PLAN.md`
 
 ## Documentation Hygiene Rules
@@ -32,8 +32,8 @@ If information must change, update the canonical file above instead of duplicati
 - Secret storage uses the app-managed local secrets file; avoid native secret-storage addons unless there is a clear product need.
 
 ## How to Record New Decisions
-- Add a new `DEC-*` entry in `IMPLEMENTATION_QUESTIONS.md`; do not silently rewrite prior decisions.
-- If superseding an older decision, reference both IDs (`supersedes DEC-xx`).
+- Add a new `DEC-*` entry in `IMPLEMENTATION_DECISIONS.md`.
+- Reference both old and new IDs only if superseding an older decision.
 - In code/PRs, cite the relevant `DEC-*` IDs to keep behavior traceable.
 
 ## Delivery Strategy

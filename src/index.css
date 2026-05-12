@@ -20,8 +20,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #101010;
-  color: #e8e8e8;
+  background: #0b1828;
+  color: #e4f0fb;
 }
 
 #root {
@@ -37,16 +37,32 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Layout support */
+.mention-container {
+  position: relative;
+}
+
 /* TipTap editor styles */
 .ProseMirror {
   outline: none;
   min-height: 200px;
   font-size: 15px;
-  line-height: 1.65;
+  line-height: 1.7;
+  color: #e4f0fb;
+  padding: 0.1rem 0;
+}
+
+.dropith-rich-editor-content {
+  max-width: 860px;
+  margin: 0 auto;
 }
 
 .ProseMirror > * + * {
-  margin-top: 0.6em;
+  margin-top: 0.72em;
+}
+
+.ProseMirror p {
+  margin: 0;
 }
 
 .ProseMirror h1 {
@@ -54,7 +70,7 @@ body {
   font-weight: 700;
   margin-top: 1.4em;
   margin-bottom: 0.4em;
-  color: #f0f0f0;
+  color: #f8fbff;
 }
 
 .ProseMirror h2 {
@@ -62,7 +78,7 @@ body {
   font-weight: 600;
   margin-top: 1.2em;
   margin-bottom: 0.3em;
-  color: #e8e8e8;
+  color: #f0f6fc;
 }
 
 .ProseMirror h3 {
@@ -70,7 +86,85 @@ body {
   font-weight: 600;
   margin-top: 1em;
   margin-bottom: 0.3em;
-  color: #e0e0e0;
+  color: #ebf3fb;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.4rem;
+}
+
+.ProseMirror ul {
+  list-style: disc;
+}
+
+.ProseMirror ol {
+  list-style: decimal;
+}
+
+.ProseMirror li + li {
+  margin-top: 0.25rem;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid #1a8ab5;
+  color: #b8d4e5;
+  padding-left: 0.95rem;
+  margin-left: 0;
+}
+
+.ProseMirror pre {
+  background: #081321;
+  border: 1px solid #1c3558;
+  border-radius: 10px;
+  color: #d9f0ff;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+}
+
+.ProseMirror code {
+  background: rgba(125, 186, 214, 0.14);
+  border-radius: 6px;
+  color: #9fd8ff;
+  font-size: 0.92em;
+  padding: 0.12rem 0.34rem;
+}
+
+.ProseMirror pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid #1c3558;
+  margin: 1.2rem 0;
+}
+
+.ProseMirror a {
+  color: #7dcfaa;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.4rem;
+}
+
+.ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.ProseMirror ul[data-type='taskList'] li > label {
+  margin-top: 0.15rem;
+}
+
+.ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -82,17 +176,30 @@ body {
 }
 
 .ProseMirror .mention {
-  background-color: #dbeafe;
+  background-color: #1e3a5f;
   border-radius: 4px;
   padding: 1px 4px;
-  color: #1d4ed8;
+  color: #93c5fd;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
 }
 
-.dark .ProseMirror .mention {
-  background-color: #1e3a5f;
-  color: #93c5fd;
+/* Scrollbar styling for dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
+::-webkit-scrollbar-track {
+  background: #0b1828;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1c3558;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2a4a7a;
+}
