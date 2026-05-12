@@ -1,149 +1,221 @@
-import { useEffect, useState, Component, ReactNode } from 'react'
-import { Box, Paper, Typography } from '@mui/material'
-import { Navigate, Route, Routes } from 'react-router-dom'
-import SidebarLayout from './routes/SidebarLayout'
-import TopicNotePage from './routes/TopicNotePage'
-import DailyNotePage from './routes/DailyNotePage'
-import ProjectsPage from './routes/ProjectsPage'
-import ReferencesPage from './routes/ReferencesPage'
-import HabitsPage from './routes/HabitsPage'
-import TagsPage from './routes/TagsPage'
-import SettingsPage from './routes/SettingsPage'
-import { useNotesStore } from './store/notesStore'
-import { useUIStore } from './store/uiStore'
-import { getTodayDate } from './lib/dateUtils'
+import { useMemo, useState } from 'react'
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Container,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material'
+import { invoke } from '@tauri-apps/api/core'
 
-function App() {
-  const { setTopicNotes, setTags } = useNotesStore()
-  const { setAuthState, setSyncStatus, setSearchOpen } = useUIStore()
-  const [isReady, setIsReady] = useState(false)
+interface CliRunResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+}
 
-  useEffect(() => {
-    // Load initial data
-    const init = async () => {
-      // Wait for the IPC bridge to be available (with timeout)
-      let retries = 0;
-      while (typeof window.dropith === 'undefined' && retries < 50) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        retries++;
-      }
+const presetCommands = [
+  'help',
+  'auth status',
+  'settings show',
+  'list topic-note',
+  'list daily-note',
+  'sync',
+]
 
-      if (typeof window.dropith === 'undefined') {
-        console.error('[App] IPC bridge never became available');
-        return;
-      }
+function tokenizeCommand(input: string): string[] {
+  const trimmed = input.trim()
+  if (!trimmed) return []
 
-      const [notesRes, tagsRes, authRes, syncRes] = await Promise.all([
-        window.dropith.topicNote.list(),
-        window.dropith.tag.list(),
-        window.dropith.auth.getState(),
-        window.dropith.sync.getStatus(),
-      ])
-      if (notesRes.success && notesRes.data) setTopicNotes(notesRes.data)
-      if (tagsRes.success && tagsRes.data) setTags(tagsRes.data)
-      if (authRes.success && authRes.data) setAuthState(authRes.data)
-      if (syncRes.success && syncRes.data) setSyncStatus(syncRes.data)
-      setIsReady(true)
+  const tokens: string[] = []
+  let current = ''
+  let quote: 'single' | 'double' | null = null
+  let escaped = false
+
+  for (const char of trimmed) {
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
     }
-    init()
-    .catch((err) => {
-      console.error('[App] Initialization failed:', err);
-      setIsReady(true) // Show UI even if init fails, so errors are visible
-    });
 
-    // Listen for sync status changes (only if IPC is available)
-    if (typeof window.dropith !== 'undefined') {
-      const offSync = window.dropith.sync.onStatusChanged(setSyncStatus)
-
-      // Global keyboard shortcuts
-      const offSearch = window.dropith.onMenuEvent('menu:quick-search', () => setSearchOpen(true))
-      const offSearchFull = window.dropith.onMenuEvent('menu:search', () => setSearchOpen(true))
-
-      // Native keyboard shortcut fallback
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-          e.preventDefault()
-          setSearchOpen(true)
-        }
-      }
-      window.addEventListener('keydown', handleKeyDown)
-
-      return () => {
-        offSync()
-        offSearch()
-        offSearchFull()
-        window.removeEventListener('keydown', handleKeyDown)
-      }
+    if (char === '\\') {
+      escaped = true
+      continue
     }
-  }, [setAuthState, setSearchOpen, setSyncStatus, setTags, setTopicNotes])
 
-  if (!isReady) {
-    return (
-      <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}>
-        <Paper variant="outlined" sx={{ px: 4, py: 3, textAlign: 'center' }}>
-          <Typography variant="h5" fontWeight={700} gutterBottom>Dropith</Typography>
-          <Typography variant="body2" color="text.secondary">Loading…</Typography>
+    if (quote === 'single') {
+      if (char === "'") {
+        quote = null
+      } else {
+        current += char
+      }
+      continue
+    }
+
+    if (quote === 'double') {
+      if (char === '"') {
+        quote = null
+      } else {
+        current += char
+      }
+      continue
+    }
+
+    if (char === "'") {
+      quote = 'single'
+      continue
+    }
+
+    if (char === '"') {
+      quote = 'double'
+      continue
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current)
+        current = ''
+      }
+      continue
+    }
+
+    current += char
+  }
+
+  if (current) {
+    tokens.push(current)
+  }
+
+  return tokens
+}
+
+async function runDropithCli(args: string[]): Promise<CliRunResult> {
+  return invoke<CliRunResult>('run_dropith_cli', { args })
+}
+
+export default function App() {
+  const [commandText, setCommandText] = useState('help')
+  const [output, setOutput] = useState('')
+  const [errorOutput, setErrorOutput] = useState('')
+  const [exitCode, setExitCode] = useState<number | null>(null)
+  const [running, setRunning] = useState(false)
+  const [transportError, setTransportError] = useState<string | null>(null)
+
+  const parsedArgs = useMemo(() => tokenizeCommand(commandText), [commandText])
+
+  const execute = async () => {
+    setTransportError(null)
+    setRunning(true)
+    try {
+      const result = await runDropithCli(parsedArgs)
+      setOutput(result.stdout || '')
+      setErrorOutput(result.stderr || '')
+      setExitCode(result.exitCode)
+    } catch (error) {
+      setTransportError(String(error))
+      setOutput('')
+      setErrorOutput('')
+      setExitCode(null)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Box sx={{ minHeight: '100vh', py: 6, px: 2, bgcolor: '#0b1828' }}>
+      <Container maxWidth="lg">
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, bgcolor: '#0e2038' }}>
+          <Stack spacing={3}>
+            <div>
+              <Typography variant="h4" fontWeight={700} gutterBottom>
+                Dropith Desktop
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                This desktop shell runs the same `cli.mjs` commands you already use in the terminal.
+              </Typography>
+            </div>
+
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {presetCommands.map((preset) => (
+                <Chip
+                  key={preset}
+                  label={preset}
+                  onClick={() => setCommandText(preset)}
+                  variant="outlined"
+                  sx={{ borderColor: '#1c3558', color: '#e4f0fb' }}
+                />
+              ))}
+            </Stack>
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+              <TextField
+                fullWidth
+                label="CLI command"
+                value={commandText}
+                onChange={(event) => setCommandText(event.target.value)}
+                placeholder="Examples: list daily-note | get topic-note <id> | sync --watch --interval 5"
+                helperText="Enter command arguments without the leading `dropith` keyword."
+              />
+              <Button
+                variant="contained"
+                onClick={() => void execute()}
+                disabled={running || parsedArgs.length === 0}
+                sx={{ minWidth: 140 }}
+              >
+                {running ? 'Running...' : 'Run'}
+              </Button>
+            </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="body2" color="text.secondary">
+                Parsed args:
+              </Typography>
+              <Box component="code" sx={{ fontSize: 12, color: '#7dbad6' }}>
+                {JSON.stringify(parsedArgs)}
+              </Box>
+            </Stack>
+
+            {transportError ? (
+              <Alert severity="error">
+                Could not reach the desktop command bridge. Start the app with Tauri (`npm run tauri:dev`).
+                <br />
+                {transportError}
+              </Alert>
+            ) : null}
+
+            {exitCode !== null ? (
+              <Alert severity={exitCode === 0 ? 'success' : 'warning'}>
+                Command finished with exit code {exitCode}.
+              </Alert>
+            ) : null}
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <Paper variant="outlined" sx={{ flex: 1, p: 2, bgcolor: '#0b1828', borderColor: '#1c3558' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  stdout
+                </Typography>
+                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12, minHeight: 200 }}>
+                  {output || '(empty)'}
+                </Box>
+              </Paper>
+              <Paper variant="outlined" sx={{ flex: 1, p: 2, bgcolor: '#0b1828', borderColor: '#1c3558' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  stderr
+                </Typography>
+                <Box component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', fontSize: 12, minHeight: 200 }}>
+                  {errorOutput || '(empty)'}
+                </Box>
+              </Paper>
+            </Stack>
+          </Stack>
         </Paper>
-      </Box>
-    )
-  }
-
-  return (
-    <Routes>
-      <Route element={<SidebarLayout />}>
-        <Route index element={<Navigate to={`/daily/${getTodayDate()}`} replace />} />
-        <Route path="/daily/:date" element={<DailyNotePage />} />
-        <Route path="/topic/:id" element={<TopicNotePage />} />
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/references" element={<ReferencesPage />} />
-        <Route path="/habits" element={<HabitsPage />} />
-        <Route path="/tags" element={<TagsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-    </Routes>
+      </Container>
+    </Box>
   )
 }
 
-// Error boundary for debugging
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
-  constructor(props: { children: ReactNode }) {
-    super(props)
-    this.state = { hasError: false, error: null }
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error }
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[ErrorBoundary] Render error:', error, errorInfo)
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', p: 3 }}>
-          <Paper variant="outlined" sx={{ p: 3, maxWidth: 640, width: '100%' }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>App Error</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              {this.state.error?.message || 'An unexpected error occurred'}
-            </Typography>
-            <Box component="pre" sx={{ fontSize: 12, bgcolor: 'background.default', p: 1.5, borderRadius: 1, overflow: 'auto', maxHeight: 180, textAlign: 'left' }}>
-              {this.state.error?.stack}
-            </Box>
-          </Paper>
-        </Box>
-      )
-    }
-
-    return this.props.children
-  }
-}
-
-export default function AppWrapper() {
-  return (
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  )
-}

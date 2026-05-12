@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Dropith",
+  "version": "0.1.0",
+  "identifier": "com.dropith.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Dropith",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 980,
+        "minHeight": 640,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "../cli.mjs"
+    ],
+    "icon": [
+      "../public/icons/icon-32.png",
+      "../public/icons/icon-128.png",
+      "../public/icons/icon-256.png",
+      "../public/icons/icon.icns",
+      "../public/icons/icon.ico"
+    ]
+  }
+}
+

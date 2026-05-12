@@ -10,7 +10,6 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-dist-electron
 out
 *.local
 
@@ -36,4 +35,16 @@ out
 
 release/
 dist/
-dist-electron/
+
+# Tauri / Rust desktop wrapper
+src-tauri/target/
+src-tauri/gen/
+
+# Optional code signing and updater secret files
+*.p12
+*.pfx
+*.cer
+*.key
+*.mobileprovision
+*.asc
+

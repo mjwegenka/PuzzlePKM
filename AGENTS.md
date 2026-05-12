@@ -1,9 +1,9 @@
 # AGENTS.md
 
 ## Repo State
-- This repository has a runnable Electron + React + TypeScript application baseline.
-- Main-process code lives in `electron/`; renderer code lives in `src/`.
-- Packaging config is in `electron-builder.json5`; Vite config is in `vite.config.ts`.
+- This repository is CLI-first with a Tauri desktop wrapper.
+- Core product logic lives in `cli.mjs`; desktop UI shell code lives in `src/` and `src-tauri/`.
+- Vite config is in `vite.config.ts`; desktop wrapper config is in `src-tauri/tauri.conf.json`.
 
 ## Canonical Ownership (avoid drift)
 - `README.md`: product/domain truth (what the app is, object definitions).
@@ -25,12 +25,11 @@ If information must change, update the canonical file above instead of duplicati
 - Keep command lists synchronized between `AGENTS.md` and `README.md`.
 
 ## Implementation Guardrails
-- Platform target is macOS-first Electron.
-- Keep Electron main and renderer responsibilities separated early via explicit IPC boundaries.
+- Platform target is macOS-first Node.js CLI.
 - Build local-first CRUD/repository behavior before full sync complexity.
 - Preserve ID-based linking and Daily Note uniqueness by local date.
 - Local persistence uses built-in `node:sqlite`; avoid reintroducing native DB addons unless necessary.
-- Secret storage uses Electron `safeStorage`; avoid native keychain addons unless there is a clear product need.
+- Secret storage uses the app-managed local secrets file; avoid native secret-storage addons unless there is a clear product need.
 
 ## How to Record New Decisions
 - Add a new `DEC-*` entry in `IMPLEMENTATION_QUESTIONS.md`; do not silently rewrite prior decisions.
@@ -45,8 +44,10 @@ If information must change, update the canonical file above instead of duplicati
 ## Commands and Validation
 - Install dependencies: `npm install`
 - Run CLI: `npm run cli -- --help`
-- Run renderer/main dev flow: `npm run dev`
+- Run companion web shell: `npm run dev`
+- Run desktop wrapper in development: `npm run tauri:dev`
 - Typecheck + bundle: `npm run build`
+- Build desktop wrapper: `npm run tauri:build`
 - Lint: `npm run lint`
-- Package desktop app: `npm run build:all`
+- Run full build alias: `npm run build:all`
 - If tooling changes, keep these commands updated here and in `README.md`.

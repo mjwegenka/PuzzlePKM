@@ -29,7 +29,7 @@ Use stable IDs (`DEC-xx`) in code comments, PRs, and planning notes to avoid dri
 - `DEC-17` Markdown import/export is required in v1.
 
 ## Superseding Decisions
-- `DEC-23` (supersedes `DEC-11`) Secret storage uses Electron `safeStorage` with an app-managed local encrypted store, rather than a native keychain addon.
+- `DEC-23` (supersedes `DEC-11`) Secret storage uses legacy desktop safe storage with an app-managed local encrypted store, rather than a native keychain addon.
 - `DEC-24` (supersedes `DEC-15`) Editor baseline uses current TipTap v3 packages while keeping scope constraints the same: rich text + mentions + backlinks first, advanced blocks later.
 
 ## Security and Privacy Decisions
@@ -54,4 +54,9 @@ Use stable IDs (`DEC-xx`) in code comments, PRs, and planning notes to avoid dri
 - Keep `README.md` as product/domain source, and keep this file focused on implementation behavior.
 
 ## CLI-First Decisions
-- `DEC-30` (supersedes `DEC-02`) The primary interface is the CLI (`cli.mjs`), which runs standalone with Node.js 22+ (no build step). All features — CRUD, Dropbox OAuth, one-shot sync, and background sync daemon — are available in the CLI. The Electron desktop UI is a secondary interface and may not be actively maintained.
+- `DEC-30` (supersedes `DEC-02`) The primary interface is the CLI (`cli.mjs`), which runs standalone with Node.js 22+ (no build step). All features — CRUD, Dropbox OAuth, one-shot sync, and background sync daemon — are available in the CLI. A desktop shell may exist as a secondary interface.
+- `DEC-31` (supersedes `DEC-23`) Secret storage uses the app-managed local `secrets.json` store shared by the CLI and companion tooling. Legacy desktop safe-storage APIs are not required for current architecture.
+- `DEC-32` (supersedes `DEC-30`) The supported product surface remains the CLI (`cli.mjs`). Any companion UI must invoke CLI-safe functionality and avoid direct dependency on legacy desktop IPC APIs.
+- `DEC-33` (supersedes `DEC-29`) Sync tracks whether a note has previously had a Dropbox copy. When the relevant Dropbox note folder can be listed successfully, a previously synced note that is now missing from Dropbox is deleted locally instead of being recreated. Notes that have never been synced are uploaded normally. If the Dropbox note folder itself is missing, the folder is treated as non-authoritative and local notes are left unchanged to avoid accidental mass deletion.
+- `DEC-34` Desktop web-shell implementation must conform to `UI_Design_Contract.json` for tokens, responsive behavior, component states, and calendar interaction semantics at `>=768px` breakpoints.
+- `DEC-35` Desktop packaging and command execution host use Tauri. The desktop wrapper delegates object/auth/sync operations to `cli.mjs` command execution so desktop and terminal surfaces share one behavioral implementation.

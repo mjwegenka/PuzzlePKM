@@ -1,6 +1,6 @@
 # Dropith
 
-A local-first knowledge management app with Dropbox sync. **CLI-first** — all features are available and fully functional from the command line. An Electron desktop UI is also included but is secondary.
+A local-first knowledge management app with Dropbox sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
 
 ## Features
 
@@ -9,10 +9,6 @@ A local-first knowledge management app with Dropbox sync. **CLI-first** — all 
 - **Projects & Reference Materials** – Dropbox-backed directories browsable inside the app
 - **Habits** – Lightweight dated text entries (≤ 255 chars) with tags
 - **Tags** – Case-insensitive, aggregate any object type
-- **TipTap editor** – Headings, bold/italic/underline/strike, lists, blockquote, code, links, @mention cross-linking with autocomplete
-- **Backlinks panel** – See every note that links to the current note
-- **Auto-save** – 1-second debounce after every change
-- **Keyboard shortcuts** – ⌘K quick search, ⌘N new note, ⌘S save, ⌘E toggle edit, ⌘⇧F full-text search
 - **Dropbox OAuth** – CLI-driven browser-based OAuth; token stored locally in secrets file
 - **Offline-first** – SQLite local store; sync when connected
 - **Background sync daemon** – `dropith sync --watch` for continuous background syncing
@@ -22,15 +18,12 @@ A local-first knowledge management app with Dropbox sync. **CLI-first** — all 
 | Layer | Choice |
 |---|---|
 | CLI | Pure Node.js (`cli.mjs`) — no build step required |
-| Desktop shell | Electron 30 + vite-plugin-electron (legacy/secondary) |
-| UI | React 18 + TypeScript |
-| Editor | TipTap v3 |
+| Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
+| Companion web shell | React 18 + TypeScript + Vite |
 | Local store | node:sqlite (built-in SQLite) |
-| State | Zustand |
-| Routing | react-router-dom v7 |
 | Styling | Material UI + TailwindCSS v4 |
-| Secure storage | app-managed secrets file (DEC-23) |
-| Dropbox | Dropbox JS SDK (Electron) / fetch (CLI) |
+| Secure storage | app-managed secrets file (see `DEC-31`) |
+| Dropbox | `fetch`-based Dropbox API integration |
 
 ## Development Setup
 
@@ -62,10 +55,16 @@ export DROPBOX_APP_SECRET=your_app_secret
 
 Create your Dropbox app at <https://www.dropbox.com/developers/apps> and set the Redirect URI to `http://localhost:42813/callback`.
 
-### 3. Run in development mode
+### 3. Run the companion web shell in development
 
 ```bash
 npm run dev
+```
+
+### 4. Run the desktop wrapper in development
+
+```bash
+npm run tauri:dev
 ```
 
 ### CLI usage
@@ -110,6 +109,8 @@ dropith sync --watch
 dropith sync --watch --interval 5
 ```
 
+If a note has previously been synced to Dropbox and then its Markdown file is deleted from an existing Dropbox notes folder, the next sync deletes the local copy instead of recreating it. If an entire Dropbox notes folder is missing, Dropith leaves local notes unchanged and reports a warning to avoid accidental mass deletion.
+
 #### Notes and objects
 
 ```bash
@@ -136,7 +137,7 @@ dropith settings clear dropbox
 dropith settings disconnect dropbox
 ```
 
-Default CLI database path follows Electron app-data conventions:
+Default CLI database path follows platform app-data conventions:
 - macOS: `~/Library/Application Support/dropith/dropith.sqlite`
 - Linux: `~/.config/dropith/dropith.sqlite` (or `$XDG_CONFIG_HOME/dropith/dropith.sqlite`)
 - Windows: `%APPDATA%\\dropith\\dropith.sqlite`
@@ -154,13 +155,19 @@ Use `DROPITH_DB_PATH` to point the CLI at a specific Dropith SQLite file:
 DROPITH_DB_PATH=/absolute/path/to/dropith.sqlite dropith list
 ```
 
-### 4. Build for production
+### 5. Build for production
 
 ```bash
 npm run build
 ```
 
-To also package a distributable macOS `.dmg`:
+Build desktop packages:
+
+```bash
+npm run tauri:build
+```
+
+To run the full build alias used by repo automation:
 
 ```bash
 npm run build:all
@@ -170,24 +177,12 @@ npm run build:all
 
 ```
 cli.mjs            Standalone CLI (no build step — runs directly with Node.js 22+)
-
-electron/          Electron main process (Node.js / Electron)
-  auth/            Dropbox OAuth + Electron safeStorage helpers
-  db/              SQLite schema and database init
-  ipc/             IPC handler registration (notes, objects, auth, sync)
-  repositories/    CRUD repositories for every object type
-
-src/               Renderer process (React / TypeScript)
-  components/      Shared UI components
-    editor/        TipTap NoteEditor + MentionList + BacklinkExtension
-  routes/          Page-level route components (TopicNotePage, DailyNotePage)
-  shared/          Types and IPC channel constants shared across processes
-  store/           Zustand stores (notesStore, uiStore)
-  lib/             Utilities (dateUtils, ipc bridge)
+src/               Lightweight companion web shell (React / TypeScript)
+src-tauri/         Desktop wrapper host (Tauri config + Rust commands)
+public/            Static assets for the web shell
 ```
 
 ## Development Plan
 
-See [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the full staged roadmap.  
-Stages 1–5 are complete. Stages 6–8 are in active development (Dropbox file browsing, Habits/Tags views, and sync reliability). Stage 9 is release readiness.
+See [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the full staged roadmap.
 

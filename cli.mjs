@@ -9,7 +9,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { URL } from 'node:url';
+import { URL, pathToFileURL } from 'node:url';
 
 const KEYCHAIN_ACCESS_TOKEN = 'dropbox_access_token';
 const KEYCHAIN_ACCOUNT_EMAIL = 'dropbox_account_email';
@@ -97,12 +97,21 @@ const schema = `
     UNIQUE(source_id, target_id)
   );
 
+  CREATE TABLE IF NOT EXISTS sync_state (
+    object_id TEXT NOT NULL,
+    object_type TEXT NOT NULL,
+    has_remote_copy INTEGER NOT NULL DEFAULT 0,
+    last_seen_remote_at TEXT,
+    PRIMARY KEY (object_id, object_type)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
   CREATE INDEX IF NOT EXISTS idx_object_tags_tag ON object_tags(tag_id);
   CREATE INDEX IF NOT EXISTS idx_object_links_source ON object_links(source_id);
   CREATE INDEX IF NOT EXISTS idx_object_links_target ON object_links(target_id);
+  CREATE INDEX IF NOT EXISTS idx_sync_state_object_type ON sync_state(object_type, object_id);
   CREATE INDEX IF NOT EXISTS idx_habits_date ON habits(date);
   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
 `;
@@ -372,6 +381,33 @@ async function withDbAsync(action) {
   }
 }
 
+function getSyncState(db, objectType, objectId) {
+  return db.prepare(`
+    SELECT object_id, object_type, has_remote_copy, last_seen_remote_at
+    FROM sync_state
+    WHERE object_id = ? AND object_type = ?
+  `).get(objectId, objectType) ?? null;
+}
+
+function hasKnownRemoteCopy(db, objectType, objectId) {
+  const state = getSyncState(db, objectType, objectId);
+  return Boolean(state?.has_remote_copy);
+}
+
+function markRemotePresence(db, objectType, objectId, seenAt = getIsoNow()) {
+  db.prepare(`
+    INSERT INTO sync_state (object_id, object_type, has_remote_copy, last_seen_remote_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(object_id, object_type) DO UPDATE SET
+      has_remote_copy = 1,
+      last_seen_remote_at = excluded.last_seen_remote_at
+  `).run(objectId, objectType, seenAt);
+}
+
+function clearSyncState(db, objectType, objectId) {
+  db.prepare('DELETE FROM sync_state WHERE object_id = ? AND object_type = ?').run(objectId, objectType);
+}
+
 function getTagDisplayNames(db, objectId) {
   const rows = db.prepare(`
     SELECT t.display_name
@@ -498,6 +534,7 @@ function deleteTopicNoteRecord(db, id) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    clearSyncState(db, 'topic-note', id);
     const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -607,6 +644,7 @@ function deleteDailyNoteRecord(db, reference) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(existing.id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(existing.id, existing.id);
+    clearSyncState(db, 'daily-note', existing.id);
     const result = db.prepare('DELETE FROM daily_notes WHERE id = ?').run(existing.id);
     return result.changes > 0;
   });
@@ -1472,15 +1510,24 @@ async function dropboxListMdFiles(token, folderPath) {
     },
     body: JSON.stringify({ path: folderPath }),
   });
-  if (response.status === 409) return [];
+  if (response.status === 409) {
+    const detail = await response.text().catch(() => '');
+    if (detail.includes('path/not_found') || detail.includes('not_found')) {
+      return { files: [], folderFound: false };
+    }
+    throw new Error(`Dropbox list_folder failed (409): ${detail || response.statusText}`);
+  }
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`Dropbox list_folder failed (${response.status}): ${detail || response.statusText}`);
   }
   const raw = await response.json();
-  return raw.entries
-    .filter((e) => e['.tag'] === 'file' && e.name.endsWith('.md'))
-    .map((e) => ({ name: e.name, path: e.path_display }));
+  return {
+    folderFound: true,
+    files: raw.entries
+      .filter((e) => e['.tag'] === 'file' && e.name.endsWith('.md'))
+      .map((e) => ({ name: e.name, path: e.path_display })),
+  };
 }
 
 async function dropboxGetAccountEmail(token) {
@@ -1568,35 +1615,41 @@ function listTopicNotesForSync(db) {
 // ── Sync: reconcile helpers ───────────────────────────────────────────────────
 
 async function fetchAllDailyNotesFromDropbox(token, rootFolder) {
-  const files = await dropboxListMdFiles(token, dailyNotesFolderPath(rootFolder));
+  const { files, folderFound } = await dropboxListMdFiles(token, dailyNotesFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     files.map(async (f) => {
       const content = await dropboxDownloadText(token, f.path);
       return content ? parseDailyNoteMarkdown(content) : null;
     }),
   );
-  return settled
-    .filter((r) => r.status === 'fulfilled' && r.value !== null)
-    .map((r) => r.value);
+  return {
+    folderFound,
+    notes: settled
+      .filter((r) => r.status === 'fulfilled' && r.value !== null)
+      .map((r) => r.value),
+  };
 }
 
 async function fetchAllTopicNotesFromDropbox(token, rootFolder) {
-  const files = await dropboxListMdFiles(token, topicNotesFolderPath(rootFolder));
+  const { files, folderFound } = await dropboxListMdFiles(token, topicNotesFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     files.map(async (f) => {
       const content = await dropboxDownloadText(token, f.path);
       return content ? parseTopicNoteMarkdown(content) : null;
     }),
   );
-  return settled
-    .filter((r) => r.status === 'fulfilled' && r.value !== null)
-    .map((r) => r.value);
+  return {
+    folderFound,
+    notes: settled
+      .filter((r) => r.status === 'fulfilled' && r.value !== null)
+      .map((r) => r.value),
+  };
 }
 
 async function reconcileDailyNotesDb(db, token, rootFolder) {
-  const result = { imported: 0, updated: 0, uploaded: 0, errors: [] };
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const dropboxNotes = await fetchAllDailyNotesFromDropbox(token, rootFolder);
+  const { notes: dropboxNotes, folderFound } = await fetchAllDailyNotesFromDropbox(token, rootFolder);
   const dropboxByDate = new Map(dropboxNotes.map((n) => [n.date, n]));
 
   for (const fields of dropboxNotes) {
@@ -1623,20 +1676,35 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
         });
         result.updated++;
       }
+      markRemotePresence(db, 'daily-note', fields.id, fields.updatedAt);
     } catch (e) {
       result.errors.push(`daily-note ${fields.date}: ${String(e)}`);
     }
   }
 
   const localNotes = listDailyNotesForSync(db);
+  if (!folderFound) {
+    if (localNotes.length > 0) {
+      result.warnings.push('Dropbox daily-notes folder is missing; skipped remote-deletion reconciliation for local daily notes.');
+    }
+    return result;
+  }
+
   for (const note of localNotes) {
     if (!dropboxByDate.has(note.date)) {
       try {
-        await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
-        await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
-        result.uploaded++;
+        if (hasKnownRemoteCopy(db, 'daily-note', note.id)) {
+          if (deleteDailyNoteRecord(db, note.id)) {
+            result.deleted++;
+          }
+        } else {
+          await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
+          await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+          markRemotePresence(db, 'daily-note', note.id, getIsoNow());
+          result.uploaded++;
+        }
       } catch (e) {
-        result.errors.push(`daily-note upload ${note.date}: ${String(e)}`);
+        result.errors.push(`daily-note reconcile ${note.date}: ${String(e)}`);
       }
     }
   }
@@ -1645,9 +1713,9 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
 }
 
 async function reconcileTopicNotesDb(db, token, rootFolder) {
-  const result = { imported: 0, updated: 0, uploaded: 0, errors: [] };
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const dropboxNotes = await fetchAllTopicNotesFromDropbox(token, rootFolder);
+  const { notes: dropboxNotes, folderFound } = await fetchAllTopicNotesFromDropbox(token, rootFolder);
   const dropboxById = new Map(dropboxNotes.map((n) => [n.id, n]));
 
   for (const fields of dropboxNotes) {
@@ -1675,20 +1743,35 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
         });
         result.updated++;
       }
+      markRemotePresence(db, 'topic-note', fields.id, fields.updatedAt);
     } catch (e) {
       result.errors.push(`topic-note ${fields.id}: ${String(e)}`);
     }
   }
 
   const localNotes = listTopicNotesForSync(db);
+  if (!folderFound) {
+    if (localNotes.length > 0) {
+      result.warnings.push('Dropbox topic-notes folder is missing; skipped remote-deletion reconciliation for local topic notes.');
+    }
+    return result;
+  }
+
   for (const note of localNotes) {
     if (!dropboxById.has(note.id)) {
       try {
-        await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
-        await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
-        result.uploaded++;
+        if (hasKnownRemoteCopy(db, 'topic-note', note.id)) {
+          if (deleteTopicNoteRecord(db, note.id)) {
+            result.deleted++;
+          }
+        } else {
+          await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
+          await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+          markRemotePresence(db, 'topic-note', note.id, getIsoNow());
+          result.uploaded++;
+        }
       } catch (e) {
-        result.errors.push(`topic-note upload ${note.id}: ${String(e)}`);
+        result.errors.push(`topic-note reconcile ${note.id}: ${String(e)}`);
       }
     }
   }
@@ -1709,6 +1792,8 @@ async function runSync() {
       imported: dailyResult.imported + topicResult.imported,
       updated: dailyResult.updated + topicResult.updated,
       uploaded: dailyResult.uploaded + topicResult.uploaded,
+      deleted: dailyResult.deleted + topicResult.deleted,
+      warnings: [...dailyResult.warnings, ...topicResult.warnings],
       errors: [...dailyResult.errors, ...topicResult.errors],
     };
   });
@@ -1732,7 +1817,12 @@ async function runSyncWatch(intervalMinutes) {
     process.stdout.write(`[${now}] Syncing...`);
     try {
       const result = await runSync();
-      console.log(` done — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, errors: ${result.errors.length}`);
+      console.log(` done — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+      if (result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          console.warn(`  [warning] ${warning}`);
+        }
+      }
       if (result.errors.length > 0) {
         for (const error of result.errors) {
           console.error(`  [error] ${error}`);
@@ -2356,7 +2446,12 @@ async function executeTokens(tokens, context = {}) {
 
     console.log('Syncing with Dropbox...');
     const result = await runSync();
-    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, errors: ${result.errors.length}`);
+    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+    if (result.warnings.length > 0) {
+      for (const warning of result.warnings) {
+        console.warn(`  [warning] ${warning}`);
+      }
+    }
     if (result.errors.length > 0) {
       for (const error of result.errors) {
         console.error(`  [error] ${error}`);
@@ -2423,4 +2518,24 @@ async function main() {
   }
 }
 
-await main();
+const isDirectExecution = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+export const __testing = {
+  openDb,
+  runSync,
+  saveDropboxToken,
+  saveDropboxRootFolder,
+  disconnectDropboxSettings,
+  createDailyNoteRecord,
+  createTopicNoteRecord,
+  getDailyNote,
+  getTopicNote,
+  hasKnownRemoteCopy,
+  getSyncState,
+};
+
+if (isDirectExecution) {
+  await main();
+}
