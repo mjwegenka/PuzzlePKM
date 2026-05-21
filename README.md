@@ -13,6 +13,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 - **Local-folder sync** – Sync against a configured local root folder
 - **Offline-first** – SQLite local store; sync when connected
 - **Background sync daemon** – `puzzlepkm sync --watch` for continuous background syncing
+- **iOS companion app** – Write-only iPhone app for capturing daily notes and habits on the go; entries are merged on the next desktop sync (see [`DEC-55`](./IMPLEMENTATION_DECISIONS.md) and [`ios/README.md`](./ios/README.md))
 
 ## Tech Stack
 
@@ -26,6 +27,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 | Styling | Material UI + TailwindCSS v4 |
 | Secure storage | app-managed secrets file (see `DEC-03`) |
 | Sync transport | Local folder sync |
+| iOS mobile app | SwiftUI (iOS 17+) + SwiftyDropbox SDK |
 
 ## Desktop UI Features
 
@@ -243,6 +245,18 @@ cli.mjs            Standalone CLI (no build step — runs directly with Node.js 
 src/               Lightweight companion web shell (React / TypeScript)
 src-tauri/         Desktop wrapper host (Tauri config + Rust commands)
 public/            Static assets for the web shell
+ios/               iOS companion app (Swift / SwiftUI)
+```
+
+## iOS Companion App
+
+The `ios/` directory contains a write-only iPhone app for capturing daily notes and habits on the go. Entries are written to a `mobile-inbox/` sub-folder inside your Dropbox sync root and merged into the desktop app on the next `puzzlepkm sync`.
+
+See [`ios/README.md`](./ios/README.md) for Xcode setup instructions and [`DEC-55`](./IMPLEMENTATION_DECISIONS.md) for the design decision record.
+
+```bash
+# After writing notes/habits from the iOS app, merge them on the desktop:
+puzzlepkm sync
 ```
 
 ## Development Plan
