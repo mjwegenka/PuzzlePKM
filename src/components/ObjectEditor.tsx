@@ -34,7 +34,7 @@ interface ObjectEditorProps {
   onSave?: (saved: Record<string, unknown>) => void;
   onCancel?: () => void;
   onDirty?: (isDirty: boolean) => void;
-  onNavigateToObject?: (target: ResolvedObjectRef) => void | Promise<void>;
+  onNavigateToObject?: (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => void | Promise<void>;
   onDateChange?: (date: string) => void | Promise<void>;
 }
 
@@ -202,7 +202,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<ResolvedObjectRef | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
   const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
   const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
 
@@ -409,12 +409,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     }
   };
 
-  const executeNavigation = useCallback(async (target: ResolvedObjectRef) => {
+  const executeNavigation = useCallback(async (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => {
     if (!onNavigateToObject) return;
-    await onNavigateToObject(target);
+    await onNavigateToObject(target, options);
   }, [onNavigateToObject]);
 
-  const handleShiftClickLink = useCallback(async (href: string) => {
+  const handleShiftClickLink = useCallback(async (href: string, options?: { forceNewTab?: boolean }) => {
     if (!onNavigateToObject) return;
     try {
       const currentPath = normalizeDropboxPath(((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined)));
@@ -426,11 +426,11 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       }
 
       if (isDirty) {
-        setPendingNavigation(target);
+        setPendingNavigation({ target, options });
         return;
       }
 
-      await executeNavigation(target);
+      await executeNavigation(target, options);
     } catch (err) {
       setSaveError(`Failed to open linked object: ${String(err)}`);
     }
@@ -441,14 +441,14 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     setPendingNavigation(null);
     setIsDirty(false);
     onDirty?.(false);
-    await executeNavigation(pendingNavigation);
+    await executeNavigation(pendingNavigation.target, pendingNavigation.options);
   };
 
   const handleSaveAndNavigate = async () => {
     if (!pendingNavigation) return;
     try {
       await persistCurrentObject();
-      await executeNavigation(pendingNavigation);
+      await executeNavigation(pendingNavigation.target, pendingNavigation.options);
       setPendingNavigation(null);
     } catch {
       // keep prompt open if save failed
