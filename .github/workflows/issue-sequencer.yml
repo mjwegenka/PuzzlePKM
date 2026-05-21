@@ -32,6 +32,52 @@ jobs:
 
             const READY = 'status:ready';
             const BLOCKED = 'status:blocked';
+            const READY_COMMENT_MARKER = '<!-- issue-sequencer-ready -->';
+
+            function dependencyList(depNumbers) {
+              if (!depNumbers.length) return '- None';
+              return depNumbers.map((dep) => `- #${dep}`).join('\n');
+            }
+
+            function buildCopilotPrompt(issue, depNumbers) {
+              return [
+                '### Copilot Prompt Template',
+                '',
+                'Use this prompt when assigning the issue to Copilot/coding agent:',
+                '',
+                '```md',
+                `Implement GitHub issue #${issue.number}: ${issue.title}`,
+                '',
+                'Requirements:',
+                '- Follow repository workflow rules in `AGENTS.md`.',
+                '- Read in order: `README.md` -> `IMPLEMENTATION_DECISIONS.md` -> `DEVELOPMENT_PLAN.md`.',
+                '- Keep behavior traceable with relevant `DEC-*` references.',
+                '- Do not jump to later stage work unless required by this issue.',
+                '- Keep changes minimal and scoped to this issue only.',
+                '',
+                'Dependencies already completed:',
+                depNumbers.length ? depNumbers.map((dep) => `- #${dep}`).join('\n') : '- None',
+                '',
+                'Execution checklist:',
+                '- [ ] Confirm acceptance criteria from the issue body.',
+                '- [ ] Implement code + docs updates required by canonical ownership rules.',
+                '- [ ] Run validation commands and include outputs summary in PR.',
+                '- [ ] Open a PR that references and closes this issue.',
+                '',
+                'Validation commands:',
+                '```bash',
+                'npm run lint',
+                'npm run build',
+                'npm run issues:queue',
+                '```',
+                '',
+                'PR checklist:',
+                '- [ ] Link issue with `Closes #ISSUE_NUMBER`.',
+                '- [ ] Include risk notes and rollback plan if migration-related.',
+                '- [ ] Mention any new/updated `DEC-*` entries when behavior changed.',
+                '```',
+              ].join('\n');
+            }
 
             async function ensureLabel(name, color, description) {
               try {
@@ -92,20 +138,30 @@ jobs:
                   await setLabels(item.number, desired);
                   core.info(`Marked #${item.number} as ready`);
 
-                  const marker = '<!-- issue-sequencer-ready -->';
                   const comments = await github.paginate(github.rest.issues.listComments, {
                     owner,
                     repo,
                     issue_number: item.number,
                     per_page: 100,
                   });
-                  const alreadyCommented = comments.some((c) => c.body && c.body.includes(marker));
+                  const alreadyCommented = comments.some((c) => c.body && c.body.includes(READY_COMMENT_MARKER));
                   if (!alreadyCommented) {
+                    const depText = dependencyList(item.dependsOn);
+                    const copilotPrompt = buildCopilotPrompt(issue, item.dependsOn);
+                    const readyBody = [
+                      READY_COMMENT_MARKER,
+                      'This issue is now next in the automated sequence (all dependencies are closed).',
+                      '',
+                      '**Dependency context**',
+                      depText,
+                      '',
+                      copilotPrompt,
+                    ].join('\n');
                     await github.rest.issues.createComment({
                       owner,
                       repo,
                       issue_number: item.number,
-                      body: `${marker}\nThis issue is now next in the automated sequence (all dependencies are closed).\n\nRecommended next step: assign this issue to your coding agent and open a PR.`,
+                      body: readyBody,
                     });
                   }
                 }
