@@ -33,6 +33,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Calendar View** – Navigate daily notes by date
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
+- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation
 - **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy `dropboxPath` still resolves for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)

@@ -43,7 +43,7 @@ interface RichMarkdownEditorProps {
   mentionEnabled?: boolean
   resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
-  onShiftClickLink?: (href: string) => void | Promise<void>
+  onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
 }
 
 marked.setOptions({
@@ -294,12 +294,12 @@ export default function RichMarkdownEditor({
     setMentionPosition({ top: coords.bottom + 4, left: coords.left + 8 })
   }, [closeMention, mentionEnabled])
 
-  const openLinkedObject = useCallback((href: string) => {
+  const openLinkedObject = useCallback((href: string, options?: { forceNewTab?: boolean }) => {
     const now = Date.now()
     const lastHandled = lastHandledLinkRef.current
     if (lastHandled && lastHandled.href === href && now - lastHandled.at < 250) return
     lastHandledLinkRef.current = { href, at: now }
-    void Promise.resolve(onShiftClickLink?.(href)).catch(() => {
+    void Promise.resolve(onShiftClickLink?.(href, options)).catch(() => {
       // ObjectEditor surfaces navigation errors; suppress unhandled rejection here.
     })
   }, [onShiftClickLink])
@@ -317,7 +317,7 @@ export default function RichMarkdownEditor({
 
     const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
     if (!hasOpenModifier || !onShiftClickLink) return
-    openLinkedObject(href)
+    openLinkedObject(href, { forceNewTab: event.metaKey || event.ctrlKey })
   }, [onShiftClickLink, openLinkedObject])
 
   const insertMentionLink = useCallback(
@@ -491,7 +491,7 @@ export default function RichMarkdownEditor({
 
       const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
       if (!hasOpenModifier || !onShiftClickLink) return
-      openLinkedObject(href)
+      openLinkedObject(href, { forceNewTab: event.metaKey || event.ctrlKey })
     }
 
     root.addEventListener('mousedown', interceptAnchorEvent, true)

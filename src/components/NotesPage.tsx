@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Tabs,
+  Tab,
   IconButton as MuiIconButton,
 } from '@mui/material'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
@@ -80,6 +82,14 @@ interface HabitItem {
   type: 'habit'
 }
 
+interface OpenEditorTab {
+  tabId: string
+  objectId: string
+  type: EditorObjectType
+  object: Record<string, unknown>
+  isDirty: boolean
+}
+
 // ── Column component ──────────────────────────────────────────────────────────
 
 interface ColumnItem {
@@ -98,7 +108,7 @@ interface NoteColumnProps {
   filter: string
   onFilterChange: (v: string) => void
   selectedId: string | null
-  onSelect: (id: string) => void
+  onSelect: (id: string, options?: { forceNewTab?: boolean }) => void
 }
 
 function NoteColumn({
@@ -187,7 +197,8 @@ function NoteColumn({
               <ListItem disablePadding>
                 <ListItemButton
                   selected={selectedId === item.id}
-                  onClick={() => onSelect(item.id)}
+                  onClick={(event) => onSelect(item.id, { forceNewTab: event.metaKey || event.ctrlKey })}
+                  title="Click to open • Ctrl/Cmd-click to open in new tab"
                   sx={{
                     py: 0.75,
                     px: 1.5,
@@ -384,17 +395,15 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
   const [habits, setHabits] = useState<HabitItem[]>([])
   const [loading, setLoading] = useState(false)
 
-  // Selection
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedType, setSelectedType] = useState<EditorObjectType | null>(null)
-  const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | null>(null)
+  const [openTabs, setOpenTabs] = useState<OpenEditorTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
 
   // Create mode
   const [isCreating, setIsCreating] = useState(false)
   const [createType, setCreateType] = useState<NoteType>('topic-note')
   const [createKey, setCreateKey] = useState(0)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const [showConfirmClose, setShowConfirmClose] = useState(false)
+  const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
+  const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
 
   // Inbox filter
   const [showInbox, setShowInbox] = useState(false)
@@ -427,37 +436,78 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
     loadAll()
   }, [loadAll])
 
-  const handleSelectItem = useCallback(async (id: string, type: NoteType) => {
-    setIsCreating(false)
-    setSelectedId(id)
-    setSelectedType(type)
-    try {
-      const full = await getObject(type, id)
-      setSelectedObject({ ...full, type })
-    } catch {
-      setSelectedObject(null)
-    }
+  const closeTab = useCallback((tabId: string) => {
+    setOpenTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.tabId === tabId)
+      if (index === -1) return prev
+      const next = prev.filter((tab) => tab.tabId !== tabId)
+      setActiveTabId((current) => {
+        if (current !== tabId) return current
+        const fallback = next[index] ?? next[index - 1] ?? null
+        return fallback?.tabId ?? null
+      })
+      return next
+    })
   }, [])
+
+  const openObjectInTab = useCallback(async (
+    objectId: string,
+    type: EditorObjectType,
+    options?: { forceNewTab?: boolean },
+  ): Promise<boolean> => {
+    const forceNewTab = Boolean(options?.forceNewTab)
+
+    if (!forceNewTab) {
+      const existing = openTabs.find((tab) => tab.objectId === objectId && tab.type === type)
+      if (existing) {
+        setIsCreating(false)
+        setActiveTabId(existing.tabId)
+        return true
+      }
+    }
+
+    let loadedObject: Record<string, unknown> | null = null
+    try {
+      const full = await getObject(type, objectId)
+      loadedObject = { ...(full as Record<string, unknown>), type }
+    } catch {
+      if (type === 'habit') {
+        const habitsMeta = await listHabitMeta()
+        const fallback = habitsMeta.find((item) => item.id === objectId)
+        if (fallback) {
+          try {
+            const fullFallback = await getObject('habit', fallback.id)
+            loadedObject = { ...(fullFallback as Record<string, unknown>), type: 'habit' }
+          } catch {
+            loadedObject = { ...fallback, type: 'habit' }
+          }
+        }
+      }
+    }
+
+    if (!loadedObject) return false
+    const tabId = `${type}:${objectId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 7)}`
+    setIsCreating(false)
+    setOpenTabs((prev) => [
+      ...prev,
+      { tabId, objectId, type, object: loadedObject as Record<string, unknown>, isDirty: false },
+    ])
+    setActiveTabId(tabId)
+    return true
+  }, [openTabs])
+
+  const handleSelectItem = useCallback(async (id: string, type: NoteType, options?: { forceNewTab?: boolean }) => {
+    await openObjectInTab(id, type, options)
+  }, [openObjectInTab])
 
   useEffect(() => {
     if (!pendingSelection) return
     void handleSelectItem(pendingSelection.id, pendingSelection.type)
   }, [handleSelectItem, pendingSelection])
 
-  const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
-    try {
-      const full = await getObject(target.type, target.id)
-      if (full && typeof full === 'object') {
-        setIsCreating(false)
-        setSelectedId(target.id)
-        setSelectedType(target.type)
-        setSelectedObject({ ...full, type: target.type })
-        setHasUnsavedChanges(false)
-        return
-      }
-    } catch {
-      // Some older/stale habit rows can fail direct `get`; fall back to list metadata by ID.
-    }
+  const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => {
+    const opened = await openObjectInTab(target.id, target.type, options)
+    if (opened) return
 
     if (target.type === 'habit') {
       const habitsMeta = await listHabitMeta()
@@ -465,32 +515,15 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       const fallback = habitsMeta.find((item) => item.id === target.id)
         ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.dropboxPath) === targetPath)
       if (fallback) {
-        try {
-          const fullFallback = await getObject('habit', fallback.id)
-          setIsCreating(false)
-          setSelectedId(fallback.id)
-          setSelectedType('habit')
-          setSelectedObject({ ...fullFallback, type: 'habit' })
-          setHasUnsavedChanges(false)
-          return
-        } catch {
-          // Fall through to metadata-only fallback.
-        }
-        setIsCreating(false)
-        setSelectedId(fallback.id)
-        setSelectedType('habit')
-        setSelectedObject({ ...fallback, type: 'habit' })
-        setHasUnsavedChanges(false)
+        void openObjectInTab(fallback.id, 'habit', options)
       }
     }
-  }, [])
+  }, [openObjectInTab])
 
   const handleNewNote = () => {
-    setSelectedId(null)
-    setSelectedType(null)
-    setSelectedObject(null)
-    setHasUnsavedChanges(false)
+    setActiveTabId(null)
     setIsCreating(true)
+    setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
   }
 
@@ -499,53 +532,71 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
     const existing = dailyNotes.find((note) => note.date === date)
     if (!existing) return
 
-    setIsCreating(false)
-    setSelectedId(existing.id)
-    setSelectedType('daily-note')
-    try {
-      const full = await getObject('daily-note', existing.id)
-      setSelectedObject({ ...full, type: 'daily-note' })
-      setHasUnsavedChanges(false)
-    } catch {
-      setSelectedObject(null)
-    }
-  }, [createType, dailyNotes, isCreating])
+    await openObjectInTab(existing.id, 'daily-note')
+    setCreateHasUnsavedChanges(false)
+  }, [createType, dailyNotes, isCreating, openObjectInTab])
 
   const handleSaveNew = (saved: Record<string, unknown>) => {
-    void saved
-    setHasUnsavedChanges(false)
+    const type = (saved.type as EditorObjectType | undefined) ?? createType
+    const id = saved.id as string | undefined
+    setCreateHasUnsavedChanges(false)
     setIsCreating(false)
     loadAll()
+    if (id) {
+      void openObjectInTab(id, type)
+    }
     onSaved?.()
   }
 
   const handleSaveEdit = (saved: Record<string, unknown>) => {
-    void saved
-    setHasUnsavedChanges(false)
-    setSelectedId(null)
-    setSelectedObject(null)
-    setIsCreating(false)
+    const id = saved.id as string | undefined
+    const type = saved.type as EditorObjectType | undefined
+    if (id && type && activeTabId) {
+      setOpenTabs((prev) => prev.map((tab) =>
+        tab.tabId === activeTabId
+          ? { ...tab, objectId: id, type, object: { ...saved, type }, isDirty: false }
+          : tab,
+      ))
+    }
     loadAll()
   }
 
-   const handleCloseEditor = () => {
-     if (hasUnsavedChanges) {
-       setShowConfirmClose(true)
-       return
-     }
-     setSelectedId(null)
-     setSelectedObject(null)
-     setIsCreating(false)
-     setHasUnsavedChanges(false)
-   }
+  const handleRequestCloseTab = useCallback((tabId: string) => {
+    const tab = openTabs.find((entry) => entry.tabId === tabId)
+    if (!tab) return
+    if (tab.isDirty) {
+      setConfirmCloseTabId(tabId)
+      return
+    }
+    closeTab(tabId)
+  }, [closeTab, openTabs])
 
-   const handleConfirmClose = () => {
-     setShowConfirmClose(false)
-     setSelectedId(null)
-     setSelectedObject(null)
-     setIsCreating(false)
-     setHasUnsavedChanges(false)
-   }
+  const handleCloseEditor = () => {
+    if (isCreating) {
+      if (createHasUnsavedChanges) {
+        setConfirmCloseTabId('create')
+        return
+      }
+      setIsCreating(false)
+      setCreateHasUnsavedChanges(false)
+      return
+    }
+    if (!activeTabId) return
+    handleRequestCloseTab(activeTabId)
+  }
+
+  const handleConfirmClose = () => {
+    if (confirmCloseTabId === 'create') {
+      setIsCreating(false)
+      setCreateHasUnsavedChanges(false)
+      setConfirmCloseTabId(null)
+      return
+    }
+    if (confirmCloseTabId) {
+      closeTab(confirmCloseTabId)
+    }
+    setConfirmCloseTabId(null)
+  }
 
    // Filtered lists
   const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
@@ -568,6 +619,28 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       n.date.includes(habitFilter) ||
       formatDatePretty(n.date).toLowerCase().includes(habitFilter.toLowerCase())),
   )
+  const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
+  const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit'
+    ? activeTab.type
+    : null
+  const activeNoteId = activeNoteType ? activeTab?.objectId ?? null : null
+
+  const getTabLabel = (tab: OpenEditorTab) => {
+    if (tab.type === 'daily-note') {
+      const value = tab.object.date as string | undefined
+      return value ? formatDatePretty(value) : 'Daily Note'
+    }
+    if (tab.type === 'habit') {
+      return (tab.object.text as string | undefined)?.trim() || 'Habit'
+    }
+    if (tab.type === 'project') {
+      return (tab.object.name as string | undefined)?.trim() || 'Project'
+    }
+    if (tab.type === 'ref-material') {
+      return (tab.object.name as string | undefined)?.trim() || 'Reference Material'
+    }
+    return (tab.object.title as string | undefined)?.trim() || 'Topic Note'
+  }
 
    return (
      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -642,12 +715,12 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
               secondary: n.preview || (n.date ? formatDatePretty(n.date) : undefined),
              tags: n.tags,
            }))}
-           loading={loading}
-           filter={topicFilter}
-           onFilterChange={setTopicFilter}
-           selectedId={selectedType === 'topic-note' ? selectedId : null}
-           onSelect={(id) => handleSelectItem(id, 'topic-note')}
-         />
+            loading={loading}
+            filter={topicFilter}
+            onFilterChange={setTopicFilter}
+            selectedId={activeNoteType === 'topic-note' ? activeNoteId : null}
+            onSelect={(id, options) => void handleSelectItem(id, 'topic-note', options)}
+          />
 
          {/* Daily Notes */}
          <NoteColumn
@@ -660,12 +733,12 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
              secondary: n.preview || undefined,
              tags: n.tags,
            }))}
-           loading={loading}
-           filter={dailyFilter}
-           onFilterChange={setDailyFilter}
-           selectedId={selectedType === 'daily-note' ? selectedId : null}
-           onSelect={(id) => handleSelectItem(id, 'daily-note')}
-         />
+            loading={loading}
+            filter={dailyFilter}
+            onFilterChange={setDailyFilter}
+            selectedId={activeNoteType === 'daily-note' ? activeNoteId : null}
+            onSelect={(id, options) => void handleSelectItem(id, 'daily-note', options)}
+          />
 
          {/* Habits */}
          <NoteColumn
@@ -678,13 +751,13 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
               secondary: n.date ? formatDatePretty(n.date) : undefined,
              tags: n.tags,
            }))}
-           loading={loading}
-           filter={habitFilter}
-           onFilterChange={setHabitFilter}
-           selectedId={selectedType === 'habit' ? selectedId : null}
-           onSelect={(id) => handleSelectItem(id, 'habit')}
-         />
-       </Stack>
+            loading={loading}
+            filter={habitFilter}
+            onFilterChange={setHabitFilter}
+            selectedId={activeNoteType === 'habit' ? activeNoteId : null}
+            onSelect={(id, options) => void handleSelectItem(id, 'habit', options)}
+          />
+        </Stack>
 
        {/* ── Create Modal Dialog ── */}
        <Dialog
@@ -722,19 +795,19 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
                setCreateType(t)
                setCreateKey((k) => k + 1)
              }}
-             onSave={handleSaveNew}
-             onClose={handleCloseEditor}
-             onDirty={setHasUnsavedChanges}
-             onNavigateToObject={handleNavigateToObject}
-             onCreateDateChange={handleCreateDateChange}
-           />
+              onSave={handleSaveNew}
+              onClose={handleCloseEditor}
+              onDirty={setCreateHasUnsavedChanges}
+              onNavigateToObject={handleNavigateToObject}
+              onCreateDateChange={handleCreateDateChange}
+            />
          </DialogContent>
        </Dialog>
 
-       {/* ── Edit Modal Dialog ── */}
-       <Dialog
-         open={!!selectedObject && !isCreating}
-         onClose={handleCloseEditor}
+        {/* ── Edit Modal Dialog ── */}
+        <Dialog
+          open={!!activeTab && !isCreating}
+          onClose={handleCloseEditor}
          maxWidth={false}
          fullWidth
          PaperProps={{
@@ -751,50 +824,86 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            },
          }}
        >
-         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1, flexShrink: 0 }}>
-           <Typography variant="h6" sx={{ fontWeight: 700 }}>
-             {selectedType === 'daily-note' ? '📓 Daily Note'
-               : selectedType === 'habit' ? '🔁 Habit'
-               : selectedType === 'project' ? '📁 Project'
-               : selectedType === 'ref-material' ? '📚 Reference Material'
-               : '📝 Topic Note'}
-           </Typography>
-           <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ ml: 'auto' }}>
-             <CloseIcon fontSize="small" />
-           </MuiIconButton>
-         </DialogTitle>
-         <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {selectedObject && selectedType ? (
-              <EditorErrorBoundary>
-                <ObjectEditor
-                  object={selectedObject}
-                  type={selectedType}
-                  onSave={handleSaveEdit}
-                  onCancel={handleCloseEditor}
-                  onDirty={setHasUnsavedChanges}
-                  onNavigateToObject={handleNavigateToObject}
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 0.5, flexShrink: 0 }}>
+            <Tabs
+              value={activeTab?.tabId ?? false}
+              onChange={(_, value: string) => setActiveTabId(value)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{
+                minHeight: 36,
+                flex: 1,
+                '& .MuiTabs-indicator': { bgcolor: '#1a8ab5' },
+                '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
+              }}
+            >
+              {openTabs.map((tab) => (
+                <Tab
+                  key={tab.tabId}
+                  value={tab.tabId}
+                  label={(
+                    <Stack direction="row" alignItems="center" spacing={0.5}>
+                      <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {getTabLabel(tab)}
+                      </Typography>
+                      {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
+                      <MuiIconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleRequestCloseTab(tab.tabId)
+                        }}
+                        sx={{ p: 0.15, color: '#7dbad6' }}
+                      >
+                        <CloseIcon sx={{ fontSize: 12 }} />
+                      </MuiIconButton>
+                    </Stack>
+                  )}
                 />
-              </EditorErrorBoundary>
+              ))}
+            </Tabs>
+            <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ ml: 'auto' }}>
+              <CloseIcon fontSize="small" />
+            </MuiIconButton>
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+             {activeTab ? (
+               <EditorErrorBoundary>
+                 <ObjectEditor
+                   key={activeTab.tabId}
+                   object={activeTab.object}
+                   type={activeTab.type}
+                   onSave={handleSaveEdit}
+                   onCancel={handleCloseEditor}
+                   onDirty={(isDirty) => {
+                     if (!activeTabId) return
+                     setOpenTabs((prev) => prev.map((tab) => (
+                       tab.tabId === activeTabId ? { ...tab, isDirty } : tab
+                     )))
+                   }}
+                   onNavigateToObject={handleNavigateToObject}
+                 />
+               </EditorErrorBoundary>
             ) : null}
          </DialogContent>
        </Dialog>
 
-       {/* Confirmation Dialog for unsaved changes */}
-       <Dialog
-         open={showConfirmClose}
-         onClose={() => setShowConfirmClose(false)}
-       >
-         <DialogTitle>Unsaved Changes</DialogTitle>
-         <DialogContent>
-           <Typography>
-             You have unsaved changes. Are you sure you want to close without saving?
-           </Typography>
-         </DialogContent>
-         <DialogActions>
-           <Button onClick={() => setShowConfirmClose(false)}>Cancel</Button>
-           <Button onClick={handleConfirmClose} variant="contained" color="error">
-             Discard Changes
-           </Button>
+        {/* Confirmation Dialog for unsaved changes */}
+        <Dialog
+          open={!!confirmCloseTabId}
+          onClose={() => setConfirmCloseTabId(null)}
+        >
+          <DialogTitle>Unsaved Changes</DialogTitle>
+          <DialogContent>
+            <Typography>
+              You have unsaved changes. Are you sure you want to close without saving?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmCloseTabId(null)}>Cancel</Button>
+            <Button onClick={handleConfirmClose} variant="contained" color="error">
+              Discard Changes
+            </Button>
          </DialogActions>
        </Dialog>
      </Box>
