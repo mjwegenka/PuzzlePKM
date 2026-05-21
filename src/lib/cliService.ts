@@ -19,7 +19,7 @@ export interface MentionSearchResult {
 
 export interface ResolvedObjectRef {
   id: string;
-  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture';
+  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
   syncPath: string;
   dropboxPath?: string;
 }
