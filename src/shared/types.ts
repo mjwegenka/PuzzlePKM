@@ -52,6 +52,7 @@ export interface Habit extends BaseObject {
   type: 'habit';
   text: string; // < 256 chars
   date: string; // YYYY-MM-DD
+  status: 'planned' | 'accomplished';
 }
 
 export interface Tag {

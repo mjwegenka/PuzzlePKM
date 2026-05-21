@@ -20,6 +20,9 @@ const KEYCHAIN_APP_SECRET = 'dropbox_app_secret';
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MAX_NOTE_TITLE_LENGTH = 120;
 const MAX_HABIT_TEXT_LENGTH = 255;
+const HABIT_STATUS_PLANNED = 'planned';
+const HABIT_STATUS_ACCOMPLISHED = 'accomplished';
+const HABIT_STATUSES = new Set([HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED]);
 const SHELL_HISTORY_SIZE = 200;
 const DEFAULT_NOTES_ROOT = '/Dropith';
 const DAILY_NOTES_SUBFOLDER = 'daily-notes';
@@ -92,6 +95,7 @@ const schema = `
     id TEXT PRIMARY KEY,
     text TEXT NOT NULL,
     date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'accomplished')),
     dropbox_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -178,16 +182,27 @@ const schema = `
      // Column may already exist or table doesn't exist yet
    }
 
-   try {
-     // Add dropbox_path column to habits if it doesn't exist
-     const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
-     if (!habitsColumnsCheck.some(c => c.name === 'dropbox_path')) {
-       db.prepare("ALTER TABLE habits ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
-     }
-   } catch (e) {
-     // Column may already exist or table doesn't exist yet
-   }
- }
+    try {
+      // Add dropbox_path column to habits if it doesn't exist
+      const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
+      if (!habitsColumnsCheck.some(c => c.name === 'dropbox_path')) {
+        db.prepare("ALTER TABLE habits ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+      }
+      if (!habitsColumnsCheck.some(c => c.name === 'status')) {
+        db.prepare(`ALTER TABLE habits ADD COLUMN status TEXT NOT NULL DEFAULT '${HABIT_STATUS_ACCOMPLISHED}'`).run();
+      }
+      db.prepare(`
+        UPDATE habits
+        SET status = CASE
+          WHEN lower(trim(COALESCE(status, ''))) IN ('planned', 'accomplished')
+            THEN lower(trim(status))
+          ELSE '${HABIT_STATUS_PLANNED}'
+        END
+      `).run();
+    } catch (e) {
+      // Column may already exist or table doesn't exist yet
+    }
+  }
 
  function defaultAppDataDir() {
   const home = homedir();
@@ -240,6 +255,19 @@ function parseCsv(value) {
       .map((item) => item.trim())
       .filter(Boolean),
   ));
+}
+
+function normalizeHabitStatus(value, fallback = HABIT_STATUS_PLANNED) {
+  const normalized = normalize(String(value ?? '')).toLowerCase();
+  return HABIT_STATUSES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeHabitTagNames(tags) {
+  if (!Array.isArray(tags)) return [];
+  const [first] = tags
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+  return first ? [first] : [];
 }
 
 function decodeUriComponentSafe(value) {
@@ -1534,6 +1562,7 @@ function getHabit(db, id) {
     type: 'habit',
     text: row.text,
     date: row.date,
+    status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
     dropboxPath: row.dropbox_path || '',
     tags,
     createdAt: row.created_at,
@@ -1548,6 +1577,7 @@ function listHabits(db) {
       id: row.id,
       text: row.text,
       date: row.date,
+      status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
       dropboxPath: row.dropbox_path || '',
       tags,
       createdAt: row.created_at,
@@ -1564,14 +1594,16 @@ function sanitizeHabitText(text) {
 
 function createHabitRecord(db, input) {
   const sanitized = sanitizeHabitText(input.text);
+  const tags = normalizeHabitTagNames(input.tags);
+  const status = normalizeHabitStatus(input.status, HABIT_STATUS_PLANNED);
   return withTransaction(db, () => {
     // DEC-21: Calculate dropboxPath from dropbox_path parameter or generate from date/tags/id
     const dropboxPath = input.dropboxPath || '';
     db.prepare(`
-      INSERT INTO habits (id, text, date, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(input.id, sanitized.text, input.date, dropboxPath, input.createdAt, input.updatedAt);
-    syncObjectTags(db, input.id, 'habit', input.tags ?? []);
+      INSERT INTO habits (id, text, date, status, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.id, sanitized.text, input.date, status, dropboxPath, input.createdAt, input.updatedAt);
+    syncObjectTags(db, input.id, 'habit', tags);
     return { ...getHabit(db, input.id), truncated: sanitized.truncated };
   });
 }
@@ -1593,6 +1625,10 @@ function updateHabitRecord(db, id, input) {
     fields.push('date = ?');
     values.push(input.date);
   }
+  if (input.status !== undefined) {
+    fields.push('status = ?');
+    values.push(normalizeHabitStatus(input.status, existing.status));
+  }
   if (input.dropboxPath !== undefined) {
     fields.push('dropbox_path = ?');
     values.push(input.dropboxPath);
@@ -1603,7 +1639,7 @@ function updateHabitRecord(db, id, input) {
   return withTransaction(db, () => {
     db.prepare(`UPDATE habits SET ${fields.join(', ')} WHERE id = ?`).run(...values);
     if (input.tags !== undefined) {
-      syncObjectTags(db, id, 'habit', input.tags);
+      syncObjectTags(db, id, 'habit', normalizeHabitTagNames(input.tags));
     }
     return { ...getHabit(db, id), truncated };
   });
@@ -1809,7 +1845,7 @@ function printRecords(type, rows) {
         console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}`);
         break;
        case 'habit':
-         console.log(`${row.id}\t${row.date}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+         console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
          break;
        case 'tag':
          console.log(`${row.id}\t${row.displayName}\t${row.objectCount} objects`);
@@ -2264,8 +2300,9 @@ function habitToMarkdown(fields) {
     type: 'habit',
     text: fields.text,
     date: fields.date,
+    status: normalizeHabitStatus(fields.status, HABIT_STATUS_PLANNED),
     syncPath: fields.dropboxPath || '',
-    tags: fields.tagNames,
+    tags: normalizeHabitTagNames(fields.tagNames),
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
@@ -2386,8 +2423,9 @@ function parseHabitMarkdown(content) {
     id: data.id,
     text: data.text,
     date: data.date,
+    status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
     dropboxPath: readSyncPathField(data),
-    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
+    tagNames: normalizeHabitTagNames(Array.isArray(data.tags) ? data.tags.map(String) : []),
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
   };
@@ -2471,6 +2509,7 @@ function shouldApplyRemoteHabit(existing, remote) {
   if (remoteUpdatedAt < localUpdatedAt) return false;
   if ((remote.text ?? '') !== (existing.text ?? '')) return true;
   if ((remote.date ?? '') !== (existing.date ?? '')) return true;
+  if (normalizeHabitStatus(remote.status, HABIT_STATUS_ACCOMPLISHED) !== normalizeHabitStatus(existing.status, HABIT_STATUS_PLANNED)) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
   return false;
 }
@@ -2620,8 +2659,9 @@ function listHabitsForSync(db) {
       id: row.id,
       text: row.text,
       date: row.date,
+      status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
       dropboxPath: row.dropbox_path || '',
-      tagNames: tags,
+      tagNames: normalizeHabitTagNames(tags),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -3187,25 +3227,27 @@ async function reconcileHabitsDb(db, token, rootFolder) {
    for (const fields of syncItems) {
      try {
        const existing = getHabit(db, fields.id);
-       if (!existing) {
-         createHabitRecord(db, {
-           id: fields.id,
-           text: fields.text,
-           date: fields.date,
-           dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
-           tags: fields.tagNames,
-           createdAt: fields.createdAt,
-           updatedAt: fields.updatedAt,
+        if (!existing) {
+          createHabitRecord(db, {
+            id: fields.id,
+            text: fields.text,
+            date: fields.date,
+            status: fields.status,
+            dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+            tags: fields.tagNames,
+            createdAt: fields.createdAt,
+            updatedAt: fields.updatedAt,
          });
          result.imported++;
-       } else if (shouldApplyRemoteHabit(existing, fields)) {
-         updateHabitRecord(db, existing.id, {
-           text: fields.text,
-           date: fields.date,
-           dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
-           tags: fields.tagNames,
-           updatedAt: fields.updatedAt,
-         });
+        } else if (shouldApplyRemoteHabit(existing, fields)) {
+          updateHabitRecord(db, existing.id, {
+            text: fields.text,
+            date: fields.date,
+            status: fields.status,
+            dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+            tags: fields.tagNames,
+            updatedAt: fields.updatedAt,
+          });
          result.updated++;
        }
        markRemotePresence(db, 'habit', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
@@ -3795,6 +3837,7 @@ async function executeTokens(tokens, context = {}) {
             return updateHabitRecord(db, id, {
               text: input.text,
               date: input.date,
+              status: input.status,
               tags: input.tags,
               updatedAt: now,
             });
@@ -3803,6 +3846,7 @@ async function executeTokens(tokens, context = {}) {
             id: id ?? randomUUID(),
             text: input.text ?? '',
             date: input.date ?? localDateString(),
+            status: input.status ?? HABIT_STATUS_PLANNED,
             tags: input.tags ?? [],
             createdAt: now,
             updatedAt: now,

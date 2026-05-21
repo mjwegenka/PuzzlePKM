@@ -279,8 +279,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
   const handleAddTag = () => {
     const tag = newTag.trim().toLowerCase();
-    if (tag && !tags.includes(tag)) {
-      setTags([...tags, tag]);
+    if (tag) {
+      if (type === 'habit') {
+        setTags([tag]);
+      } else if (!tags.includes(tag)) {
+        setTags([...tags, tag]);
+      }
       setNewTag('');
     }
   };
@@ -480,11 +484,51 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
   const isOptionalDate = type === 'topic-note' || type === 'project';
   const showContent = type !== 'project' && type !== 'ref-material';
+  const isHabit = type === 'habit';
   const selectedDate = (() => {
     if (!date) return null;
     const parsed = parseISO(date);
     return isValid(parsed) ? parsed : null;
   })();
+  const tagsEditor = (
+    <>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
+          Tags
+        </Typography>
+        <IconButton
+          size="small"
+          onClick={() => setShowTagDialog(true)}
+          sx={{ p: 0.4, color: '#7dbad6', '&:hover': { color: '#e4f0fb' } }}
+        >
+          <AddIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      </Stack>
+
+      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        {tags.length === 0 && (
+          <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+            No tags — click + to add
+          </Typography>
+        )}
+        {tags.map((tag) => (
+          <Chip
+            key={tag}
+            label={`#${tag}`}
+            onDelete={() => handleRemoveTag(tag)}
+            size="small"
+            sx={{
+              bgcolor: 'rgba(26,138,181,0.15)',
+              border: '1px solid rgba(26,138,181,0.35)',
+              color: '#b0d4e8',
+              height: 22,
+              '& .MuiChip-deleteIcon': { fontSize: 14, color: '#7dbad6' },
+            }}
+          />
+        ))}
+      </Stack>
+    </>
+  );
 
   return (
     <Paper
@@ -518,6 +562,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
               placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
               sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
             />
+          )}
+
+          {isHabit && (
+            <Box sx={{ mb: 1.5 }}>
+              {tagsEditor}
+            </Box>
           )}
 
           {showDate && (
@@ -570,13 +620,13 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         {showContent && (
           <Box sx={{ flex: 1, minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
             <RichMarkdownEditor
-              label={type === 'habit' ? 'Habit text' : 'Content'}
+              label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
               value={content}
               onChange={setContent}
               placeholder={
                 isNoteType
                   ? 'Write your note… type @ to link another object'
-                  : 'Any notes…'
+                  : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
               }
               mentionEnabled={isNoteType}
               resolveMentionHref={resolveMentionHref}
@@ -647,41 +697,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
             </Stack>
           )}
 
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
-            <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
-              Tags
-            </Typography>
-            <IconButton
-              size="small"
-              onClick={() => setShowTagDialog(true)}
-              sx={{ p: 0.4, color: '#7dbad6', '&:hover': { color: '#e4f0fb' } }}
-            >
-              <AddIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Stack>
-
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            {tags.length === 0 && (
-              <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
-                No tags — click + to add
-              </Typography>
-            )}
-            {tags.map((tag) => (
-              <Chip
-                key={tag}
-                label={`#${tag}`}
-                onDelete={() => handleRemoveTag(tag)}
-                size="small"
-                sx={{
-                  bgcolor: 'rgba(26,138,181,0.15)',
-                  border: '1px solid rgba(26,138,181,0.35)',
-                  color: '#b0d4e8',
-                  height: 22,
-                  '& .MuiChip-deleteIcon': { fontSize: 14, color: '#7dbad6' },
-                }}
-              />
-            ))}
-          </Stack>
+          {!isHabit && tagsEditor}
         </Box>
 
         {/* ── Action buttons ── */}
