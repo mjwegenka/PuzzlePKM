@@ -10,42 +10,79 @@ Stage status should be updated here first, then summarized elsewhere only as a p
 ## Goal
 Deliver a local-first CLI knowledge management tool with local-folder sync, plus a desktop wrapper that invokes CLI functionality through Tauri.
 
-## Completed Stages (1–5)
+## Completed Stages (1–8)
 
-Stages 1 through 5 have been fully implemented:
+Stages 1 through 8 have been fully implemented:
 
 - **Stage 1 – Scope Lock**: Product scope and decision log are internally consistent.
 - **Stage 2 – Architecture Baseline**: CLI data/model boundaries, local schema, and sync boundaries are established.
 - **Stage 3 – Runnable Foundation**: CLI CRUD works locally and the repository remains runnable without desktop shell dependencies.
 - **Stage 4 – Domain Linking Core**: All MVP object schemas implemented. ID-based links and bi-directional reference resolution are in place. Daily Note uniqueness by local date is enforced.
 - **Stage 5 – Notes Workflows**: Markdown import pipeline and core note/object workflows are available in the CLI.
+- **Stage 6 – Sync File Objects**: Projects and Reference Materials are sync-backed as slug-named directories with `meta.yaml`. Directory browsing and open-in-folder helpers are in CLI and desktop UI (`DEC-17`, `DEC-23`).
+- **Stage 7 – Habits and Tags**: Habit lifecycle enforces single-tag identity and required `status` enum (`DEC-45`). Case-insensitive tags aggregate across all object types. Tags page lists all tagged objects including habits (`DEC-24`).
+- **Stage 8 – Sync and Reliability**: Local-folder sync is the active transport (`DEC-35`, `DEC-41`). One-shot `puzzlepkm sync` and background `puzzlepkm sync --watch` are available. Conflict resolution follows last-write-wins semantics (`DEC-09`). Dropbox OAuth commands are now legacy/deprecated.
 
-## Stage 6: Sync File Objects
-Status: **In progress** (directory browsing + open-in-folder wiring implemented)
-- Implement Projects and Reference Materials directory browsing.
-- Add CLI-friendly open/browse helpers for sync-backed directories.
-- Support optional project date metadata.
-- Exit criteria: sync-backed objects are navigable and launchable.
+## Block-Level Note Linking (Completed)
 
-## Stage 7: Habits and Tags
-Status: **In progress** (Habits view + aggregate Tag object view implemented)
-- Implement Habit constraints (`DEC-09`).
-- Implement case-insensitive tags + alias behavior (`DEC-08`).
-- Build aggregate tag views across object types.
-- Exit criteria: habits/tags behave consistently across all linked objects.
+The full block-level linking feature set has been implemented:
 
-## Stage 8: Sync and Reliability
-Status: **In progress** (manual + periodic auto-sync fully available in CLI)
-- Implement auto-sync + manual sync controls (`DEC-12`) — available via `puzzlepkm sync` and `puzzlepkm sync --watch`
-- Implement conflict detection + user-guided resolution (`DEC-13`)
-- Add sync diagnostics with content-safe logging (`DEC-19`)
-- Exit criteria: offline edits survive reconnect and conflict paths are explicit.
+- Block identity and link target format (`DEC-36`)
+- `note_blocks` persistence schema and migration scaffolding (`DEC-37`)
+- Block round-trip for sync/import/export (`DEC-38`)
+- Migration hardening for legacy block rollout (`DEC-39`)
+- Block-authoritative note content reads/writes (`DEC-40`)
+- Local-sync naming cleanup (`DEC-41`)
+- Daily Note date identity immutability (`DEC-42`)
+- Topic Note Index-tag semantics (`DEC-43`)
+- Note backlink expectations (`DEC-44`)
+- Habit lifecycle + single-tag identity (`DEC-45`)
+- Date-link semantics + Daily Note lifecycle guardrails (`DEC-46`)
+- Inbox tagging for sync imports + Inbox view (`DEC-47`)
+- Pinned navigation special-tag + local ordering (`DEC-48`)
+- Notes workspace multi-tab behavior (`DEC-49`)
+- Target v1 navigation IA (`DEC-50`)
+- Scripture extraction/linking object graph (`DEC-51`)
+- PuzzlePKM product rename compatibility (`DEC-52`)
+- SQLite scale recommendation for v1/v1.1 (`DEC-53`)
 
 ## Stage 9: Release Readiness
-- Reach target domain coverage threshold (`DEC-21`).
-- Run regression passes for data loss and sync correctness.
-- Package and validate macOS release artifacts.
-- Exit criteria: release candidate satisfies `DEC-22` readiness definition.
+Status: **Current**
+
+See `DEC-54` in `IMPLEMENTATION_DECISIONS.md` for the full v1 readiness definition.
+
+### v1 Validation Checklist
+
+**Regression**
+- [ ] All object types (daily-note, topic-note, habit, project, ref-material, scripture) can be created, read, updated, and deleted via CLI without data loss.
+- [ ] `note_blocks` backfill runs idempotently on `openDb()` for all legacy notes; malformed rows emit warnings and do not abort startup.
+- [ ] Block IDs match `blk-<12 hex chars>` format; positions are contiguous and unique per note.
+- [ ] Daily Note date identity is immutable: update flows reject date-field mutations.
+- [ ] Habit writes enforce one-tag rule and persist a valid `status` value.
+- [ ] Backlink sets remain reciprocal after add/remove/edit of a source link.
+
+**Sync safety**
+- [ ] One-shot `puzzlepkm sync` completes without data loss across all object types.
+- [ ] Background `puzzlepkm sync --watch` operates correctly with the default 15-minute interval and a custom `--interval`.
+- [ ] Missing sync folder triggers folder creation and skips deletion reconciliation for that type on the same run (safe fallback).
+- [ ] Deleting a locally-tracked object removes its sync file before the DB record is dropped.
+- [ ] Inbox tag is added exactly once to newly imported objects; existing objects are never re-tagged on subsequent syncs.
+- [ ] `syncPath` metadata is present and correct in serialized front matter; legacy `dropboxPath` values round-trip for compatibility.
+
+**Migration flows**
+- [ ] Opening a pre-block-era database auto-backfills `note_blocks` from `content_markdown` without data loss.
+- [ ] Legacy markdown without embedded block IDs receives fresh block IDs on import; no content is dropped.
+- [ ] Legacy `dropboxPath` links resolve after migration to the local-sync transport (`DEC-35`).
+- [ ] `PUZZLEPKM_DB_PATH` and legacy `DROPITH_DB_PATH` environment variables both resolve to the correct database.
+- [ ] `puzzlepkm` primary CLI and `dropith` compatibility alias both resolve to the same binary.
+
+**Documentation**
+- [ ] Command lists in `README.md` and `AGENTS.md` are identical and cover all runnable commands.
+- [ ] All `DEC-*` references in `README.md` resolve to entries in `IMPLEMENTATION_DECISIONS.md`.
+- [ ] No behavioral rule appears in more than one canonical file (see canonical ownership in `AGENTS.md`).
+- [ ] `DEVELOPMENT_PLAN.md` stage statuses match actual implementation state.
+
+Exit criteria: all checklist items pass and the release candidate satisfies `DEC-54`.
 
 ## Desktop UI Contract Plan (Tauri Desktop Shell)
 Status: **Planned**
