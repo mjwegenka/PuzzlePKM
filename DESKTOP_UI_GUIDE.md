@@ -160,7 +160,7 @@ interface ObjectListProps {
 | **daily-note** | Date, Content, Tags |
 | **topic-note** | Title, Content, Tags |
 | **project** | Name, Start Date, End Date, Tags |
-| **ref-material** | Name, Tags |
+| **ref-material** | Name, Author (optional), Tags |
 | **habit** | Text (as content), Date, Tags |
 
 ### 6. MentionPopup (`components/MentionPopup.tsx`)
@@ -290,4 +290,3 @@ Async functions that invoke the Tauri CLI bridge:
 - Settings screen
 - Advanced search
 - Keyboard nav
-

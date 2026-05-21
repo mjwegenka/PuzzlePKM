@@ -13,6 +13,10 @@ import {
   Alert,
   IconButton,
   TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import FolderIcon from '@mui/icons-material/Folder';
 import ArticleIcon from '@mui/icons-material/Article';
@@ -24,6 +28,7 @@ import { listFileMeta } from '../lib/cliService';
 interface FileItem {
   id: string;
   name: string;
+  author?: string;
   syncPath: string;
   dropboxPath?: string;
   type: 'project' | 'ref-material';
@@ -42,6 +47,7 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'author'>('name');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,13 +66,23 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
     load();
   }, [load, refreshKey]);
 
-  const projects = items.filter(
-    (i) => i.type === 'project' && i.name.toLowerCase().includes(filter.toLowerCase()),
-  );
-  const refMaterials = items.filter(
-    (i) =>
-      i.type === 'ref-material' && i.name.toLowerCase().includes(filter.toLowerCase()),
-  );
+  const filterText = filter.toLowerCase();
+  const matchesFilter = (i: FileItem) =>
+    i.name.toLowerCase().includes(filterText) ||
+    (i.author ?? '').toLowerCase().includes(filterText);
+  const compareItems = (a: FileItem, b: FileItem) => {
+    if (sortBy === 'author') {
+      const byAuthor = (a.author ?? '').localeCompare(b.author ?? '', undefined, { sensitivity: 'base' });
+      if (byAuthor !== 0) return byAuthor;
+    }
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  };
+  const projects = items
+    .filter((i) => i.type === 'project' && matchesFilter(i))
+    .sort(compareItems);
+  const refMaterials = items
+    .filter((i) => i.type === 'ref-material' && matchesFilter(i))
+    .sort(compareItems);
 
   return (
     <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -80,15 +96,29 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
         </IconButton>
       </Stack>
 
-      {/* Filter */}
-      <TextField
-        size="small"
-        placeholder="Filter by name…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        variant="outlined"
-        sx={{ mb: 1.5 }}
-      />
+      {/* Filter + sort */}
+      <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+        <TextField
+          size="small"
+          placeholder="Filter by name/author…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          variant="outlined"
+          sx={{ flex: 1 }}
+        />
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel id="file-sort-label">Sort</InputLabel>
+          <Select
+            labelId="file-sort-label"
+            label="Sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'name' | 'author')}
+          >
+            <MenuItem value="name">Name</MenuItem>
+            <MenuItem value="author">Author</MenuItem>
+          </Select>
+        </FormControl>
+      </Stack>
 
       {error && (
         <Alert severity="error" sx={{ mb: 1, fontSize: '12px' }}>
@@ -215,11 +245,18 @@ function FileListItem({
               </Typography>
             }
             secondary={
-              item.syncPath && item.syncPath !== '(no path)' ? (
-                <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '11px' }}>
-                  {item.syncPath}
-                </Typography>
-              ) : undefined
+              <>
+                {item.type === 'ref-material' && item.author && (
+                  <Typography variant="caption" sx={{ color: '#7dbad6', fontSize: '11px', display: 'block' }}>
+                    by {item.author}
+                  </Typography>
+                )}
+                {item.syncPath && item.syncPath !== '(no path)' ? (
+                  <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '11px' }}>
+                    {item.syncPath}
+                  </Typography>
+                ) : null}
+              </>
             }
           />
         </ListItemButton>

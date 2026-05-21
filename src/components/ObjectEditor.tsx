@@ -183,14 +183,16 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const defaultDate =
     type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
 
-  const initialRef = useRef<{ title: string; date: string; content: string; tags: string[] }>({
+  const initialRef = useRef<{ title: string; author: string; date: string; content: string; tags: string[] }>({
     title: '',
+    author: '',
     date: defaultDate,
     content: '',
     tags: [],
   });
 
   const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [content, setContent] = useState('');
   const [noteBlocks, setNoteBlocks] = useState<NoteBlock[]>([]);
@@ -207,6 +209,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   // Reset form when a different object payload is loaded.
   useEffect(() => {
     const nextTitle = (object?.title as string) || (object?.name as string) || '';
+    const nextAuthor = (object?.author as string) || '';
     const nextDate =
       (object?.date as string | undefined) ??
       (object?.startDate as string | undefined) ??
@@ -225,12 +228,14 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
     initialRef.current = {
       title: nextTitle,
+      author: nextAuthor,
       date: nextDate,
       content: nextContent,
       tags: [...nextTags],
     };
 
     setTitle(nextTitle);
+    setAuthor(nextAuthor);
     setDate(nextDate);
     setContent(nextContent);
     setNoteBlocks(nextBlocks);
@@ -319,6 +324,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
       } else if (type === 'ref-material') {
         data.name = title;
+        data.author = author || '';
         data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
       } else if (type === 'habit') {
         data.text = content;
@@ -328,6 +334,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       const saved = await writeObject(type, data);
       initialRef.current = {
         title,
+        author,
         date,
         content,
         tags: [...tags],
@@ -343,7 +350,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } finally {
       setSaving(false);
     }
-  }, [content, date, noteBlocks, object?.dropboxPath, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+  }, [author, content, date, noteBlocks, object?.dropboxPath, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
 
   const handleSave = async () => {
     const isEmptyNoteContent =
@@ -452,12 +459,13 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     const baseline = initialRef.current;
     const isDirty =
       title !== baseline.title ||
+      author !== baseline.author ||
       date !== baseline.date ||
       content !== baseline.content ||
       JSON.stringify(tags) !== JSON.stringify(baseline.tags);
     setIsDirty(isDirty);
     onDirty?.(isDirty);
-  }, [title, date, content, tags, onDirty]);
+  }, [title, author, date, content, tags, onDirty]);
 
   useEffect(() => {
     if (type !== 'daily-note' || !onDateChange) return;
@@ -561,6 +569,17 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
               variant="standard"
               placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
               sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
+            />
+          )}
+          {type === 'ref-material' && (
+            <TextField
+              fullWidth
+              label="Author (optional)"
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+              variant="standard"
+              placeholder="Author name…"
+              sx={{ mb: 1.5 }}
             />
           )}
 

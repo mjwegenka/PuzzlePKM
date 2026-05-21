@@ -44,6 +44,7 @@ export interface Project extends BaseObject {
 export interface ReferenceMaterial extends BaseObject {
   type: 'ref-material';
   name: string;
+  author?: string;
   syncPath?: string;
   dropboxPath: string;
 }
