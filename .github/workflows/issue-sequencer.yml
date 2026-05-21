@@ -138,6 +138,19 @@ jobs:
                   await setLabels(item.number, desired);
                   core.info(`Marked #${item.number} as ready`);
 
+                  // Try to assign to copilot (note: copilot assignment may not be available in all plans)
+                  try {
+                    await github.rest.issues.addAssignees({
+                      owner,
+                      repo,
+                      issue_number: item.number,
+                      assignees: ['copilot'],
+                    });
+                    core.info(`Assigned #${item.number} to copilot`);
+                  } catch (assignError) {
+                    core.warning(`Could not assign to copilot: ${assignError.message}`);
+                  }
+
                   const comments = await github.paginate(github.rest.issues.listComments, {
                     owner,
                     repo,
@@ -152,7 +165,7 @@ jobs:
                       READY_COMMENT_MARKER,
                       'This issue is now next in the automated sequence (all dependencies are closed).',
                       '',
-                      '@copilot Please start this issue now. Follow the issue acceptance criteria, run repo validations, and open a PR that closes this issue.',
+                      '🤖 **Assigned to Copilot** — This issue has been auto-assigned and should appear in your work queue. If Copilot does not pick it up, you can manually assign this issue in GitHub and Copilot will start work.',
                       '',
                       '**Dependency context**',
                       depText,
