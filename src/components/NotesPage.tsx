@@ -36,6 +36,7 @@ import EditorErrorBoundary from './EditorErrorBoundary'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
+import { getObjectColor } from '../lib/objectColors'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -102,7 +103,7 @@ interface ColumnItem {
 interface NoteColumnProps {
   title: string
   icon: React.ReactNode
-  accentColor: string
+  objectType: string
   items: ColumnItem[]
   loading: boolean
   filter: string
@@ -114,7 +115,7 @@ interface NoteColumnProps {
 function NoteColumn({
   title,
   icon,
-  accentColor,
+  objectType,
   items,
   loading,
   filter,
@@ -122,6 +123,7 @@ function NoteColumn({
   selectedId,
   onSelect,
 }: NoteColumnProps) {
+  const token = getObjectColor(objectType)
   return (
     <Paper
       sx={{
@@ -141,12 +143,12 @@ function NoteColumn({
         spacing={0.75}
         sx={{ px: 1.5, pt: 1.5, pb: 1, flexShrink: 0 }}
       >
-        <Box sx={{ color: accentColor, display: 'flex', alignItems: 'center' }}>{icon}</Box>
+        <Box sx={{ color: token.text, display: 'flex', alignItems: 'center' }}>{icon}</Box>
         <Typography
           variant="caption"
           sx={{
             fontWeight: 700,
-            color: accentColor,
+            color: token.text,
             textTransform: 'uppercase',
             letterSpacing: '0.07em',
             fontSize: '10px',
@@ -202,8 +204,8 @@ function NoteColumn({
                   sx={{
                     py: 0.75,
                     px: 1.5,
-                    '&.Mui-selected': { bgcolor: `rgba(26,138,181,0.18)` },
-                    '&:hover': { bgcolor: 'rgba(26,138,181,0.1)' },
+                    '&.Mui-selected': { bgcolor: token.bg },
+                    '&:hover': { bgcolor: token.bg.replace('0.18', '0.09') },
                   }}
                 >
                   <ListItemText
@@ -248,9 +250,9 @@ function NoteColumn({
                         sx={{
                           height: 16,
                           fontSize: '9px',
-                          bgcolor: 'rgba(26,138,181,0.12)',
-                          color: '#7dbad6',
-                          border: '1px solid rgba(26,138,181,0.25)',
+                          bgcolor: token.bg,
+                          color: token.text,
+                          border: `1px solid ${token.border}`,
                         }}
                       />
                     </Box>
@@ -708,7 +710,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          <NoteColumn
            title="Topic Notes"
            icon={<NoteAddIcon sx={{ fontSize: 14 }} />}
-           accentColor="#7dcfaa"
+           objectType="topic-note"
            items={filteredTopics.map((n) => ({
              id: n.id,
              primary: n.title || '(untitled)',
@@ -726,7 +728,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          <NoteColumn
            title="Daily Notes"
            icon={<CalendarTodayIcon sx={{ fontSize: 14 }} />}
-           accentColor="#7dbad6"
+           objectType="daily-note"
            items={filteredDailies.map((n) => ({
              id: n.id,
               primary: formatDatePretty(n.date),
@@ -744,7 +746,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          <NoteColumn
            title="Habits"
            icon={<RepeatIcon sx={{ fontSize: 14 }} />}
-           accentColor="#e8a84a"
+           objectType="habit"
            items={filteredHabits.map((n) => ({
              id: n.id,
              primary: n.text || '(no text)',
@@ -833,16 +835,19 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
               sx={{
                 minHeight: 36,
                 flex: 1,
-                '& .MuiTabs-indicator': { bgcolor: '#1a8ab5' },
+                '& .MuiTabs-indicator': { bgcolor: getObjectColor(activeTab?.type ?? 'daily-note').accent },
                 '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
               }}
             >
-              {openTabs.map((tab) => (
+              {openTabs.map((tab) => {
+                const tabToken = getObjectColor(tab.type)
+                return (
                 <Tab
                   key={tab.tabId}
                   value={tab.tabId}
                   label={(
                     <Stack direction="row" alignItems="center" spacing={0.5}>
+                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
                       <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {getTabLabel(tab)}
                       </Typography>
@@ -860,7 +865,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
                     </Stack>
                   )}
                 />
-              ))}
+              )})}
             </Tabs>
             <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ ml: 'auto' }}>
               <CloseIcon fontSize="small" />

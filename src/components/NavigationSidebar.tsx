@@ -29,6 +29,7 @@ import RepeatIcon from '@mui/icons-material/Repeat';
 import { useSyncStatus } from '../lib/syncContext';
 import { formatDatePretty } from '../lib/dateUtils';
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../lib/cliService';
+import { getObjectColor } from '../lib/objectColors';
 
 interface NavigationItem {
   id: string;
@@ -285,7 +286,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
                   sx={{ gap: 0.5 }}
                 >
-                  <ListItemIcon sx={{ minWidth: 34, color: '#7dbad6' }}>
+                  <ListItemIcon sx={{ minWidth: 34, color: getObjectColor(item.type).text }}>
                     {objectIcon(item.type)}
                   </ListItemIcon>
                   <ListItemText

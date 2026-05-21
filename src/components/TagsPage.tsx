@@ -23,6 +23,7 @@ import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty } from '../lib/dateUtils'
+import { getObjectColor } from '../lib/objectColors'
 
 type NoteType = 'daily-note' | 'topic-note' | 'habit'
 
@@ -314,8 +315,7 @@ export default function TagsPage() {
                              <Typography
                                variant="caption"
                                sx={{
-                                 color:
-                                   item.type === 'topic-note' ? '#7dcfaa' : item.type === 'habit' ? '#e8a84a' : '#7dbad6',
+                                 color: getObjectColor(item.type).text,
                                  fontSize: '10px',
                                }}
                              >
@@ -331,11 +331,11 @@ export default function TagsPage() {
                                 key={t}
                                 variant="caption"
                                 sx={{
-                                  bgcolor: 'rgba(26,138,181,0.18)',
+                                  bgcolor: getObjectColor(item.type).bg,
                                   px: 0.5,
                                   borderRadius: '3px',
                                   fontSize: '9px',
-                                  color: '#7dbad6',
+                                  color: getObjectColor(item.type).text,
                                 }}
                               >
                                 #{t}

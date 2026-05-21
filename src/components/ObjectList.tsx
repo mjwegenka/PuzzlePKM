@@ -12,6 +12,7 @@ import {
   Divider,
   CircularProgress,
 } from '@mui/material';
+import { getObjectColor } from '../lib/objectColors';
 
 interface ObjectListItem {
   id: string;
@@ -37,6 +38,7 @@ export default function ObjectList({
   loading = false,
 }: ObjectListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const token = getObjectColor(type);
 
   const filtered = items.filter(item =>
     item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -74,7 +76,7 @@ export default function ObjectList({
                   sx={{
                     py: 1.5,
                     '&.Mui-selected': {
-                      bgcolor: 'rgba(26,138,181,0.15)',
+                      bgcolor: token.bg,
                     },
                   }}
                 >
@@ -87,12 +89,12 @@ export default function ObjectList({
                     secondary={
                       <Stack spacing={0.5}>
                         {item.date && (
-                          <Typography variant="caption" sx={{ color: '#7dbad6' }}>
+                          <Typography variant="caption" sx={{ color: token.text }}>
                             {item.date}
                           </Typography>
                         )}
                         {item.preview && (
-                          <Typography variant="caption" sx={{ color: '#7dbad6', display: '-webkit-box', overflow: 'hidden', textOverflow: 'ellipsis', WebkitLineClamp: 1 }}>
+                          <Typography variant="caption" sx={{ color: token.text, display: '-webkit-box', overflow: 'hidden', textOverflow: 'ellipsis', WebkitLineClamp: 1 }}>
                             {item.preview}
                           </Typography>
                         )}
@@ -103,18 +105,19 @@ export default function ObjectList({
                                 key={tag}
                                 variant="caption"
                                 sx={{
-                                  bgcolor: 'rgba(26,138,181,0.2)',
+                                  bgcolor: token.bg,
                                   px: 0.75,
                                   py: 0.25,
                                   borderRadius: '2px',
                                   fontSize: '10px',
+                                  color: token.text,
                                 }}
                               >
                                 #{tag}
                               </Typography>
                             ))}
                             {item.tags.length > 2 && (
-                              <Typography variant="caption" sx={{ color: '#7dbad6' }}>
+                              <Typography variant="caption" sx={{ color: token.text }}>
                                 +{item.tags.length - 2}
                               </Typography>
                             )}

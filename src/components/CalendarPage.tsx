@@ -21,6 +21,7 @@ import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { getTodayDate } from '../lib/dateUtils'
+import { getObjectColor } from '../lib/objectColors'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -41,11 +42,11 @@ interface CalEvent {
 }
 
 const TYPE_COLORS: Record<CalObjectType, { bg: string; border: string; text: string }> = {
-  'daily-note': { bg: 'rgba(26,138,181,0.22)', border: 'rgba(26,138,181,0.55)', text: '#7dbad6' },
-  'topic-note': { bg: 'rgba(72,178,120,0.18)', border: 'rgba(72,178,120,0.45)', text: '#7dcfaa' },
-  'habit':      { bg: 'rgba(200,131,42,0.18)',  border: 'rgba(200,131,42,0.45)',  text: '#e8a84a' },
-  'project':    { bg: 'rgba(156,109,212,0.18)', border: 'rgba(156,109,212,0.45)', text: '#c49be8' },
-  'ref-material': { bg: 'rgba(109,176,212,0.18)', border: 'rgba(109,176,212,0.45)', text: '#9ed8ef' },
+  'daily-note':   getObjectColor('daily-note'),
+  'topic-note':   getObjectColor('topic-note'),
+  'habit':        getObjectColor('habit'),
+  'project':      getObjectColor('project'),
+  'ref-material': getObjectColor('ref-material'),
 }
 
 const TYPE_LABELS: Record<CalObjectType, string> = {
