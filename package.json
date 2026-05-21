@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:all": "npm run build",
+    "benchmark:sqlite": "node ./scripts/sqlite_benchmark.mjs",
     "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
     "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",
     "tauri:dev": "tauri dev",

@@ -1,0 +1,243 @@
+{
+  "generatedAt": "2026-05-21T17:32:29.368Z",
+  "dataset": {
+    "topicNotes": 2000,
+    "dailyNotes": 1200,
+    "habits": 800,
+    "projects": 400,
+    "refMaterials": 400,
+    "scriptures": 900,
+    "tags": 60,
+    "linksPerTopic": 2,
+    "totalObjects": 5760
+  },
+  "runs": 3,
+  "operations": [
+    {
+      "name": "sync.reconcile",
+      "runs": 1,
+      "avgMs": 6435.97,
+      "p95Ms": 6435.97,
+      "minMs": 6435.97,
+      "maxMs": 6435.97,
+      "samplesMs": [
+        6435.97
+      ],
+      "meta": {
+        "imported": 0,
+        "updated": 0,
+        "uploaded": 4800,
+        "deleted": 0,
+        "warnings": 0,
+        "errors": 0
+      }
+    },
+    {
+      "name": "list.topic-notes.legacy-simulation",
+      "runs": 3,
+      "avgMs": 54.35,
+      "p95Ms": 56.95,
+      "minMs": 52.49,
+      "maxMs": 56.95,
+      "samplesMs": [
+        56.95,
+        53.62,
+        52.49
+      ]
+    },
+    {
+      "name": "search.notes-filter",
+      "runs": 3,
+      "avgMs": 29.61,
+      "p95Ms": 33.08,
+      "minMs": 23.87,
+      "maxMs": 33.08,
+      "samplesMs": [
+        31.87,
+        33.08,
+        23.87
+      ]
+    },
+    {
+      "name": "list.topic-notes",
+      "runs": 3,
+      "avgMs": 29.1,
+      "p95Ms": 32.11,
+      "minMs": 26.57,
+      "maxMs": 32.11,
+      "samplesMs": [
+        32.11,
+        26.57,
+        28.63
+      ]
+    },
+    {
+      "name": "list.daily-notes",
+      "runs": 3,
+      "avgMs": 18.74,
+      "p95Ms": 24.12,
+      "minMs": 12.33,
+      "maxMs": 24.12,
+      "samplesMs": [
+        24.12,
+        19.77,
+        12.33
+      ]
+    },
+    {
+      "name": "save.topic-note",
+      "runs": 3,
+      "avgMs": 10.97,
+      "p95Ms": 13.54,
+      "minMs": 8.96,
+      "maxMs": 13.54,
+      "samplesMs": [
+        13.54,
+        10.41,
+        8.96
+      ]
+    },
+    {
+      "name": "backlink.refresh.topic-note",
+      "runs": 3,
+      "avgMs": 9.05,
+      "p95Ms": 10.55,
+      "minMs": 8.09,
+      "maxMs": 10.55,
+      "samplesMs": [
+        10.55,
+        8.51,
+        8.09
+      ]
+    },
+    {
+      "name": "list.scriptures",
+      "runs": 3,
+      "avgMs": 4.61,
+      "p95Ms": 5.36,
+      "minMs": 4.11,
+      "maxMs": 5.36,
+      "samplesMs": [
+        5.36,
+        4.36,
+        4.11
+      ]
+    },
+    {
+      "name": "get.topic-note",
+      "runs": 3,
+      "avgMs": 3.7,
+      "p95Ms": 9.29,
+      "minMs": 0.88,
+      "maxMs": 9.29,
+      "samplesMs": [
+        9.29,
+        0.93,
+        0.88
+      ]
+    }
+  ],
+  "topSlowOperations": [
+    {
+      "name": "sync.reconcile",
+      "runs": 1,
+      "avgMs": 6435.97,
+      "p95Ms": 6435.97,
+      "minMs": 6435.97,
+      "maxMs": 6435.97,
+      "samplesMs": [
+        6435.97
+      ],
+      "meta": {
+        "imported": 0,
+        "updated": 0,
+        "uploaded": 4800,
+        "deleted": 0,
+        "warnings": 0,
+        "errors": 0
+      }
+    },
+    {
+      "name": "list.topic-notes.legacy-simulation",
+      "runs": 3,
+      "avgMs": 54.35,
+      "p95Ms": 56.95,
+      "minMs": 52.49,
+      "maxMs": 56.95,
+      "samplesMs": [
+        56.95,
+        53.62,
+        52.49
+      ]
+    },
+    {
+      "name": "search.notes-filter",
+      "runs": 3,
+      "avgMs": 29.61,
+      "p95Ms": 33.08,
+      "minMs": 23.87,
+      "maxMs": 33.08,
+      "samplesMs": [
+        31.87,
+        33.08,
+        23.87
+      ]
+    }
+  ],
+  "queryPlans": {
+    "listTopicNotes": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 223,
+        "detail": "SCAN topic_notes USING INDEX idx_topic_notes_updated_at"
+      }
+    ],
+    "linksBySourceAndType": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH object_links USING INDEX idx_object_links_source_type_id (source_type=? AND source_id=?)"
+      }
+    ],
+    "listScriptures": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 0,
+        "detail": "MATERIALIZE link_counts"
+      },
+      {
+        "id": 11,
+        "parent": 3,
+        "notused": 62,
+        "detail": "SEARCH object_links USING INDEX idx_object_links_target_type_id (target_type=?)"
+      },
+      {
+        "id": 53,
+        "parent": 0,
+        "notused": 224,
+        "detail": "SCAN s USING INDEX idx_scriptures_book_order"
+      },
+      {
+        "id": 67,
+        "parent": 0,
+        "notused": 47,
+        "detail": "SEARCH link_counts USING AUTOMATIC COVERING INDEX (target_id=?) LEFT-JOIN"
+      },
+      {
+        "id": 99,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+      }
+    ]
+  },
+  "artifacts": {
+    "workspace": "/tmp/dropith-sqlite-bench-run",
+    "dbPath": "/tmp/dropith-sqlite-bench-run/dropith-benchmark.sqlite",
+    "syncRoot": "/tmp/dropith-sqlite-bench-run/sync-root",
+    "outputPath": "/tmp/dropith-sqlite-bench-run/results.json"
+  }
+}

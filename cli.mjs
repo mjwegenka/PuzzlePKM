@@ -197,9 +197,15 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_object_tags_tag ON object_tags(tag_id);
   CREATE INDEX IF NOT EXISTS idx_object_links_source ON object_links(source_id);
   CREATE INDEX IF NOT EXISTS idx_object_links_target ON object_links(target_id);
+  CREATE INDEX IF NOT EXISTS idx_object_links_source_type_id ON object_links(source_type, source_id);
+  CREATE INDEX IF NOT EXISTS idx_object_links_target_type_id ON object_links(target_type, target_id);
   CREATE INDEX IF NOT EXISTS idx_sync_state_object_type ON sync_state(object_type, object_id);
   CREATE INDEX IF NOT EXISTS idx_habits_date ON habits(date);
+  CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
+  CREATE INDEX IF NOT EXISTS idx_topic_notes_updated_at ON topic_notes(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_ref_materials_updated_at ON ref_materials(updated_at);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_note_id ON note_blocks(note_id);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_position ON note_blocks(note_id, position);
   CREATE INDEX IF NOT EXISTS idx_scriptures_book_order ON scriptures(book_order, reference);
@@ -1044,6 +1050,52 @@ function getCanonicalNoteContent(db, noteId, legacyContentMarkdown) {
   };
 }
 
+const SQLITE_IN_CLAUSE_CHUNK_SIZE = 400;
+
+function chunkValues(values, chunkSize = SQLITE_IN_CLAUSE_CHUNK_SIZE) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+function getCanonicalNoteContentMap(db, noteRows) {
+  const rows = Array.isArray(noteRows) ? noteRows : [];
+  const ids = Array.from(new Set(rows.map((row) => row.id).filter(Boolean)));
+  const blocksByNoteId = new Map();
+
+  for (const chunk of chunkValues(ids)) {
+    const placeholders = chunk.map(() => '?').join(', ');
+    const blocks = db.prepare(`
+      SELECT note_id, block_id, position, content_markdown
+      FROM note_blocks
+      WHERE note_id IN (${placeholders})
+      ORDER BY note_id ASC, position ASC
+    `).all(...chunk);
+    for (const row of blocks) {
+      if (!blocksByNoteId.has(row.note_id)) {
+        blocksByNoteId.set(row.note_id, []);
+      }
+      blocksByNoteId.get(row.note_id).push({
+        blockId: row.block_id,
+        position: row.position,
+        contentMarkdown: row.content_markdown,
+      });
+    }
+  }
+
+  const contentByNoteId = new Map();
+  for (const row of rows) {
+    const blocks = blocksByNoteId.get(row.id) ?? [];
+    contentByNoteId.set(row.id, {
+      blocks,
+      contentMarkdown: blocks.length > 0 ? assembleMarkdownFromBlocks(blocks) : (row.content_markdown ?? ''),
+    });
+  }
+  return contentByNoteId;
+}
+
 // DEC-37: Atomically replace all blocks for a note. Must be called within a transaction.
 function persistNoteBlocks(db, noteId, noteType, blocks, now) {
   const normalizedBlocks = normalizeBlocksForPersistence(blocks, `persistNoteBlocks(${noteId})`);
@@ -1170,6 +1222,33 @@ function getTagDisplayNames(db, objectId) {
     ORDER BY t.display_name ASC
   `).all(objectId);
   return rows.map((row) => row.display_name);
+}
+
+function getTagDisplayNamesMap(db, objectIds) {
+  const ids = Array.from(new Set((objectIds ?? []).filter(Boolean)));
+  const tagNamesByObjectId = new Map();
+  for (const objectId of ids) {
+    tagNamesByObjectId.set(objectId, []);
+  }
+
+  for (const chunk of chunkValues(ids)) {
+    const placeholders = chunk.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT ot.object_id, t.display_name
+      FROM object_tags ot
+      JOIN tags t ON t.id = ot.tag_id
+      WHERE ot.object_id IN (${placeholders})
+      ORDER BY ot.object_id ASC, t.display_name COLLATE NOCASE ASC
+    `).all(...chunk);
+    for (const row of rows) {
+      if (!tagNamesByObjectId.has(row.object_id)) {
+        tagNamesByObjectId.set(row.object_id, []);
+      }
+      tagNamesByObjectId.get(row.object_id).push(row.display_name);
+    }
+  }
+
+  return tagNamesByObjectId;
 }
 
 function ensureTagIds(db, displayNames) {
@@ -1531,15 +1610,18 @@ function getTopicNote(db, id) {
 }
 
 function listTopicNotes(db) {
-  return db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => {
-    const { contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+  const rows = db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
+  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => {
+    const contentMarkdown = contentByNoteId.get(row.id)?.contentMarkdown ?? (row.content_markdown ?? '');
     return {
       id: row.id,
       title: row.title,
       date: row.date || '',
       dropboxPath: row.dropbox_path || '',
       preview: contentMarkdown.slice(0, 80),
-      tags: getTagDisplayNames(db, row.id),
+      tags: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1777,14 +1859,17 @@ function getDailyNote(db, reference) {
 }
 
 function listDailyNotes(db) {
-  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => {
-    const { contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+  const rows = db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all();
+  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => {
+    const contentMarkdown = contentByNoteId.get(row.id)?.contentMarkdown ?? (row.content_markdown ?? '');
     return {
       id: row.id,
       date: row.date,
       dropboxPath: row.dropbox_path || '',
       preview: contentMarkdown.slice(0, 80),
-      tags: getTagDisplayNames(db, row.id),
+      tags: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1939,13 +2024,15 @@ function getProject(db, id) {
 }
 
 function listProjects(db) {
-  return db.prepare('SELECT * FROM projects ORDER BY name ASC').all().map((row) => ({
+  const rows = db.prepare('SELECT * FROM projects ORDER BY name ASC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     dropboxPath: row.dropbox_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
-    tags: getTagDisplayNames(db, row.id),
+    tags: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -2032,12 +2119,14 @@ function getRefMat(db, id) {
 }
 
 function listRefMats(db) {
-  return db.prepare('SELECT * FROM ref_materials ORDER BY name ASC').all().map((row) => ({
+  const rows = db.prepare('SELECT * FROM ref_materials ORDER BY name ASC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
     dropboxPath: row.dropbox_path,
-    tags: getTagDisplayNames(db, row.id),
+    tags: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -2112,19 +2201,18 @@ function getHabit(db, id) {
 }
 
 function listHabits(db) {
-  return db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all().map((row) => {
-    const tags = getTagDisplayNames(db, row.id);
-    return {
-      id: row.id,
-      text: row.text,
-      date: row.date,
-      status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-      dropboxPath: row.dropbox_path || '',
-      tags,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
+  const rows = db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => ({
+    id: row.id,
+    text: row.text,
+    date: row.date,
+    status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
+    dropboxPath: row.dropbox_path || '',
+    tags: tagNamesByObjectId.get(row.id) ?? [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
 }
 
 function sanitizeHabitText(text) {
@@ -2224,12 +2312,21 @@ function getTag(db, reference) {
 }
 
 function listTags(db) {
-  return db.prepare('SELECT * FROM tags ORDER BY name ASC').all().map((row) => ({
+  return db.prepare(`
+    SELECT t.id, t.name, t.display_name, t.created_at, COALESCE(ot_counts.object_count, 0) AS object_count
+    FROM tags t
+    LEFT JOIN (
+      SELECT tag_id, COUNT(*) AS object_count
+      FROM object_tags
+      GROUP BY tag_id
+    ) ot_counts ON ot_counts.tag_id = t.id
+    ORDER BY t.name ASC
+  `).all().map((row) => ({
     id: row.id,
     name: row.name,
     displayName: row.display_name,
     createdAt: row.created_at,
-    objectCount: db.prepare('SELECT COUNT(*) AS count FROM object_tags WHERE tag_id = ?').get(row.id).count,
+    objectCount: row.object_count ?? 0,
   }));
 }
 
@@ -2344,14 +2441,15 @@ function getScripture(db, reference) {
 function listScriptures(db) {
   return db.prepare(`
     SELECT s.id, s.reference, s.book_name, s.book_order, s.passage_url, s.created_at, s.updated_at,
-      (
-        SELECT COUNT(*)
-        FROM object_links l
-        WHERE l.target_id = s.id
-          AND l.target_type = ?
-          AND l.source_type IN ('topic-note', 'daily-note')
-      ) AS note_count
+      COALESCE(link_counts.note_count, 0) AS note_count
     FROM scriptures s
+    LEFT JOIN (
+      SELECT target_id, COUNT(*) AS note_count
+      FROM object_links
+      WHERE target_type = ?
+        AND source_type IN ('topic-note', 'daily-note')
+      GROUP BY target_id
+    ) link_counts ON link_counts.target_id = s.id
     ORDER BY s.book_order ASC, s.reference COLLATE NOCASE ASC
   `).all(SCRIPTURE_TYPE).map((row) => ({
     id: row.id,
@@ -3221,16 +3319,19 @@ async function getLegacyDropboxAccountEmail(token) {
 // ── Sync: note list helpers (include full content for upload) ─────────────────
 
 function listDailyNotesForSync(db) {
-  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => {
-    const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+  const rows = db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all();
+  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => {
+    const canonical = contentByNoteId.get(row.id) ?? { blocks: [], contentMarkdown: row.content_markdown ?? '' };
     return {
       id: row.id,
       date: row.date,
       dropboxPath: row.dropbox_path || '',
-      contentMarkdown,
-      blocks,
+      contentMarkdown: canonical.contentMarkdown,
+      blocks: canonical.blocks,
       linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-      tagNames: getTagDisplayNames(db, row.id),
+      tagNames: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -3238,17 +3339,20 @@ function listDailyNotesForSync(db) {
 }
 
 function listTopicNotesForSync(db) {
-  return db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all().map((row) => {
-    const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+  const rows = db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all();
+  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => {
+    const canonical = contentByNoteId.get(row.id) ?? { blocks: [], contentMarkdown: row.content_markdown ?? '' };
     return {
       id: row.id,
       title: row.title,
       date: row.date || '',
       dropboxPath: row.dropbox_path || '',
-      contentMarkdown,
-      blocks,
+      contentMarkdown: canonical.contentMarkdown,
+      blocks: canonical.blocks,
       linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-      tagNames: getTagDisplayNames(db, row.id),
+      tagNames: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -3256,33 +3360,39 @@ function listTopicNotesForSync(db) {
 }
 
 function listProjectsForSync(db) {
-  return db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all().map((row) => ({
+  const rows = db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     dropboxPath: row.dropbox_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
-    tagNames: getTagDisplayNames(db, row.id),
+    tagNames: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 }
 
 function listRefMaterialsForSync(db) {
-  return db.prepare('SELECT * FROM ref_materials ORDER BY updated_at DESC').all().map((row) => ({
+  const rows = db.prepare('SELECT * FROM ref_materials ORDER BY updated_at DESC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => ({
     id: row.id,
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
     dropboxPath: row.dropbox_path,
-    tagNames: getTagDisplayNames(db, row.id),
+    tagNames: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 }
 
 function listHabitsForSync(db) {
-  return db.prepare('SELECT * FROM habits ORDER BY updated_at DESC').all().map((row) => {
-    const tags = getTagDisplayNames(db, row.id);
+  const rows = db.prepare('SELECT * FROM habits ORDER BY updated_at DESC').all();
+  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+  return rows.map((row) => {
+    const tags = tagNamesByObjectId.get(row.id) ?? [];
     return {
       id: row.id,
       text: row.text,
@@ -4742,6 +4852,13 @@ export const __testing = {
   saveSyncRootFolder,
   createDailyNoteRecord,
   createTopicNoteRecord,
+  updateTopicNoteRecord,
+  listDailyNotes,
+  listTopicNotes,
+  listProjects,
+  listRefMats,
+  listHabits,
+  listScriptures,
   getDailyNote,
   getTopicNote,
   hasKnownRemoteCopy,
