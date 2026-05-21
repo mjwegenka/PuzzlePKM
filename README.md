@@ -4,8 +4,8 @@ A local-first knowledge management app with folder-based sync. The core product 
 
 ## Features
 
-- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views
-- **Daily Notes** – One note per calendar day (date-anchored routing, uniqueness enforced)
+- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views (see [`DEC-43`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-44`](./IMPLEMENTATION_DECISIONS.md))
+- **Daily Notes** – One note per calendar day (date-anchored routing, uniqueness enforced; see [`DEC-42`](./IMPLEMENTATION_DECISIONS.md))
 - **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
 - **Habits** – Lightweight dated text entries (≤ 255 chars) with tags
 - **Tags** – Case-insensitive, aggregate any object type
