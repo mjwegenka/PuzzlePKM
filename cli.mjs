@@ -43,13 +43,40 @@ const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
 function resolveLocalSyncPath(syncPath) {
   const raw = normalize(syncPath) || DEFAULT_NOTES_ROOT;
   const expanded = raw.startsWith('~/') ? join(homedir(), raw.slice(2)) : raw;
-  const normalized = expanded.replace(/\\/g, '/').replace(/\/+$/, '') || DEFAULT_NOTES_ROOT;
+  const normalized = expanded === '/' ? '/' : (expanded.replace(/\\/g, '/').replace(/\/+$/, '') || DEFAULT_NOTES_ROOT);
 
   if (normalized === DEFAULT_NOTES_ROOT || normalized.startsWith(`${DEFAULT_NOTES_ROOT}/`)) {
     return join(DEFAULT_LOCAL_STORAGE_DIR, normalized.replace(/^\//, ''));
   }
   if (normalized.startsWith('/')) return normalized;
   return resolve(normalized);
+}
+
+function normalizeSyncRootFolderInput(rootFolder) {
+  const normalized = normalize(rootFolder).replace(/\\/g, '/');
+  if (!normalized) return '';
+  if (normalized === '/') return '/';
+  return normalized.replace(/\/+$/, '');
+}
+
+function validateSyncRootFolderInput(rootFolder) {
+  const normalized = normalizeSyncRootFolderInput(rootFolder);
+  if (!normalized) {
+    throw new Error('Root folder path is required (for example: /Dropith).');
+  }
+  if (/[\u0000-\u001f]/.test(normalized)) {
+    throw new Error('Root folder path cannot contain control characters.');
+  }
+  if (normalized === '/') {
+    throw new Error('Root folder cannot be "/". Choose a dedicated folder (for example: /Dropith).');
+  }
+  const isAbsoluteUnix = normalized.startsWith('/');
+  const isHomeRelative = normalized === '~' || normalized.startsWith('~/');
+  const isAbsoluteWindows = /^[a-zA-Z]:\//.test(normalized);
+  if (!isAbsoluteUnix && !isHomeRelative && !isAbsoluteWindows) {
+    throw new Error('Root folder must be absolute. Use /Dropith, ~/path, or an absolute drive path.');
+  }
+  return normalized;
 }
 
 const schema = `
@@ -2630,7 +2657,9 @@ function getDropboxRefreshToken() {
 
 function getSyncRootFolder() {
   const store = readSecretStore();
-  return decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? DEFAULT_NOTES_ROOT;
+  const configured = decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]);
+  const normalized = normalizeSyncRootFolderInput(configured || DEFAULT_NOTES_ROOT);
+  return normalized === '/' ? DEFAULT_NOTES_ROOT : (normalized || DEFAULT_NOTES_ROOT);
 }
 
 function saveDropboxToken(accessToken, email, refreshToken) {
@@ -2643,18 +2672,21 @@ function saveDropboxToken(accessToken, email, refreshToken) {
 
 function saveSyncRootFolder(rootFolder) {
   const store = readSecretStore();
-  store.values[KEYCHAIN_ROOT_FOLDER] = encodeUnencryptedSecret(rootFolder);
+  store.values[KEYCHAIN_ROOT_FOLDER] = encodeUnencryptedSecret(validateSyncRootFolderInput(rootFolder));
   writeSecretStore(store);
 }
 
 function getSettingsState() {
   const store = readSecretStore();
-  const rootEntry = store.values[KEYCHAIN_ROOT_FOLDER];
+  const configuredRootFolder = decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? undefined;
+  const effectiveRootFolder = getSyncRootFolder();
   return {
     dbPath: dbFile,
     secretsPath: secretsFilePath(),
     sync: {
-      rootFolder: decodeUnencryptedSecret(rootEntry) ?? undefined,
+      rootFolder: configuredRootFolder,
+      effectiveRootFolder,
+      resolvedRootFolder: resolveLocalSyncPath(effectiveRootFolder),
     },
   };
 }
@@ -4262,7 +4294,7 @@ async function runSettings(args, rl) {
     if (!folder && rl) {
       folder = await prompt(rl, 'Sync root folder path (e.g. /Dropith)', { required: true });
     }
-    if (!folder) throw new Error('Root folder path is required');
+    if (!folder) throw new Error('Root folder path is required.');
     saveSyncRootFolder(folder);
     console.log(formatCompact(getSettingsState()));
     return;
