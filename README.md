@@ -208,6 +208,8 @@ npm run issues:queue
 npm run issues:queue:apply
 ```
 
+For full details on automated issue sequencing and Copilot PR merging, see [`SEQUENCING.md`](./SEQUENCING.md).
+
 ## Project Structure
 
 ```

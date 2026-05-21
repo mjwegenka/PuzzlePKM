@@ -1,0 +1,112 @@
+name: Auto-Approve and Merge Copilot PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: write
+
+jobs:
+  auto_review_merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review and merge Copilot PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+
+            // Only process PRs from copilot
+            if (pr.user.login !== 'copilot' && pr.user.login !== 'copilot-workspace' && !pr.user.login.includes('copilot')) {
+              core.info(`Skipping PR #${pr.number} (author: ${pr.user.login})`);
+              return;
+            }
+
+            core.info(`Processing Copilot PR #${pr.number}`);
+
+            // Get latest status checks
+            const { data: ciStatus } = await github.rest.repos.getCombinedStatusForRef({
+              owner,
+              repo,
+              ref: pr.head.sha,
+            });
+
+            const allChecksPassed = ciStatus.state === 'success' || ciStatus.state === undefined || ciStatus.statuses.length === 0;
+
+            if (!allChecksPassed) {
+              core.warning(`CI checks have not passed for PR #${pr.number} (state: ${ciStatus.state}). Skipping approval/merge.`);
+              return;
+            }
+
+            // Check if PR is approved already
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number: pr.number,
+            });
+            const alreadyApproved = reviews.some((r) => r.state === 'APPROVED');
+
+            if (!alreadyApproved) {
+              await github.rest.pulls.createReview({
+                owner,
+                repo,
+                pull_number: pr.number,
+                event: 'APPROVE',
+                body: '✅ Automated approval: CI checks passed and roadmap-sequenced issue. Proceeding with merge.',
+              });
+              core.info(`Approved PR #${pr.number}`);
+            }
+
+            // Merge the PR
+            try {
+              const { data: mergeResult } = await github.rest.pulls.merge({
+                owner,
+                repo,
+                pull_number: pr.number,
+                merge_method: 'squash',
+                commit_title: `${pr.title} (closes #${pr.body.match(/#(\d+)/) ? pr.body.match(/#(\d+)/)[1] : '?'})`,
+              });
+
+              if (mergeResult.merged) {
+                core.info(`Merged PR #${pr.number}`);
+
+                // Extract issue number from PR body (format: "Closes #123" or similar)
+                const issueMatch = pr.body.match(/#(\d+)/);
+                if (issueMatch) {
+                  const issueNumber = parseInt(issueMatch[1], 10);
+                  
+                  // Try to close the related issue
+                  try {
+                    const { data: issue } = await github.rest.issues.get({
+                      owner,
+                      repo,
+                      issue_number: issueNumber,
+                    });
+
+                    if (issue.state === 'open') {
+                      await github.rest.issues.update({
+                        owner,
+                        repo,
+                        issue_number: issueNumber,
+                        state: 'closed',
+                      });
+                      core.info(`Closed issue #${issueNumber}`);
+                    }
+                  } catch (error) {
+                    core.warning(`Could not close issue #${issueNumber}: ${error.message}`);
+                  }
+                }
+              }
+            } catch (error) {
+              core.error(`Failed to merge PR #${pr.number}: ${error.message}`);
+              throw error;
+            }
+
