@@ -87,6 +87,7 @@ const schema = `
   CREATE TABLE IF NOT EXISTS ref_materials (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    author TEXT,
     dropbox_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -200,6 +201,15 @@ const schema = `
           ELSE '${HABIT_STATUS_PLANNED}'
         END
       `).run();
+    } catch (e) {
+      // Column may already exist or table doesn't exist yet
+    }
+
+    try {
+      const refMaterialColumnsCheck = db.prepare("PRAGMA table_info(ref_materials)").all();
+      if (!refMaterialColumnsCheck.some(c => c.name === 'author')) {
+        db.prepare('ALTER TABLE ref_materials ADD COLUMN author TEXT').run();
+      }
     } catch (e) {
       // Column may already exist or table doesn't exist yet
     }
@@ -1686,6 +1696,7 @@ function getRefMat(db, id) {
     id: row.id,
     type: 'ref-material',
     name: row.name,
+    author: typeof row.author === 'string' ? row.author : '',
     dropboxPath: row.dropbox_path,
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -1697,6 +1708,7 @@ function listRefMats(db) {
   return db.prepare('SELECT * FROM ref_materials ORDER BY name ASC').all().map((row) => ({
     id: row.id,
     name: row.name,
+    author: typeof row.author === 'string' ? row.author : '',
     dropboxPath: row.dropbox_path,
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -1707,9 +1719,9 @@ function listRefMats(db) {
 function createRefMatRecord(db, input) {
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO ref_materials (id, name, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(input.id, input.name, input.dropboxPath, input.createdAt, input.updatedAt);
+      INSERT INTO ref_materials (id, name, author, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(input.id, input.name, input.author ?? null, input.dropboxPath, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'ref-material', input.tags ?? []);
     return getRefMat(db, input.id);
   });
@@ -1724,6 +1736,10 @@ function updateRefMatRecord(db, id, input) {
   if (input.name !== undefined) {
     fields.push('name = ?');
     values.push(input.name);
+  }
+  if (input.author !== undefined) {
+    fields.push('author = ?');
+    values.push(input.author || null);
   }
   if (input.dropboxPath !== undefined) {
     fields.push('dropbox_path = ?');
@@ -2049,7 +2065,7 @@ function printRecords(type, rows) {
         console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}\t${row.startDate || ''}`);
         break;
       case 'ref-material':
-        console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.dropboxPath || '(no path)'}`);
         break;
        case 'habit':
          console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
@@ -2482,6 +2498,7 @@ function refMaterialToMarkdown(fields) {
     id: fields.id,
     type: 'ref-material',
     name: fields.name,
+    ...(fields.author ? { author: fields.author } : {}),
     syncPath: fields.dropboxPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
@@ -2494,6 +2511,7 @@ function refMaterialToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
+    author: fields.author,
     syncPath: fields.dropboxPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
@@ -2600,6 +2618,7 @@ function parseRefMaterialMarkdown(content) {
   return {
     id: data.id,
     name: data.name,
+    author: typeof data.author === 'string' ? data.author : '',
     dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
@@ -2614,6 +2633,7 @@ function parseRefMaterialMetaYaml(content) {
   return {
     id: data.id,
     name: data.name,
+    author: typeof data.author === 'string' ? data.author : '',
     dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
@@ -2703,6 +2723,7 @@ function shouldApplyRemoteRefMaterial(existing, remote) {
   if (remoteUpdatedAt > localUpdatedAt) return true;
   if (remoteUpdatedAt < localUpdatedAt) return false;
   if ((remote.name ?? '') !== (existing.name ?? '')) return true;
+  if ((remote.author ?? '') !== (existing.author ?? '')) return true;
   if ((remote.dropboxPath ?? '') !== (existing.dropboxPath ?? '')) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
   return false;
@@ -2852,6 +2873,7 @@ function listRefMaterialsForSync(db) {
   return db.prepare('SELECT * FROM ref_materials ORDER BY updated_at DESC').all().map((row) => ({
     id: row.id,
     name: row.name,
+    author: typeof row.author === 'string' ? row.author : '',
     dropboxPath: row.dropbox_path,
     tagNames: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -3316,6 +3338,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         createRefMatRecord(db, {
           id: fields.id,
           name: fields.name,
+          author: fields.author,
           dropboxPath: fields.dropboxPath,
           tags: fields.tagNames,
           createdAt: fields.createdAt,
@@ -3325,6 +3348,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
       } else if (shouldApplyRemoteRefMaterial(existing, fields)) {
         updateRefMatRecord(db, existing.id, {
           name: fields.name,
+          author: fields.author,
           dropboxPath: fields.dropboxPath,
           tags: fields.tagNames,
           updatedAt: fields.updatedAt,
@@ -3351,6 +3375,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
       const newRefMat = createRefMatRecord(db, {
         id: randomUUID(),
         name: folderNameToTitle(stub.slug),
+        author: '',
         dropboxPath: stub.folderPath,
         tags: [],
         createdAt: now,
@@ -3359,6 +3384,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
       await syncUploadText(refMaterialMetaPath(rootFolder, stub.slug), refMaterialToMetaYaml({
         id: newRefMat.id,
         name: newRefMat.name,
+        author: newRefMat.author,
         dropboxPath: newRefMat.dropboxPath,
         tagNames: [],
         createdAt: newRefMat.createdAt,
@@ -3664,11 +3690,13 @@ async function createObjectInteractive(type, rl) {
       }
       case 'ref-material': {
         const name = await prompt(rl, 'Name', { required: true });
+        const author = await prompt(rl, 'Author (optional)', { allowClear: true });
         const dropboxPath = await prompt(rl, 'Sync path');
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
         return createRefMatRecord(db, {
           id: randomUUID(),
           name,
+          author,
           dropboxPath,
           tags,
           createdAt,
@@ -3776,10 +3804,12 @@ async function updateObjectInteractive(type, reference, rl) {
         const existing = getRefMat(db, reference);
         if (!existing) return null;
         const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
+        const author = await prompt(rl, 'Author (optional)', { defaultValue: existing.author ?? '', showDefault: Boolean(existing.author), allowClear: true });
         const dropboxPath = await prompt(rl, 'Sync path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
         return updateRefMatRecord(db, existing.id, {
           name,
+          author,
           dropboxPath,
           tags,
           updatedAt: getIsoNow(),
@@ -4024,6 +4054,7 @@ async function executeTokens(tokens, context = {}) {
           if (id && getRefMat(db, id)) {
             return updateRefMatRecord(db, id, {
               name: input.name,
+              author: input.author,
               dropboxPath: input.dropboxPath,
               tags: input.tags,
               updatedAt: now,
@@ -4032,6 +4063,7 @@ async function executeTokens(tokens, context = {}) {
           return createRefMatRecord(db, {
             id: id ?? randomUUID(),
             name: input.name ?? 'Untitled',
+            author: input.author ?? '',
             dropboxPath: input.dropboxPath ?? '',
             tags: input.tags ?? [],
             createdAt: now,

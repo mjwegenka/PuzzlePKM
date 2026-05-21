@@ -11,6 +11,7 @@ export interface MentionSearchResult {
   id: string;
   type: string;
   title: string;
+  author?: string;
   date?: string;
   syncPath?: string;
   dropboxPath?: string;
@@ -122,8 +123,10 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
         const parts = line.split('\t');
         const id = parts[0] ?? '';
         const rawPath =
-          type === 'project' || type === 'ref-material'
+          type === 'project'
             ? (parts[2] ?? '')
+            : type === 'ref-material'
+              ? (parts[3] ?? '')
             : (parts[3] ?? '');
         const path = rawPath.trim();
         if (!id || !path || path === '(no path)') continue;
@@ -309,7 +312,7 @@ export async function runSync(): Promise<void> {
  *   daily-note  : id \t date \t preview \t syncPath [\t #tag1, #tag2]
  *   topic-note  : id \t updatedAt \t title \t syncPath \t date \t preview [\t #tag1, #tag2]
  *   project     : id \t name \t syncPath \t startDate [\t #tag1, #tag2]
- *   ref-material: id \t name \t syncPath [\t #tag1, #tag2]
+ *   ref-material: id \t name \t author \t syncPath [\t #tag1, #tag2]
  *   habit       : id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 function parseListOutput(
@@ -337,7 +340,7 @@ function parseListOutput(
         case 'project':
           return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '', date: parts[3] });
         case 'ref-material':
-          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '' });
+          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', author: parts[2] ?? '', syncPath: normalizePath(parts[3]) ?? '' });
         case 'habit':
           return withLegacyPathAlias({ id, type, title: parts[3] ?? '', syncPath: normalizePath(parts[4]) ?? '', date: parts[1] });
         default:
@@ -368,6 +371,7 @@ export async function searchObjects(
           if (
             !q ||
             item.title.toLowerCase().includes(q) ||
+            (item.author ?? '').toLowerCase().includes(q) ||
             (item.date ?? '').includes(q)
           ) {
             results.push(item);
@@ -486,9 +490,9 @@ export async function listHabitMeta(): Promise<
  * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }>
+  Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }>
 > {
-  const results: Array<{ id: string; name: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }> = [];
+  const results: Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }> = [];
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
@@ -498,7 +502,8 @@ export async function listFileMeta(): Promise<
           results.push({
             id: parts[0],
             name: parts[1] ?? '',
-            ...withLegacyPathAlias({ syncPath: parts[2] ?? '' }),
+            author: type === 'ref-material' ? (parts[2] ?? '') : undefined,
+            ...withLegacyPathAlias({ syncPath: type === 'ref-material' ? (parts[3] ?? '') : (parts[2] ?? '') }),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
             type,
           });
