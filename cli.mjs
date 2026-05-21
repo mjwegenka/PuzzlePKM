@@ -296,11 +296,15 @@ function parseDailyNoteMarkdownForImport(content, fileName) {
   if (!date) return null;
   if (declaredType && declaredType !== 'daily-note') return null;
 
+  // DEC-38: Parse blocks from body so create/update can store them without re-parsing.
+  // Legacy markdown without block ID comments receives fresh block IDs per DEC-36.
+  const blocks = parseBlocksFromMarkdown(body);
   return {
     id,
     date,
     content: {},
     contentMarkdown: body,
+    blocks,
     linkedObjectIds: parseStringList(data.linkedObjectIds),
     tags: parseStringList(data.tags),
     createdAt: normalize(typeof data.createdAt === 'string' ? data.createdAt : now) || now,
@@ -318,12 +322,16 @@ function parseTopicNoteMarkdownForImport(content) {
   if (!id) return null;
   if (declaredType && declaredType !== 'topic-note') return null;
 
+  // DEC-38: Parse blocks from body so create/update can store them without re-parsing.
+  // Legacy markdown without block ID comments receives fresh block IDs per DEC-36.
+  const blocks = parseBlocksFromMarkdown(body);
   return {
     id,
     title,
     date: normalize(typeof data.date === 'string' ? data.date : ''),
     content: {},
     contentMarkdown: body,
+    blocks,
     linkedObjectIds: parseStringList(data.linkedObjectIds),
     tags: parseStringList(data.tags),
     createdAt: normalize(typeof data.createdAt === 'string' ? data.createdAt : now) || now,
@@ -683,8 +691,10 @@ function listTopicNotes(db) {
 function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
     const now = input.createdAt ?? getIsoNow();
-    // DEC-36, DEC-37: Parse content into blocks and dual-write content_markdown with embedded block IDs.
-    const blocks = parseBlocksFromMarkdown(input.contentMarkdown);
+    // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
+    const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
+      ? input.blocks
+      : parseBlocksFromMarkdown(input.contentMarkdown);
     const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
       INSERT INTO topic_notes (id, title, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
@@ -725,9 +735,13 @@ function updateTopicNoteRecord(db, id, input) {
     fields.push('content = ?');
     values.push(JSON.stringify(input.content));
   }
-  // DEC-36, DEC-37: Parse incoming markdown into blocks and dual-write content_markdown.
+  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
   let updatedBlocks;
-  if (input.contentMarkdown !== undefined) {
+  if (Array.isArray(input.blocks) && input.blocks.length > 0) {
+    updatedBlocks = input.blocks;
+    fields.push('content_markdown = ?');
+    values.push(assembleMarkdownFromBlocks(updatedBlocks));
+  } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
     fields.push('content_markdown = ?');
     values.push(assembleMarkdownFromBlocks(updatedBlocks));
@@ -812,8 +826,10 @@ function createDailyNoteRecord(db, input) {
 
   return withTransaction(db, () => {
     const now = input.createdAt ?? getIsoNow();
-    // DEC-36, DEC-37: Parse content into blocks and dual-write content_markdown with embedded block IDs.
-    const blocks = parseBlocksFromMarkdown(input.contentMarkdown);
+    // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
+    const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
+      ? input.blocks
+      : parseBlocksFromMarkdown(input.contentMarkdown);
     const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
       INSERT INTO daily_notes (id, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
@@ -855,9 +871,13 @@ function updateDailyNoteRecord(db, reference, input) {
     fields.push('content = ?');
     values.push(JSON.stringify(input.content));
   }
-  // DEC-36, DEC-37: Parse incoming markdown into blocks and dual-write content_markdown.
+  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
   let updatedBlocks;
-  if (input.contentMarkdown !== undefined) {
+  if (Array.isArray(input.blocks) && input.blocks.length > 0) {
+    updatedBlocks = input.blocks;
+    fields.push('content_markdown = ?');
+    values.push(assembleMarkdownFromBlocks(updatedBlocks));
+  } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
     fields.push('content_markdown = ?');
     values.push(assembleMarkdownFromBlocks(updatedBlocks));
@@ -1757,7 +1777,12 @@ function dailyNoteToMarkdown(fields) {
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
-  return fields.contentMarkdown ? `${fm}\n\n${fields.contentMarkdown}` : `${fm}\n`;
+  // DEC-38: Prefer assembling from blocks so block IDs are always embedded in the file body.
+  const body =
+    Array.isArray(fields.blocks) && fields.blocks.length > 0
+      ? assembleMarkdownFromBlocks(fields.blocks)
+      : (fields.contentMarkdown ?? '');
+  return body ? `${fm}\n\n${body}` : `${fm}\n`;
 }
 
 function topicNoteToMarkdown(fields) {
@@ -1772,7 +1797,12 @@ function topicNoteToMarkdown(fields) {
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
-  return fields.contentMarkdown ? `${fm}\n\n${fields.contentMarkdown}` : `${fm}\n`;
+  // DEC-38: Prefer assembling from blocks so block IDs are always embedded in the file body.
+  const body =
+    Array.isArray(fields.blocks) && fields.blocks.length > 0
+      ? assembleMarkdownFromBlocks(fields.blocks)
+      : (fields.contentMarkdown ?? '');
+  return body ? `${fm}\n\n${body}` : `${fm}\n`;
 }
 
 function projectToMarkdown(fields) {
@@ -1845,11 +1875,14 @@ function parseDailyNoteMarkdown(content) {
   const { data, body } = parseFrontMatter(content);
   if (typeof data.id !== 'string' || !data.id) return null;
   if (typeof data.date !== 'string' || !data.date) return null;
+  // DEC-38: Parse blocks from body so callers have block-aware data without re-parsing.
+  const blocks = parseBlocksFromMarkdown(body);
   return {
     id: data.id,
     date: data.date,
     dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
     contentMarkdown: body,
+    blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     linkedObjectIds: Array.isArray(data.linkedObjectIds) ? data.linkedObjectIds.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
@@ -1861,12 +1894,15 @@ function parseTopicNoteMarkdown(content) {
   const { data, body } = parseFrontMatter(content);
   if (typeof data.id !== 'string' || !data.id) return null;
   if (typeof data.title !== 'string') return null;
+  // DEC-38: Parse blocks from body so callers have block-aware data without re-parsing.
+  const blocks = parseBlocksFromMarkdown(body);
   return {
     id: data.id,
     title: data.title,
     date: typeof data.date === 'string' ? data.date : '',
     dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
     contentMarkdown: body,
+    blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     linkedObjectIds: Array.isArray(data.linkedObjectIds) ? data.linkedObjectIds.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
@@ -2112,28 +2148,45 @@ async function getLegacyDropboxAccountEmail(token) {
 // ── Sync: note list helpers (include full content for upload) ─────────────────
 
 function listDailyNotesForSync(db) {
-  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => ({
-    id: row.id,
-    date: row.date,
-    contentMarkdown: row.content_markdown,
-    linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-    tagNames: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => {
+    // DEC-38: Assemble contentMarkdown from note_blocks so that block IDs are always embedded,
+    // even for notes backfilled before blocks were introduced. Falls back to raw content_markdown
+    // if the note has no blocks (should not occur after backfillNoteBlocks runs).
+    const blocks = getNoteBlocks(db, row.id);
+    const contentMarkdown = blocks.length > 0 ? assembleMarkdownFromBlocks(blocks) : (row.content_markdown ?? '');
+    return {
+      id: row.id,
+      date: row.date,
+      dropboxPath: row.dropbox_path || '',
+      contentMarkdown,
+      blocks,
+      linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
+      tagNames: getTagDisplayNames(db, row.id),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 function listTopicNotesForSync(db) {
-  return db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
-    id: row.id,
-    title: row.title,
-    date: row.date || '',
-    contentMarkdown: row.content_markdown,
-    linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-    tagNames: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all().map((row) => {
+    // DEC-38: Assemble contentMarkdown from note_blocks so that block IDs are always embedded,
+    // even for notes backfilled before blocks were introduced.
+    const blocks = getNoteBlocks(db, row.id);
+    const contentMarkdown = blocks.length > 0 ? assembleMarkdownFromBlocks(blocks) : (row.content_markdown ?? '');
+    return {
+      id: row.id,
+      title: row.title,
+      date: row.date || '',
+      dropboxPath: row.dropbox_path || '',
+      contentMarkdown,
+      blocks,
+      linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
+      tagNames: getTagDisplayNames(db, row.id),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 function listProjectsForSync(db) {
