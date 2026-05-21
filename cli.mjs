@@ -485,6 +485,55 @@ function backfillMissingDropboxPaths(db) {
   }
 }
 
+// DEC-36: Generate a new block ID in the canonical `blk-<12 lowercase hex>` format.
+function generateBlockId() {
+  return 'blk-' + randomUUID().replace(/-/g, '').slice(0, 12);
+}
+
+// DEC-36: Parse markdown into an ordered array of blocks, extracting embedded block IDs
+// from trailing HTML comments (e.g. `text <!-- blk-a1b2c3d4e5f6 -->`). Blocks without
+// an embedded ID receive a freshly generated one. The returned `contentMarkdown` for each
+// block does NOT include the comment; the ID is stored in `blockId`.
+function parseBlocksFromMarkdown(contentMarkdown) {
+  const raw = (contentMarkdown ?? '').trimEnd();
+  if (!raw) return [];
+  const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  return paragraphs.map((paragraph) => {
+    const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
+    if (match) {
+      return { blockId: match[1], contentMarkdown: paragraph.slice(0, match.index).trimEnd() };
+    }
+    return { blockId: generateBlockId(), contentMarkdown: paragraph };
+  });
+}
+
+// DEC-36: Assemble full content_markdown from ordered blocks, embedding each block's ID as
+// a trailing HTML comment. Used for dual-write to the legacy content_markdown column so that
+// subsequent reads can round-trip block IDs without querying the note_blocks table.
+function assembleMarkdownFromBlocks(blocks) {
+  if (!blocks.length) return '';
+  return blocks.map(({ blockId, contentMarkdown }) => `${contentMarkdown} <!-- ${blockId} -->`).join('\n\n');
+}
+
+// DEC-37: Fetch ordered blocks for a note from the note_blocks table.
+function getNoteBlocks(db, noteId) {
+  return db
+    .prepare('SELECT block_id, position, content_markdown FROM note_blocks WHERE note_id = ? ORDER BY position ASC')
+    .all(noteId)
+    .map((row) => ({ blockId: row.block_id, position: row.position, contentMarkdown: row.content_markdown }));
+}
+
+// DEC-37: Atomically replace all blocks for a note. Must be called within a transaction.
+function persistNoteBlocks(db, noteId, noteType, blocks, now) {
+  db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(noteId);
+  const insert = db.prepare(
+    'INSERT INTO note_blocks (note_id, block_id, note_type, position, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  for (let i = 0; i < blocks.length; i++) {
+    insert.run(noteId, blocks[i].blockId, noteType, i, blocks[i].contentMarkdown, now, now);
+  }
+}
+
 // DEC-36, DEC-37: Backfill note_blocks for legacy notes that have content_markdown but no blocks yet.
 function backfillNoteBlocks(db) {
   const now = getIsoNow();
@@ -609,6 +658,8 @@ function getTopicNote(db, id) {
     dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown: row.content_markdown,
+    // DEC-37: Include ordered blocks for block-aware consumers; legacy consumers use contentMarkdown.
+    blocks: getNoteBlocks(db, row.id),
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -631,6 +682,10 @@ function listTopicNotes(db) {
 
 function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
+    const now = input.createdAt ?? getIsoNow();
+    // DEC-36, DEC-37: Parse content into blocks and dual-write content_markdown with embedded block IDs.
+    const blocks = parseBlocksFromMarkdown(input.contentMarkdown);
+    const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
       INSERT INTO topic_notes (id, title, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -639,13 +694,14 @@ function createTopicNoteRecord(db, input) {
       input.title,
       input.date || '',
       JSON.stringify(input.content ?? {}),
-      input.contentMarkdown,
+      assembledMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
       input.dropboxPath || '',
       input.createdAt,
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
+    persistNoteBlocks(db, input.id, 'topic-note', blocks, now);
     return getTopicNote(db, input.id);
   });
 }
@@ -653,8 +709,9 @@ function createTopicNoteRecord(db, input) {
 function updateTopicNoteRecord(db, id, input) {
   const existing = getTopicNote(db, id);
   if (!existing) return null;
+  const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
-  const values = [input.updatedAt ?? getIsoNow()];
+  const values = [updatedAt];
 
   if (input.title !== undefined) {
     fields.push('title = ?');
@@ -668,9 +725,12 @@ function updateTopicNoteRecord(db, id, input) {
     fields.push('content = ?');
     values.push(JSON.stringify(input.content));
   }
+  // DEC-36, DEC-37: Parse incoming markdown into blocks and dual-write content_markdown.
+  let updatedBlocks;
   if (input.contentMarkdown !== undefined) {
+    updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
     fields.push('content_markdown = ?');
-    values.push(input.contentMarkdown);
+    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   }
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
@@ -688,6 +748,9 @@ function updateTopicNoteRecord(db, id, input) {
     if (input.tags !== undefined) {
       syncObjectTags(db, id, 'topic-note', input.tags);
     }
+    if (updatedBlocks !== undefined) {
+      persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt);
+    }
     return getTopicNote(db, id);
   });
 }
@@ -696,6 +759,7 @@ function deleteTopicNoteRecord(db, id) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
     clearSyncState(db, 'topic-note', id);
     const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
     return result.changes > 0;
@@ -714,6 +778,8 @@ function mapDailyNote(db, row) {
     dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown: row.content_markdown,
+    // DEC-37: Include ordered blocks for block-aware consumers; legacy consumers use contentMarkdown.
+    blocks: getNoteBlocks(db, row.id),
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -745,6 +811,10 @@ function createDailyNoteRecord(db, input) {
   }
 
   return withTransaction(db, () => {
+    const now = input.createdAt ?? getIsoNow();
+    // DEC-36, DEC-37: Parse content into blocks and dual-write content_markdown with embedded block IDs.
+    const blocks = parseBlocksFromMarkdown(input.contentMarkdown);
+    const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
       INSERT INTO daily_notes (id, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -752,13 +822,14 @@ function createDailyNoteRecord(db, input) {
       input.id,
       input.date,
       JSON.stringify(input.content ?? {}),
-      input.contentMarkdown,
+      assembledMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
       input.dropboxPath || '',
       input.createdAt,
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
+    persistNoteBlocks(db, input.id, 'daily-note', blocks, now);
     return getDailyNote(db, input.id);
   });
 }
@@ -772,8 +843,9 @@ function updateDailyNoteRecord(db, reference, input) {
     throw new Error(`A daily note already exists for ${nextDate}`);
   }
 
+  const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
-  const values = [input.updatedAt ?? getIsoNow()];
+  const values = [updatedAt];
 
   if (input.date !== undefined) {
     fields.push('date = ?');
@@ -783,9 +855,12 @@ function updateDailyNoteRecord(db, reference, input) {
     fields.push('content = ?');
     values.push(JSON.stringify(input.content));
   }
+  // DEC-36, DEC-37: Parse incoming markdown into blocks and dual-write content_markdown.
+  let updatedBlocks;
   if (input.contentMarkdown !== undefined) {
+    updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
     fields.push('content_markdown = ?');
-    values.push(input.contentMarkdown);
+    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   }
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
@@ -803,6 +878,9 @@ function updateDailyNoteRecord(db, reference, input) {
     if (input.tags !== undefined) {
       syncObjectTags(db, existing.id, 'daily-note', input.tags);
     }
+    if (updatedBlocks !== undefined) {
+      persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt);
+    }
     return getDailyNote(db, existing.id);
   });
 }
@@ -813,6 +891,7 @@ function deleteDailyNoteRecord(db, reference) {
   return withTransaction(db, () => {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(existing.id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(existing.id, existing.id);
+    db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(existing.id);
     clearSyncState(db, 'daily-note', existing.id);
     const result = db.prepare('DELETE FROM daily_notes WHERE id = ?').run(existing.id);
     return result.changes > 0;
