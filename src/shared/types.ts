@@ -1,4 +1,4 @@
-export type ObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'tag';
+export type ObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
 
 export interface BaseObject {
   id: string;
@@ -56,6 +56,23 @@ export interface Habit extends BaseObject {
   status: 'planned' | 'accomplished';
 }
 
+export interface Scripture {
+  id: string;
+  type: 'scripture';
+  reference: string;
+  bookName: string;
+  bookOrder: number;
+  passageUrl: string;
+  linkedNotes: Array<{
+    id: string;
+    type: 'topic-note' | 'daily-note';
+    title: string;
+    date?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Tag {
   id: string;
   name: string;       // stored lowercase
@@ -97,7 +114,7 @@ export interface IpcResult<T> {
   error?: string;
 }
 
-export type AnyObject = TopicNote | DailyNote | Project | ReferenceMaterial | Habit;
+export type AnyObject = TopicNote | DailyNote | Project | ReferenceMaterial | Habit | Scripture;
 
 export interface SearchResult {
   id: string;

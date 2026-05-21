@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, TopicNote } from '../shared/types';
+import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
 
 export interface CliRunResult {
   exitCode: number;
@@ -19,12 +19,12 @@ export interface MentionSearchResult {
 
 export interface ResolvedObjectRef {
   id: string;
-  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture';
   syncPath: string;
   dropboxPath?: string;
 }
 
-type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture';
 
 type CliObjectByType = {
   'topic-note': TopicNote;
@@ -32,6 +32,7 @@ type CliObjectByType = {
   project: Project;
   'ref-material': ReferenceMaterial;
   habit: Habit;
+  scripture: Scripture;
 };
 
 function normalizeDropboxPath(path: string): string {
@@ -519,6 +520,38 @@ export async function listFileMeta(): Promise<
     }
   }
   return results;
+}
+
+export async function listScriptureMeta(): Promise<
+  Array<{ id: string; reference: string; passageUrl: string; noteCount: number; type: 'scripture' }>
+> {
+  try {
+    const stdout = await listObjects('scripture');
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split('\t');
+        return {
+          id: parts[0] ?? '',
+          reference: parts[1] ?? '',
+          passageUrl: parts[2] ?? '',
+          noteCount: Number.parseInt(parts[3] ?? '0', 10) || 0,
+          type: 'scripture' as const,
+        };
+      })
+      .filter((entry) => entry.id);
+  } catch {
+    return [];
+  }
+}
+
+export async function getScriptureById(id: string): Promise<Scripture | null> {
+  try {
+    return await getObject('scripture', id);
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -35,6 +35,7 @@ const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const INBOX_TAG_NAME = 'Inbox';
+const SCRIPTURE_TYPE = 'scripture';
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
   ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
   : join(homedir(), 'Dropbox');
@@ -147,6 +148,16 @@ const schema = `
     PRIMARY KEY (note_id, block_id)
   );
 
+  CREATE TABLE IF NOT EXISTS scriptures (
+    id TEXT PRIMARY KEY,
+    reference TEXT NOT NULL UNIQUE,
+    book_name TEXT NOT NULL,
+    book_order INTEGER NOT NULL,
+    passage_url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
@@ -158,6 +169,7 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_note_id ON note_blocks(note_id);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_position ON note_blocks(note_id, position);
+  CREATE INDEX IF NOT EXISTS idx_scriptures_book_order ON scriptures(book_order, reference);
  `;
 
  // DEC-20: Ensure schema is migrated for new dropbox_path columns (DEC-21)
@@ -354,6 +366,223 @@ function normalizeRelativePathSegments(path) {
     .replace(/^[./]+/, '')
     .replace(/\/+/g, '/')
     .toLowerCase();
+}
+
+const SCRIPTURE_BOOK_ORDER = [
+  'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth',
+  '1 Samuel', '2 Samuel', '1 Kings', '2 Kings', '1 Chronicles', '2 Chronicles', 'Ezra', 'Nehemiah', 'Esther',
+  'Job', 'Psalm', 'Proverbs', 'Ecclesiastes', 'Song of Solomon', 'Isaiah', 'Jeremiah', 'Lamentations', 'Ezekiel',
+  'Daniel', 'Hosea', 'Joel', 'Amos', 'Obadiah', 'Jonah', 'Micah', 'Nahum', 'Habakkuk', 'Zephaniah', 'Haggai',
+  'Zechariah', 'Malachi', 'Tobit', 'Judith', 'Wisdom', 'Sirach', '1 Maccabees', '2 Maccabees', 'Matthew', 'Mark',
+  'Luke', 'John', 'Acts', 'Romans', '1 Corinthians', '2 Corinthians', 'Galatians', 'Ephesians', 'Philippians',
+  'Colossians', '1 Thessalonians', '2 Thessalonians', '1 Timothy', '2 Timothy', 'Titus', 'Philemon', 'Hebrews',
+  'James', '1 Peter', '2 Peter', '1 John', '2 John', '3 John', 'Jude', 'Revelation',
+];
+const SCRIPTURE_BOOK_ORDER_INDEX = new Map(SCRIPTURE_BOOK_ORDER.map((book, index) => [book, index]));
+const SCRIPTURE_VOLUME_BOOKS = new Set(['Samuel', 'Kings', 'Chronicles', 'Maccabees', 'Corinthians', 'Thessalonians', 'Timothy', 'Peter', 'John']);
+const SCRIPTURE_LINK_HOST_PATTERN = /^https?:\/\/(?:www\.)?biblegateway\.com\/passage\/\?search=/i;
+const SCRIPTURE_VOLUME_NORMALIZATION = new Map([
+  ['1', '1'], ['i', '1'], ['1st', '1'], ['first', '1'],
+  ['2', '2'], ['ii', '2'], ['2nd', '2'], ['second', '2'],
+  ['3', '3'], ['iii', '3'], ['3rd', '3'], ['third', '3'],
+]);
+const SCRIPTURE_BOOK_ALIASES = new Map([
+  ['gen', 'Genesis'], ['genesis', 'Genesis'],
+  ['ex', 'Exodus'], ['exo', 'Exodus'], ['exodus', 'Exodus'],
+  ['lev', 'Leviticus'], ['leviticus', 'Leviticus'],
+  ['num', 'Numbers'], ['nmb', 'Numbers'], ['numbers', 'Numbers'],
+  ['deut', 'Deuteronomy'], ['dt', 'Deuteronomy'], ['deuteronomy', 'Deuteronomy'],
+  ['josh', 'Joshua'], ['joshua', 'Joshua'],
+  ['judg', 'Judges'], ['jdg', 'Judges'], ['judges', 'Judges'],
+  ['rut', 'Ruth'], ['ruth', 'Ruth'],
+  ['sam', 'Samuel'], ['samuel', 'Samuel'],
+  ['ki', 'Kings'], ['kin', 'Kings'], ['kn', 'Kings'], ['kgs', 'Kings'], ['kings', 'Kings'],
+  ['chr', 'Chronicles'], ['chron', 'Chronicles'], ['chronicles', 'Chronicles'],
+  ['ezr', 'Ezra'], ['ezra', 'Ezra'],
+  ['neh', 'Nehemiah'], ['nehemiah', 'Nehemiah'],
+  ['est', 'Esther'], ['esther', 'Esther'],
+  ['jb', 'Job'], ['job', 'Job'],
+  ['psa', 'Psalm'], ['ps', 'Psalm'], ['psalm', 'Psalm'], ['psalms', 'Psalm'],
+  ['pr', 'Proverbs'], ['prov', 'Proverbs'], ['proverbs', 'Proverbs'],
+  ['eccl', 'Ecclesiastes'], ['ecclesiastes', 'Ecclesiastes'],
+  ['song', 'Song of Solomon'], ['songs of solomon', 'Song of Solomon'], ['song of songs', 'Song of Solomon'], ['song of solomon', 'Song of Solomon'],
+  ['isa', 'Isaiah'], ['is', 'Isaiah'], ['isaiah', 'Isaiah'],
+  ['jer', 'Jeremiah'], ['jeremiah', 'Jeremiah'],
+  ['lam', 'Lamentations'], ['lamentations', 'Lamentations'],
+  ['eze', 'Ezekiel'], ['ezekiel', 'Ezekiel'],
+  ['dan', 'Daniel'], ['daniel', 'Daniel'],
+  ['hos', 'Hosea'], ['hosea', 'Hosea'],
+  ['joe', 'Joel'], ['joel', 'Joel'],
+  ['amo', 'Amos'], ['amos', 'Amos'],
+  ['oba', 'Obadiah'], ['obadiah', 'Obadiah'],
+  ['jon', 'Jonah'], ['jonah', 'Jonah'],
+  ['mic', 'Micah'], ['micah', 'Micah'],
+  ['nah', 'Nahum'], ['nahum', 'Nahum'],
+  ['hab', 'Habakkuk'], ['habakkuk', 'Habakkuk'],
+  ['zeph', 'Zephaniah'], ['zephaniah', 'Zephaniah'],
+  ['hag', 'Haggai'], ['haggai', 'Haggai'],
+  ['zech', 'Zechariah'], ['zechariah', 'Zechariah'],
+  ['mal', 'Malachi'], ['malachi', 'Malachi'],
+  ['tob', 'Tobit'], ['tobit', 'Tobit'],
+  ['jud', 'Judith'], ['judith', 'Judith'],
+  ['wis', 'Wisdom'], ['wisdom', 'Wisdom'],
+  ['sir', 'Sirach'], ['sirach', 'Sirach'],
+  ['mac', 'Maccabees'], ['macc', 'Maccabees'], ['maccabees', 'Maccabees'],
+  ['mt', 'Matthew'], ['matt', 'Matthew'], ['matthew', 'Matthew'],
+  ['mk', 'Mark'], ['mrk', 'Mark'], ['mark', 'Mark'],
+  ['lk', 'Luke'], ['lu', 'Luke'], ['luke', 'Luke'],
+  ['jn', 'John'], ['jh', 'John'], ['jo', 'John'], ['john', 'John'],
+  ['act', 'Acts'], ['acts', 'Acts'], ['acts of the apostles', 'Acts'],
+  ['rom', 'Romans'], ['romans', 'Romans'],
+  ['cor', 'Corinthians'], ['corinthians', 'Corinthians'],
+  ['gal', 'Galatians'], ['galatians', 'Galatians'],
+  ['eph', 'Ephesians'], ['ephesians', 'Ephesians'],
+  ['phi', 'Philippians'], ['phil', 'Philippians'], ['philippians', 'Philippians'],
+  ['col', 'Colossians'], ['colossians', 'Colossians'],
+  ['the', 'Thessalonians'], ['thes', 'Thessalonians'], ['thess', 'Thessalonians'], ['thessalonians', 'Thessalonians'],
+  ['ti', 'Timothy'], ['tim', 'Timothy'], ['timothy', 'Timothy'],
+  ['tit', 'Titus'], ['titus', 'Titus'],
+  ['phile', 'Philemon'], ['philemon', 'Philemon'],
+  ['heb', 'Hebrews'], ['hebrews', 'Hebrews'],
+  ['jam', 'James'], ['jas', 'James'], ['james', 'James'],
+  ['pet', 'Peter'], ['pe', 'Peter'], ['pt', 'Peter'], ['peter', 'Peter'],
+  ['ju', 'Jude'], ['jude', 'Jude'],
+  ['rev', 'Revelation'], ['revelation', 'Revelation'], ['revelations', 'Revelation'],
+]);
+const SCRIPTURE_BOOK_MATCH_PATTERN = '(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs?|Ecclesiastes|Songs? of Solomon|Song of Songs|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Wisdom|Maccabees|Sirach|Judith|Tobit|Matthew|Mark|Luke|John|Acts?|Acts of the Apostles|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation(?:s?)?|Gen|Ex|Exo|Lev|Num|Nmb|Deut?|Dt|Josh?|Judg?|Jdg|Rut|Sam|Ki|Kin|Kn|Kgs|Chr(?:on?)?|Ezr|Neh|Est|Jb|Psa?|Pr(?:ov?)?|Eccl?|Song?|Isa|Is|Jer|Lam|Eze|Da?n|Hos|Joe|Amo?|Oba|Jon|Mic|Nah|Hab|Zeph?|Hag|Zech?|Mal|Wis|Sir|Mac|Macc|Jud|Tob|M(?:at)?t|Mr?k|Lu?k|Jh?n|Jo|Act|Rom|Cor|Gal|Eph|Col|Phi(?:l?)?|The?|Thess?|Ti?m|Tit|Phile|Heb|Ja?m|Pe?t|Pt|Ju|Rev)\\.?';
+const SCRIPTURE_PASSAGE_REGEX = new RegExp(`\\b(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)`, 'gi');
+const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
+
+function normalizeScriptureVolume(volumeRaw) {
+  const normalized = normalize(volumeRaw).toLowerCase().replace(/\./g, '');
+  if (!normalized) return '';
+  return SCRIPTURE_VOLUME_NORMALIZATION.get(normalized) ?? '';
+}
+
+function normalizeScriptureBook(bookRaw) {
+  const normalized = normalize(bookRaw).replace(/\.$/, '').toLowerCase();
+  if (!normalized) return null;
+  return SCRIPTURE_BOOK_ALIASES.get(normalized) ?? null;
+}
+
+function normalizeScriptureVersePart(verseRaw) {
+  return normalize(verseRaw).replace(/\s+/g, '').replace(/\./g, ':');
+}
+
+function buildCanonicalScriptureBook(volumeRaw, bookRaw) {
+  const volume = normalizeScriptureVolume(volumeRaw);
+  const book = normalizeScriptureBook(bookRaw);
+  if (!book) return null;
+  if (!volume) return book;
+  if (!SCRIPTURE_VOLUME_BOOKS.has(book)) return book;
+  return `${volume} ${book}`;
+}
+
+function buildScripturePassageUrl(reference) {
+  const search = encodeURIComponent(reference.replace(':', '.'));
+  return `https://www.biblegateway.com/passage/?search=${search}&version=RSVCE&interface=print`;
+}
+
+function parseScriptureMatch(volumeRaw, bookRaw, verseRaw) {
+  const canonicalBook = buildCanonicalScriptureBook(volumeRaw, bookRaw);
+  if (!canonicalBook) return null;
+  const verse = normalizeScriptureVersePart(verseRaw);
+  if (!verse) return null;
+  const reference = `${canonicalBook} ${verse}`;
+  const bookOrder = SCRIPTURE_BOOK_ORDER_INDEX.get(canonicalBook) ?? Number.MAX_SAFE_INTEGER;
+  return {
+    reference,
+    bookName: canonicalBook,
+    bookOrder,
+    passageUrl: buildScripturePassageUrl(reference),
+  };
+}
+
+function getMarkdownLinkRanges(markdown) {
+  const ranges = [];
+  const regex = new RegExp(MARKDOWN_LINK_REGEX.source, 'g');
+  let match;
+  while ((match = regex.exec(markdown)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return ranges;
+}
+
+function indexWithinRanges(index, ranges) {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function normalizeStandaloneScriptureReference(text) {
+  const candidate = normalize(text);
+  if (!candidate) return null;
+  const regex = new RegExp(`^(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)$`, 'i');
+  const match = regex.exec(candidate);
+  if (!match) return null;
+  return parseScriptureMatch(match[1] ?? '', match[2] ?? '', match[3] ?? '');
+}
+
+function normalizeScriptureLinksInMarkdown(markdown) {
+  let content = String(markdown ?? '');
+  const referencesByKey = new Map();
+
+  content = content.replace(MARKDOWN_LINK_REGEX, (full, label, href) => {
+    const parsed = normalizeStandaloneScriptureReference(label);
+    if (!parsed) return full;
+    if (!SCRIPTURE_LINK_HOST_PATTERN.test(String(href ?? ''))) return full;
+    referencesByKey.set(parsed.reference, parsed);
+    return `[${parsed.reference}](${parsed.passageUrl})`;
+  });
+
+  const protectedRanges = getMarkdownLinkRanges(content);
+  SCRIPTURE_PASSAGE_REGEX.lastIndex = 0;
+  const matches = [];
+  let match;
+  while ((match = SCRIPTURE_PASSAGE_REGEX.exec(content)) !== null) {
+    if (indexWithinRanges(match.index, protectedRanges)) continue;
+    const parsed = parseScriptureMatch(match[1] ?? '', match[2] ?? '', match[3] ?? '');
+    if (!parsed) continue;
+    matches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      parsed,
+    });
+  }
+
+  let normalizedContent = '';
+  let cursor = 0;
+  for (const item of matches) {
+    if (item.start < cursor) continue;
+    normalizedContent += content.slice(cursor, item.start);
+    normalizedContent += `[${item.parsed.reference}](${item.parsed.passageUrl})`;
+    cursor = item.end;
+    referencesByKey.set(item.parsed.reference, item.parsed);
+  }
+  normalizedContent += content.slice(cursor);
+
+  return {
+    contentMarkdown: normalizedContent,
+    references: Array.from(referencesByKey.values())
+      .sort((a, b) => a.bookOrder - b.bookOrder || a.reference.localeCompare(b.reference)),
+  };
+}
+
+function normalizeScriptureBlocks(blocks) {
+  const referencesByKey = new Map();
+  const normalizedBlocks = blocks.map((block) => {
+    const normalized = normalizeScriptureLinksInMarkdown(block.contentMarkdown);
+    for (const reference of normalized.references) {
+      referencesByKey.set(reference.reference, reference);
+    }
+    return {
+      ...block,
+      contentMarkdown: normalized.contentMarkdown,
+    };
+  });
+  return {
+    blocks: normalizedBlocks,
+    references: Array.from(referencesByKey.values())
+      .sort((a, b) => a.bookOrder - b.bookOrder || a.reference.localeCompare(b.reference)),
+  };
 }
 
 function isLocalDateString(value) {
@@ -974,6 +1203,8 @@ function lookupObjectSummary(db, id, typeHint) {
       SELECT id, 'ref-material' AS type, name AS label, '' AS date, dropbox_path AS sync_path FROM ref_materials
       UNION ALL
       SELECT id, 'habit' AS type, text AS label, date, dropbox_path AS sync_path FROM habits
+      UNION ALL
+      SELECT id, 'scripture' AS type, reference AS label, '' AS date, '' AS sync_path FROM scriptures
     )
     WHERE id = ?
       AND (? = '' OR type = ?)
@@ -1133,6 +1364,35 @@ function collectDateLinkTargets(db, dates) {
   return targets;
 }
 
+function ensureScriptureRecord(db, scriptureRef) {
+  const existing = db.prepare('SELECT id FROM scriptures WHERE reference = ?').get(scriptureRef.reference);
+  if (existing?.id) {
+    db.prepare(`
+      UPDATE scriptures
+      SET book_name = ?, book_order = ?, passage_url = ?, updated_at = ?
+      WHERE id = ?
+    `).run(scriptureRef.bookName, scriptureRef.bookOrder, scriptureRef.passageUrl, getIsoNow(), existing.id);
+    return existing.id;
+  }
+  const now = getIsoNow();
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO scriptures (id, reference, book_name, book_order, passage_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, scriptureRef.reference, scriptureRef.bookName, scriptureRef.bookOrder, scriptureRef.passageUrl, now, now);
+  return id;
+}
+
+function collectScriptureLinkTargets(db, scriptureRefs) {
+  const targets = [];
+  for (const scriptureRef of scriptureRefs ?? []) {
+    const id = ensureScriptureRecord(db, scriptureRef);
+    if (!id) continue;
+    targets.push({ id, type: SCRIPTURE_TYPE });
+  }
+  return targets;
+}
+
 function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdown) {
   const refs = listLinkableObjectRefs(db);
   const hrefs = parseMarkdownLinkHrefs(contentMarkdown);
@@ -1265,9 +1525,13 @@ function createTopicNoteRecord(db, input) {
     const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
       ? assembleMarkdownFromBlocks(blocks)
       : (input.contentMarkdown ?? '');
-    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
+    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
+    const normalizedBlocks = normalizedScripture.blocks;
+    const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
+    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, normalizedContentMarkdown);
     const dateLinks = collectDateLinkTargets(db, [input.date]);
-    const mergedLinks = mergeLinkTargets(derivedLinks, dateLinks);
+    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
+    const mergedLinks = mergeLinkTargets(derivedLinks, dateLinks, scriptureLinks);
     db.prepare(`
       INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1282,7 +1546,7 @@ function createTopicNoteRecord(db, input) {
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
-    persistNoteBlocks(db, input.id, 'topic-note', blocks, now);
+    persistNoteBlocks(db, input.id, 'topic-note', normalizedBlocks, now);
     syncNoteObjectLinks(db, input.id, 'topic-note', mergedLinks);
     return getTopicNote(db, input.id);
   });
@@ -1331,9 +1595,13 @@ function updateTopicNoteRecord(db, id, input) {
           : (input.contentMarkdown ?? '')
       )
       : existing.contentMarkdown;
-    const contentLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, contentMarkdown);
+    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
+    updatedBlocks = normalizedScripture.blocks;
+    const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
+    const contentLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, normalizedContentMarkdown);
     const dateLinks = collectDateLinkTargets(db, [nextDate]);
-    derivedLinks = mergeLinkTargets(contentLinks, dateLinks);
+    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
+    derivedLinks = mergeLinkTargets(contentLinks, dateLinks, scriptureLinks);
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
   }
@@ -1501,7 +1769,12 @@ function createDailyNoteRecordInternal(db, input) {
   const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
     ? assembleMarkdownFromBlocks(blocks)
     : (input.contentMarkdown ?? '');
-  const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
+  const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
+  const normalizedBlocks = normalizedScripture.blocks;
+  const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
+  const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, normalizedContentMarkdown);
+  const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
+  const mergedLinks = mergeLinkTargets(derivedLinks, scriptureLinks);
   db.prepare(`
       INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1509,14 +1782,14 @@ function createDailyNoteRecordInternal(db, input) {
     input.id,
     input.date,
     JSON.stringify(input.content ?? {}),
-    JSON.stringify(derivedLinks.map((target) => target.id)),
+    JSON.stringify(mergedLinks.map((target) => target.id)),
     dropboxPath,
     input.createdAt,
     input.updatedAt,
   );
   syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
-  persistNoteBlocks(db, input.id, 'daily-note', blocks, now);
-  const removedDailyNoteIds = syncNoteObjectLinks(db, input.id, 'daily-note', derivedLinks);
+  persistNoteBlocks(db, input.id, 'daily-note', normalizedBlocks, now);
+  const removedDailyNoteIds = syncNoteObjectLinks(db, input.id, 'daily-note', mergedLinks);
   cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
   return getDailyNote(db, input.id);
 }
@@ -1569,7 +1842,12 @@ function updateDailyNoteRecord(db, reference, input) {
     const contentMarkdown = Array.isArray(updatedBlocks) && updatedBlocks.length > 0
       ? assembleMarkdownFromBlocks(updatedBlocks)
       : (input.contentMarkdown ?? '');
-    derivedLinks = deriveNoteLinksFromContent(db, existing.id, nextDropboxPath, contentMarkdown);
+    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
+    updatedBlocks = normalizedScripture.blocks;
+    const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
+    const contentLinks = deriveNoteLinksFromContent(db, existing.id, nextDropboxPath, normalizedContentMarkdown);
+    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
+    derivedLinks = mergeLinkTargets(contentLinks, scriptureLinks);
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
   }
@@ -1996,6 +2274,65 @@ function deleteLinkRecord(db, id) {
   return result.changes > 0;
 }
 
+function getScriptureLinkedNotes(db, scriptureId) {
+  const rows = db.prepare(`
+    SELECT source_id AS note_id, source_type AS note_type
+    FROM object_links
+    WHERE target_id = ?
+      AND target_type = ?
+      AND source_type IN ('topic-note', 'daily-note')
+    ORDER BY source_type ASC, source_id ASC
+  `).all(scriptureId, SCRIPTURE_TYPE);
+  const linkedNotes = [];
+  for (const row of rows) {
+    const summary = lookupObjectSummary(db, row.note_id, row.note_type);
+    if (!summary) continue;
+    linkedNotes.push(summary);
+  }
+  return sortRelatedObjectsStable(linkedNotes);
+}
+
+function getScripture(db, reference) {
+  const row = db.prepare('SELECT * FROM scriptures WHERE id = ? OR reference = ?').get(reference, reference);
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: SCRIPTURE_TYPE,
+    reference: row.reference,
+    bookName: row.book_name,
+    bookOrder: row.book_order,
+    passageUrl: row.passage_url,
+    linkedNotes: getScriptureLinkedNotes(db, row.id),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function listScriptures(db) {
+  return db.prepare(`
+    SELECT s.id, s.reference, s.book_name, s.book_order, s.passage_url, s.created_at, s.updated_at,
+      (
+        SELECT COUNT(*)
+        FROM object_links l
+        WHERE l.target_id = s.id
+          AND l.target_type = ?
+          AND l.source_type IN ('topic-note', 'daily-note')
+      ) AS note_count
+    FROM scriptures s
+    ORDER BY s.book_order ASC, s.reference COLLATE NOCASE ASC
+  `).all(SCRIPTURE_TYPE).map((row) => ({
+    id: row.id,
+    type: SCRIPTURE_TYPE,
+    reference: row.reference,
+    bookName: row.book_name,
+    bookOrder: row.book_order,
+    passageUrl: row.passage_url,
+    noteCount: row.note_count ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 function listObjects(type) {
   return withDb((db) => {
     switch (type) {
@@ -2004,6 +2341,7 @@ function listObjects(type) {
       case 'project': return listProjects(db);
       case 'ref-material': return listRefMats(db);
       case 'habit': return listHabits(db);
+      case 'scripture': return listScriptures(db);
       case 'tag': return listTags(db);
       case 'link': return getLinks(db);
       default: throw new Error(`Unsupported type: ${type}`);
@@ -2019,6 +2357,7 @@ function getObject(type, reference) {
       case 'project': return getProject(db, reference);
       case 'ref-material': return getRefMat(db, reference);
       case 'habit': return getHabit(db, reference);
+      case 'scripture': return getScripture(db, reference);
       case 'tag': return getTag(db, reference);
       case 'link': return getLinks(db).find((link) => link.id === reference) ?? null;
       default: throw new Error(`Unsupported type: ${type}`);
@@ -2047,6 +2386,8 @@ function resolveType(token) {
     ['reference-materials', 'ref-material'],
     ['habit', 'habit'],
     ['habits', 'habit'],
+    ['scripture', 'scripture'],
+    ['scriptures', 'scripture'],
     ['tag', 'tag'],
     ['tags', 'tag'],
     ['link', 'link'],
@@ -2083,6 +2424,9 @@ function printRecords(type, rows) {
       case 'ref-material':
         console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.dropboxPath || '(no path)'}`);
         break;
+      case 'scripture':
+        console.log(`${row.id}\t${listField(row.reference)}\t${row.passageUrl}\t${row.noteCount ?? 0}`);
+        break;
        case 'habit':
          console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
          break;
@@ -2114,6 +2458,7 @@ function browseTarget(target, value) {
       printSection('Projects', listProjects(db), 'project');
       printSection('Reference Materials', listRefMats(db), 'ref-material');
       printSection('Habits', listHabits(db), 'habit');
+      printSection('Scripture', listScriptures(db), 'scripture');
       printSection('Tags', listTags(db), 'tag');
     });
     return;
@@ -3888,7 +4233,7 @@ Settings:
                             Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
 
 Object types:
-  topic-note, daily-note, project, ref-material, habit, tag, link
+  topic-note, daily-note, project, ref-material, habit, scripture, tag, link
 
 Browse targets:
   all, notes, directories, files, <object-type>
