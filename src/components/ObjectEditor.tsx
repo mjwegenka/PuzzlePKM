@@ -23,9 +23,10 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format, isValid, parseISO } from 'date-fns';
 import type { MentionOption } from './MentionPopup';
 import RichMarkdownEditor from './RichMarkdownEditor';
-import { deleteObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils';
 import { useSyncStatus } from '../lib/syncContext';
+import type { NoteBlock } from '../shared/types';
 
 interface ObjectEditorProps {
   object?: Record<string, unknown>;
@@ -120,6 +121,63 @@ function isEffectivelyEmptyNoteContent(value: string): boolean {
   return normalized.length === 0;
 }
 
+function fallbackBlockId(index: number): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now().toString(16)}${index.toString(16).padStart(2, '0')}`;
+  return `blk-${random.slice(0, 12).padEnd(12, '0')}`;
+}
+
+function parseLegacyBlocksFromMarkdown(contentMarkdown: string): NoteBlock[] {
+  const raw = contentMarkdown.trimEnd();
+  if (!raw) return [];
+  const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  return paragraphs.map((paragraph, index) => {
+    const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
+    return {
+      blockId: match?.[1] ?? fallbackBlockId(index),
+      position: index,
+      contentMarkdown: match ? paragraph.slice(0, match.index).trimEnd() : paragraph,
+    };
+  });
+}
+
+function normalizeNoteBlocks(
+  rawBlocks: unknown,
+  contentMarkdown: string,
+): NoteBlock[] {
+  if (Array.isArray(rawBlocks)) {
+    const parsed = rawBlocks
+      .map((rawBlock, index) => {
+        if (!rawBlock || typeof rawBlock !== 'object') return null;
+        const block = rawBlock as Record<string, unknown>;
+        const blockId =
+          typeof block.blockId === 'string' && block.blockId
+            ? block.blockId
+            : fallbackBlockId(index);
+        const position =
+          typeof block.position === 'number' ? block.position : index;
+        const blockContent =
+          typeof block.contentMarkdown === 'string' ? block.contentMarkdown : '';
+        return { blockId, position, contentMarkdown: blockContent };
+      })
+      .filter((block): block is NoteBlock => Boolean(block))
+      .sort((a, b) => a.position - b.position)
+      .map((block, index) => ({ ...block, position: index }));
+    if (parsed.length > 0) return parsed;
+  }
+  return parseLegacyBlocksFromMarkdown(contentMarkdown);
+}
+
+function joinBlockMarkdown(blocks: NoteBlock[]): string {
+  if (blocks.length === 0) return '';
+  return blocks
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((block) => block.contentMarkdown)
+    .join('\n\n');
+}
+
 export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
   const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
@@ -135,6 +193,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(defaultDate);
   const [content, setContent] = useState('');
+  const [noteBlocks, setNoteBlocks] = useState<NoteBlock[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
@@ -143,6 +202,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const [isDirty, setIsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<ResolvedObjectRef | null>(null);
   const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
+  const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
 
   // Reset form when a different object payload is loaded.
   useEffect(() => {
@@ -151,8 +211,16 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       (object?.date as string | undefined) ??
       (object?.startDate as string | undefined) ??
       defaultDate;
-    const nextContent =
+    const nextRawContent =
       (type === 'habit' ? (object?.text as string) : (object?.contentMarkdown as string)) || '';
+    const nextBlocks =
+      type === 'topic-note' || type === 'daily-note'
+        ? normalizeNoteBlocks(object?.blocks, nextRawContent)
+        : [];
+    const nextContent =
+      type === 'topic-note' || type === 'daily-note'
+        ? joinBlockMarkdown(nextBlocks)
+        : nextRawContent;
     const nextTags = (object?.tags as string[]) || [];
 
     initialRef.current = {
@@ -165,20 +233,46 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     setTitle(nextTitle);
     setDate(nextDate);
     setContent(nextContent);
+    setNoteBlocks(nextBlocks);
     setTags(nextTags);
     setSaveError(null);
     setIsDirty(false);
     setPendingNavigation(null);
+    mentionTargetBlockCacheRef.current = new Map();
     onDirty?.(false);
   }, [object, defaultDate, type, onDirty]);
 
   const resolveMentionHref = useCallback(
-    (option: MentionOption) => {
+    async (option: MentionOption) => {
       const targetPath = normalizeDropboxPath(option.dropboxPath);
       const currentSourceDir = inferCurrentSourceDir(type, object, title, date);
-      return targetPath && currentSourceDir
+      const baseHref = targetPath && currentSourceDir
         ? relativeDropboxPath(currentSourceDir, targetPath)
         : targetPath || option.id;
+
+      const isNoteTarget =
+        option.type === 'topic-note' || option.type === 'daily-note';
+      if (!isNoteTarget) return baseHref;
+
+      const cacheKey = `${option.type}:${option.id}`;
+      if (!mentionTargetBlockCacheRef.current.has(cacheKey)) {
+        try {
+          const noteType = option.type === 'topic-note' ? 'topic-note' : 'daily-note';
+          const note = await getObject(noteType, option.id);
+          const blocks = Array.isArray((note as { blocks?: unknown }).blocks)
+            ? ((note as { blocks: NoteBlock[] }).blocks ?? [])
+            : [];
+          const firstBlockId = blocks.find((block) => typeof block?.blockId === 'string' && block.blockId)?.blockId ?? null;
+          mentionTargetBlockCacheRef.current.set(cacheKey, firstBlockId);
+        } catch {
+          mentionTargetBlockCacheRef.current.set(cacheKey, null);
+        }
+      }
+
+      const blockId = mentionTargetBlockCacheRef.current.get(cacheKey);
+      if (!blockId) return baseHref;
+      const withoutFragment = baseHref.replace(/#.*/, '');
+      return `${withoutFragment}#${blockId}`;
     },
     [date, object, title, type],
   );
@@ -208,10 +302,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         data.title = title;
         data.date = date;
         data.contentMarkdown = content;
+        data.blocks = noteBlocks;
         data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
       } else if (type === 'daily-note') {
         data.date = date;
         data.contentMarkdown = content;
+        data.blocks = noteBlocks;
         data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
       } else if (type === 'project') {
         data.name = title;
@@ -243,7 +339,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } finally {
       setSaving(false);
     }
-  }, [content, date, object?.dropboxPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+  }, [content, date, noteBlocks, object?.dropboxPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
 
   const handleSave = async () => {
     const isEmptyNoteContent =
@@ -469,6 +565,8 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
               }
               mentionEnabled={isNoteType}
               resolveMentionHref={resolveMentionHref}
+              blocks={isNoteType ? noteBlocks : undefined}
+              onBlocksChange={isNoteType ? setNoteBlocks : undefined}
               maxLength={type === 'habit' ? 255 : undefined}
               onShiftClickLink={onNavigateToObject ? handleShiftClickLink : undefined}
             />
@@ -621,4 +719,3 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     </Paper>
   );
 }
-
