@@ -44,8 +44,8 @@ const existingKeys = new Set()
 for (const line of listed.stdout.split('\n').filter(Boolean)) {
   const parts = line.split('\t')
   const date = (parts[1] || '').trim()
-  const text = (parts[2] || '').trim().toLowerCase()
-  const tags = (parts[4] || '')
+  const text = (parts[3] || '').trim().toLowerCase()
+  const tags = (parts[5] || '')
     .split(',')
     .map((t) => t.trim().replace(/^#/, ''))
     .filter(Boolean)
@@ -104,4 +104,3 @@ for (const name of files) {
 }
 
 console.log(`Done. Imported=${imported} Skipped=${skipped} Failed=${failed}`)
-

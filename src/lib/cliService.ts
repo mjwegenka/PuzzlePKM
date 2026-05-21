@@ -310,7 +310,7 @@ export async function runSync(): Promise<void> {
  *   topic-note  : id \t updatedAt \t title \t syncPath \t date \t preview [\t #tag1, #tag2]
  *   project     : id \t name \t syncPath \t startDate [\t #tag1, #tag2]
  *   ref-material: id \t name \t syncPath [\t #tag1, #tag2]
- *   habit       : id \t date \t text \t syncPath [\t #tag1, #tag2]
+ *   habit       : id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 function parseListOutput(
   type: string,
@@ -339,7 +339,7 @@ function parseListOutput(
         case 'ref-material':
           return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '' });
         case 'habit':
-          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', syncPath: path3 ?? '', date: parts[1] });
+          return withLegacyPathAlias({ id, type, title: parts[3] ?? '', syncPath: normalizePath(parts[4]) ?? '', date: parts[1] });
         default:
           return { id, type, title: parts[1] ?? '' };
       }
@@ -448,10 +448,10 @@ export async function listTopicNoteMeta(): Promise<
 
 /**
  * List habits for list/calendar views (metadata only).
- * CLI format: id \t date \t text \t syncPath [\t #tag1, #tag2]
+ * CLI format: id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 export async function listHabitMeta(): Promise<
-  Array<{ id: string; date: string; text: string; syncPath: string; dropboxPath: string; tags: string[]; type: 'habit' }>
+  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; dropboxPath: string; tags: string[]; type: 'habit' }>
 > {
   try {
     const stdout = await listObjects('habit');
@@ -460,15 +460,17 @@ export async function listHabitMeta(): Promise<
       .filter(Boolean)
       .map((line) => {
         const parts = line.split('\t');
-        const rawTags = parts[4] ?? '';
+        const rawTags = parts[5] ?? '';
         const tags = rawTags
           ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
           : [];
+        const status: 'planned' | 'accomplished' = parts[2] === 'accomplished' ? 'accomplished' : 'planned';
         return {
           id: parts[0] ?? '',
           date: parts[1] ?? '',
-          text: parts[2] ?? '',
-          ...withLegacyPathAlias({ syncPath: parts[3] ?? '' }),
+          status,
+          text: parts[3] ?? '',
+          ...withLegacyPathAlias({ syncPath: parts[4] ?? '' }),
           tags,
           type: 'habit' as const,
         };
