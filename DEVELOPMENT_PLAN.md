@@ -8,24 +8,24 @@ Do not restate domain rules here; reference:
 Stage status should be updated here first, then summarized elsewhere only as a pointer.
 
 ## Goal
-Deliver a local-first CLI knowledge management tool with Dropbox sync, plus a desktop wrapper that invokes CLI functionality through Tauri.
+Deliver a local-first CLI knowledge management tool with local-folder sync, plus a desktop wrapper that invokes CLI functionality through Tauri.
 
 ## Completed Stages (1–5)
 
 Stages 1 through 5 have been fully implemented:
 
 - **Stage 1 – Scope Lock**: Product scope and decision log are internally consistent.
-- **Stage 2 – Architecture Baseline**: CLI data/model boundaries, local schema, and Dropbox auth/sync boundaries are established.
-- **Stage 3 – Runnable Foundation**: CLI CRUD works locally, auth flow is wired, and the repository remains runnable without desktop shell dependencies.
+- **Stage 2 – Architecture Baseline**: CLI data/model boundaries, local schema, and sync boundaries are established.
+- **Stage 3 – Runnable Foundation**: CLI CRUD works locally and the repository remains runnable without desktop shell dependencies.
 - **Stage 4 – Domain Linking Core**: All MVP object schemas implemented. ID-based links and bi-directional reference resolution are in place. Daily Note uniqueness by local date is enforced.
 - **Stage 5 – Notes Workflows**: Markdown import pipeline and core note/object workflows are available in the CLI.
 
-## Stage 6: Dropbox File Objects
-Status: **In progress** (directory browsing + open-in-Dropbox app/web wiring implemented)
+## Stage 6: Sync File Objects
+Status: **In progress** (directory browsing + open-in-folder wiring implemented)
 - Implement Projects and Reference Materials directory browsing.
-- Add CLI-friendly open/browse helpers for Dropbox-backed directories.
+- Add CLI-friendly open/browse helpers for sync-backed directories.
 - Support optional project date metadata.
-- Exit criteria: Dropbox-backed objects are navigable and launchable.
+- Exit criteria: sync-backed objects are navigable and launchable.
 
 ## Stage 7: Habits and Tags
 Status: **In progress** (Habits view + aggregate Tag object view implemented)
@@ -83,4 +83,3 @@ Desktop version in this repo means the `>=768px` shell behavior defined in `UI_D
 - Add interaction tests for non-visual contract behaviors: date navigation semantics, special-filter navigation disablement, readonly event constraints.
 - Run accessibility checks (focus order, contrast, modal trapping, keyboard-only navigation).
 - Exit criteria: contract coverage checklist passes and regressions are blocked in CI for desktop UI surfaces.
-

@@ -6,6 +6,7 @@ export interface MentionOption {
   type: string;
   title: string;
   date?: string;
+  syncPath?: string;
   dropboxPath?: string;
 }
 

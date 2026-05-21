@@ -69,7 +69,7 @@ function inferCurrentSourceDir(
   title: string,
   date: string,
 ): string | undefined {
-  const currentPath = normalizeDropboxPath(object?.dropboxPath as string | undefined);
+  const currentPath = normalizeDropboxPath((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined));
   if (currentPath) {
     if (type === 'project' || type === 'ref-material') {
       return pathInsideDropboxRoot(currentPath);
@@ -244,7 +244,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
   const resolveMentionHref = useCallback(
     async (option: MentionOption) => {
-      const targetPath = normalizeDropboxPath(option.dropboxPath);
+      const targetPath = normalizeDropboxPath(option.syncPath ?? option.dropboxPath);
       const currentSourceDir = inferCurrentSourceDir(type, object, title, date);
       const baseHref = targetPath && currentSourceDir
         ? relativeDropboxPath(currentSourceDir, targetPath)
@@ -312,10 +312,10 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       } else if (type === 'project') {
         data.name = title;
         data.startDate = date || undefined;
-        data.dropboxPath = (object?.dropboxPath as string) ?? '';
+        data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
       } else if (type === 'ref-material') {
         data.name = title;
-        data.dropboxPath = (object?.dropboxPath as string) ?? '';
+        data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
       } else if (type === 'habit') {
         data.text = content;
         data.date = date;
@@ -339,7 +339,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } finally {
       setSaving(false);
     }
-  }, [content, date, noteBlocks, object?.dropboxPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+  }, [content, date, noteBlocks, object?.dropboxPath, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
 
   const handleSave = async () => {
     const isEmptyNoteContent =
@@ -405,7 +405,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const handleShiftClickLink = useCallback(async (href: string) => {
     if (!onNavigateToObject) return;
     try {
-      const currentPath = normalizeDropboxPath(object?.dropboxPath as string | undefined);
+      const currentPath = normalizeDropboxPath(((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined)));
       const target = await resolveObjectFromLinkPath(href, currentPath);
 
       if (!target) {
@@ -422,7 +422,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } catch (err) {
       setSaveError(`Failed to open linked object: ${String(err)}`);
     }
-  }, [executeNavigation, isDirty, object?.dropboxPath, onNavigateToObject]);
+  }, [executeNavigation, isDirty, object?.dropboxPath, object?.syncPath, onNavigateToObject]);
 
   const handleDiscardAndNavigate = async () => {
     if (!pendingNavigation) return;
