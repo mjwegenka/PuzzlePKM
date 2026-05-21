@@ -641,7 +641,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dropith_desktop"
+name = "puzzlepkm_desktop"
 version = "0.1.0"
 dependencies = [
  "serde",

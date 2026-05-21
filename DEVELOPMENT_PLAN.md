@@ -1,4 +1,4 @@
-# Dropith Development Plan
+# PuzzlePKM Development Plan
 
 This file is the single source of truth for **delivery order and stage boundaries**.
 Do not restate domain rules here; reference:
@@ -36,7 +36,7 @@ Status: **In progress** (Habits view + aggregate Tag object view implemented)
 
 ## Stage 8: Sync and Reliability
 Status: **In progress** (manual + periodic auto-sync fully available in CLI)
-- Implement auto-sync + manual sync controls (`DEC-12`) — available via `dropith sync` and `dropith sync --watch`
+- Implement auto-sync + manual sync controls (`DEC-12`) — available via `puzzlepkm sync` and `puzzlepkm sync --watch`
 - Implement conflict detection + user-guided resolution (`DEC-13`)
 - Add sync diagnostics with content-safe logging (`DEC-19`)
 - Exit criteria: offline edits survive reconnect and conflict paths are explicit.

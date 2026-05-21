@@ -1,8 +1,8 @@
 [package]
-name = "dropith_desktop"
+name = "puzzlepkm_desktop"
 version = "0.1.0"
-description = "Dropith desktop wrapper"
-authors = ["Dropith"]
+description = "PuzzlePKM desktop wrapper"
+authors = ["PuzzlePKM"]
 edition = "2021"
 
 [build-dependencies]
@@ -16,4 +16,3 @@ tauri = { version = "2", features = [] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-

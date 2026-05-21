@@ -164,7 +164,7 @@ export default function SettingsPage() {
             Settings
           </Typography>
           <Typography variant="caption" sx={{ color: '#7dbad6' }}>
-            Dropith configuration &amp; diagnostics
+            PuzzlePKM configuration &amp; diagnostics
           </Typography>
         </Box>
       </Stack>
@@ -205,7 +205,7 @@ export default function SettingsPage() {
                     ) : (
                       <ErrorIcon sx={{ fontSize: 15, color: '#e05a5a' }} />
                     )}
-                    <Typography variant="body2">
+                    <Typography component="div" variant="body2">
                       CLI reachable:{' '}
                       <Chip
                         label={cliStatus.ok ? 'OK' : 'Error'}
@@ -283,7 +283,7 @@ export default function SettingsPage() {
                       wordBreak: 'break-all',
                     }}
                   >
-                    {config.dbPath || '~/.dropith/dropith.db (default)'}
+                    {config.dbPath || '(platform default; legacy dropith app-data folder)'}
                   </Typography>
                 }
               />
@@ -329,9 +329,10 @@ export default function SettingsPage() {
           </Typography>
         </Stack>
 
-        <Typography variant="body2" sx={{ color: '#b0cce0', mb: 2 }}>
+        <Typography component="div" variant="body2" sx={{ color: '#b0cce0', mb: 2 }}>
           Projects and Reference Materials are discovered under your configured sync folder.
-          Set the root folder path below.
+          Set the root folder path below. The legacy <code>/Dropith</code> virtual root remains supported
+          for compatibility.
         </Typography>
 
         <Stack spacing={1.5}>
@@ -342,7 +343,7 @@ export default function SettingsPage() {
             value={syncRoot}
             onChange={(e) => setSyncRoot(e.target.value)}
             placeholder="/Dropith"
-            helperText={syncRootValidationError || 'Folder path used by sync (for example /Dropith)'}
+            helperText={syncRootValidationError || 'Folder path used by sync (legacy default /Dropith remains supported)'}
             error={Boolean(syncRootValidationError)}
             variant="outlined"
           />
@@ -435,15 +436,16 @@ export default function SettingsPage() {
               fontSize: '10px',
             }}
           >
-            About Dropith
+            About PuzzlePKM
           </Typography>
         </Stack>
         <List dense disablePadding>
           {[
-            ['App', 'Dropith Desktop'],
+            ['App', 'PuzzlePKM Desktop'],
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
             ['Storage', 'Local SQLite via node:sqlite'],
             ['Sync', 'Local folder'],
+            ['Compatibility', 'dropith CLI/data paths still supported'],
           ].map(([label, value]) => (
             <ListItem key={label} disablePadding sx={{ py: 0.4 }}>
               <ListItemText

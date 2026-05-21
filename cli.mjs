@@ -20,6 +20,11 @@ const KEYCHAIN_APP_SECRET = 'dropbox_app_secret';
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MAX_NOTE_TITLE_LENGTH = 120;
 const MAX_HABIT_TEXT_LENGTH = 255;
+const PRIMARY_PRODUCT_NAME = 'PuzzlePKM';
+const PRIMARY_CLI_COMMAND = 'puzzlepkm';
+const LEGACY_CLI_COMMAND = 'dropith';
+const PRIMARY_DB_ENV_VAR = 'PUZZLEPKM_DB_PATH';
+const LEGACY_DB_ENV_VAR = 'DROPITH_DB_PATH';
 const HABIT_STATUS_PLANNED = 'planned';
 const HABIT_STATUS_ACCOMPLISHED = 'accomplished';
 const HABIT_STATUSES = new Set([HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED]);
@@ -36,6 +41,7 @@ const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const INBOX_TAG_NAME = 'Inbox';
 const SCRIPTURE_TYPE = 'scripture';
+const ROOT_RELATIVE_APP_PATTERN = /^(?:dropith|puzzlepkm)\//i;
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
   ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
   : join(homedir(), 'Dropbox');
@@ -255,7 +261,7 @@ const schema = `
     }
   }
 
- function defaultAppDataDir() {
+function defaultAppDataDir() {
   const home = homedir();
   if (platform() === 'darwin') return join(home, 'Library', 'Application Support', 'dropith');
   if (platform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'dropith');
@@ -268,7 +274,7 @@ function secretsFilePath() {
   return join(appDataDir, 'secrets.json');
 }
 
-const dbFile = process.env.DROPITH_DB_PATH ?? join(appDataDir, 'dropith.sqlite');
+const dbFile = process.env[PRIMARY_DB_ENV_VAR] ?? process.env[LEGACY_DB_ENV_VAR] ?? join(appDataDir, 'dropith.sqlite');
 
 function getIsoNow() {
   return new Date().toISOString();
@@ -1286,7 +1292,7 @@ function resolveNoteLinkTarget(refs, href, sourceSyncPath) {
   const idMatch = refs.find((item) => item.id === withoutFragment);
   if (idMatch) return { id: idMatch.id, type: idMatch.type };
 
-  const rootRelative = /^dropith\//i.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
+  const rootRelative = ROOT_RELATIVE_APP_PATTERN.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
   const targetPath = rootRelative.startsWith('/')
     ? normalizeSyncPath(rootRelative)
     : sourceSyncPath
@@ -1337,7 +1343,7 @@ function extractDateFromLinkHref(href, sourceSyncPath) {
     return withoutFragment;
   }
 
-  const rootRelative = /^dropith\//i.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
+  const rootRelative = ROOT_RELATIVE_APP_PATTERN.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
   const resolvedPath = rootRelative.startsWith('/')
     ? normalizeSyncPath(rootRelative)
     : sourceSyncPath
@@ -4236,33 +4242,33 @@ async function updateObjectInteractive(type, reference, rl) {
 }
 
 function printHelp() {
-  console.log(`Dropith CLI
+  console.log(`${PRIMARY_PRODUCT_NAME} CLI
 
 Usage:
-  dropith                   Start the interactive shell
-  dropith shell             Start the interactive shell
-  dropith help              Show help
-  dropith add <text>        Quick-create a topic note
-  dropith list [type]       List topic notes or another object type
-  dropith get <type> <id>   Show one object as JSON
-  dropith create <type>     Create an object with guided prompts
-  dropith import <type> <dir>
+  ${PRIMARY_CLI_COMMAND}                 Start the interactive shell
+  ${PRIMARY_CLI_COMMAND} shell           Start the interactive shell
+  ${PRIMARY_CLI_COMMAND} help            Show help
+  ${PRIMARY_CLI_COMMAND} add <text>      Quick-create a topic note
+  ${PRIMARY_CLI_COMMAND} list [type]     List topic notes or another object type
+  ${PRIMARY_CLI_COMMAND} get <type> <id> Show one object as JSON
+  ${PRIMARY_CLI_COMMAND} create <type>   Create an object with guided prompts
+  ${PRIMARY_CLI_COMMAND} import <type> <dir>
                            Batch import Markdown notes from a directory
-  dropith update <type> <id-or-date>
+  ${PRIMARY_CLI_COMMAND} update <type> <id-or-date>
                            Update an object with guided prompts
-  dropith delete <type> <id-or-date>
+  ${PRIMARY_CLI_COMMAND} delete <type> <id-or-date>
                            Delete an object
-  dropith browse [target]   Browse notes, directories, files, or all objects
+  ${PRIMARY_CLI_COMMAND} browse [target] Browse notes, directories, files, or all objects
 
 Sync:
-  dropith sync              Sync notes, habits, and directories to local sync folder (one-shot)
-  dropith sync --watch      Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
+  ${PRIMARY_CLI_COMMAND} sync            Sync notes, habits, and directories to local sync folder (one-shot)
+  ${PRIMARY_CLI_COMMAND} sync --watch    Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
     [--interval <minutes>]    Override sync interval in minutes
 
 Settings:
-  dropith settings show     Show CLI-visible app settings
-  dropith settings set root-folder <path>
-                            Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
+  ${PRIMARY_CLI_COMMAND} settings show   Show CLI-visible app settings
+  ${PRIMARY_CLI_COMMAND} settings set root-folder <path>
+                             Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
 
 Object types:
   topic-note, daily-note, project, ref-material, habit, scripture, tag, link
@@ -4273,10 +4279,15 @@ Browse targets:
 Shell shortcuts:
   Ctrl+C / Ctrl+D           Exit the interactive shell
   Note content editing      Opens in $EDITOR (default: vi); use VIM commands
-                            to edit (:w to save, :q to quit, :q! to discard)
+                             to edit (:w to save, :q to quit, :q! to discard)
+
+Compatibility:
+  ${LEGACY_CLI_COMMAND}                   Legacy CLI alias still works
+  Existing app data stays in legacy "${LEGACY_CLI_COMMAND}" folders for now
 
 Environment:
-  DROPITH_DB_PATH           Optional absolute path to a Dropith SQLite database
+  ${PRIMARY_DB_ENV_VAR}      Optional absolute path to a ${PRIMARY_PRODUCT_NAME} SQLite database
+  ${LEGACY_DB_ENV_VAR}       Legacy alias for ${PRIMARY_DB_ENV_VAR}
 `);
 }
 
@@ -4325,7 +4336,7 @@ async function executeTokens(tokens, context = {}) {
 
   if (action === 'add') {
     const text = args.join(' ').trim();
-    if (!text) throw new Error('Please provide note text: dropith add <text>');
+    if (!text) throw new Error(`Please provide note text: ${PRIMARY_CLI_COMMAND} add <text>`);
     const created = withDb((db) => createTopicNoteRecord(db, {
       id: randomUUID(),
       title: titleFromText(text),
@@ -4348,12 +4359,12 @@ async function executeTokens(tokens, context = {}) {
   }
 
   // DEC-18: Non-interactive write command for desktop UI integration.
-  // Usage: dropith write <type> <json-string>
+  // Usage: puzzlepkm write <type> <json-string>
   // Creates or updates the object based on presence of a matching id/date.
   if (action === 'write') {
     const type = resolveType(args[0]);
     const jsonStr = args.slice(1).join(' ');
-    if (!type || !jsonStr) throw new Error('Usage: dropith write <type> <json>');
+    if (!type || !jsonStr) throw new Error(`Usage: ${PRIMARY_CLI_COMMAND} write <type> <json>`);
     let input;
     try {
       input = JSON.parse(jsonStr);
@@ -4495,7 +4506,7 @@ async function executeTokens(tokens, context = {}) {
   if (action === 'get') {
     const type = resolveType(args[0]);
     const reference = args[1];
-    if (!type || !reference) throw new Error('Usage: dropith get <type> <id-or-date>');
+    if (!type || !reference) throw new Error(`Usage: ${PRIMARY_CLI_COMMAND} get <type> <id-or-date>`);
     const record = getObject(type, reference);
     if (!record) throw new Error(`${type} not found: ${reference}`);
     console.log(formatCompact(record));
@@ -4504,7 +4515,7 @@ async function executeTokens(tokens, context = {}) {
 
   if (action === 'create') {
     const type = resolveType(args[0]);
-    if (!type) throw new Error('Usage: dropith create <type>');
+    if (!type) throw new Error(`Usage: ${PRIMARY_CLI_COMMAND} create <type>`);
     const promptRl = rl ?? createPromptInterface();
     try {
       const created = await createObjectInteractive(type, promptRl);
@@ -4519,7 +4530,7 @@ async function executeTokens(tokens, context = {}) {
     const type = resolveType(args[0]);
     const directory = args[1];
     if ((type !== 'daily-note' && type !== 'topic-note') || !directory) {
-      throw new Error('Usage: dropith import <daily-note|topic-note> <directory>');
+      throw new Error(`Usage: ${PRIMARY_CLI_COMMAND} import <daily-note|topic-note> <directory>`);
     }
     console.log(formatCompact(importNotesFromDirectory(type, directory)));
     return;
@@ -4528,7 +4539,7 @@ async function executeTokens(tokens, context = {}) {
   if (action === 'update') {
     const type = resolveType(args[0]);
     const reference = args[1];
-    if (!type || !reference) throw new Error('Usage: dropith update <type> <id-or-date>');
+    if (!type || !reference) throw new Error(`Usage: ${PRIMARY_CLI_COMMAND} update <type> <id-or-date>`);
     const promptRl = rl ?? createPromptInterface();
     try {
       const updated = await updateObjectInteractive(type, reference, promptRl);
@@ -4546,8 +4557,8 @@ async function executeTokens(tokens, context = {}) {
 
     if (!type || !reference) {
       const usage = action === 'remove'
-        ? 'Usage: dropith remove <id> or dropith delete <type> <id-or-date>'
-        : 'Usage: dropith delete <type> <id-or-date>';
+        ? `Usage: ${PRIMARY_CLI_COMMAND} remove <id> or ${PRIMARY_CLI_COMMAND} delete <type> <id-or-date>`
+        : `Usage: ${PRIMARY_CLI_COMMAND} delete <type> <id-or-date>`;
       throw new Error(usage);
     }
 
@@ -4671,11 +4682,11 @@ async function startShell() {
 
   rl.on('SIGINT', () => {
     interrupted = true;
-    stdout.write('\nLeaving Dropith shell.\n');
+    stdout.write(`\nLeaving ${PRIMARY_PRODUCT_NAME} shell.\n`);
     rl.close();
   });
 
-  console.log('Dropith shell');
+  console.log(`${PRIMARY_PRODUCT_NAME} shell`);
   console.log(`Database: ${dbFile}`);
   console.log('Type help for commands. Exit with Ctrl+C or Ctrl+D.');
 
@@ -4683,7 +4694,7 @@ async function startShell() {
     while (true) {
       let line;
       try {
-        line = await rl.question('dropith> ');
+        line = await rl.question(`${PRIMARY_CLI_COMMAND}> `);
       } catch {
         break;
       }
@@ -4700,7 +4711,7 @@ async function startShell() {
   } finally {
     rl.close();
     if (!interrupted) {
-      console.log('Leaving Dropith shell.');
+      console.log(`Leaving ${PRIMARY_PRODUCT_NAME} shell.`);
     }
   }
 }

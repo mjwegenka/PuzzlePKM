@@ -1,6 +1,6 @@
-# Dropith Desktop Wrapper (Tauri)
+# PuzzlePKM Desktop Wrapper (Tauri)
 
-This folder contains the desktop host for Dropith.
+This folder contains the desktop host for PuzzlePKM.
 
 ## Architecture
 
@@ -26,6 +26,5 @@ npm run tauri:build
 ## Notes
 
 - The desktop shell currently supports non-interactive CLI commands (for example `help`, `list`, `sync`, `auth status`, `settings show`).
-- Interactive shell mode (`dropith` with no args or `dropith shell`) is not embedded in the current command panel.
+- Interactive shell mode (`puzzlepkm` with no args or `puzzlepkm shell`) is not embedded in the current command panel; the legacy `dropith` alias still works.
 - `cli.mjs` is bundled as a Tauri resource.
-
