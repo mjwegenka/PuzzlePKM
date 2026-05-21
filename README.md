@@ -34,6 +34,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
 - **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `dropboxPath#blockId` format (see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md) for the full block identity and lifecycle contract)
+- **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Quick access to all views
 

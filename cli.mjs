@@ -645,6 +645,20 @@ function getNoteBlocks(db, noteId) {
     .map((row) => ({ blockId: row.block_id, position: row.position, contentMarkdown: row.content_markdown }));
 }
 
+function getCanonicalNoteContent(db, noteId, legacyContentMarkdown) {
+  const blocks = getNoteBlocks(db, noteId);
+  if (blocks.length > 0) {
+    return {
+      blocks,
+      contentMarkdown: assembleMarkdownFromBlocks(blocks),
+    };
+  }
+  return {
+    blocks,
+    contentMarkdown: legacyContentMarkdown ?? '',
+  };
+}
+
 // DEC-37: Atomically replace all blocks for a note. Must be called within a transaction.
 function persistNoteBlocks(db, noteId, noteType, blocks, now) {
   const normalizedBlocks = normalizeBlocksForPersistence(blocks, `persistNoteBlocks(${noteId})`);
@@ -807,6 +821,7 @@ function syncObjectTags(db, objectId, objectType, tagNames) {
 function getTopicNote(db, id) {
   const row = db.prepare('SELECT * FROM topic_notes WHERE id = ?').get(id);
   if (!row) return null;
+  const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
   return {
     id: row.id,
     type: 'topic-note',
@@ -814,9 +829,8 @@ function getTopicNote(db, id) {
     date: row.date || '',
     dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
-    contentMarkdown: row.content_markdown,
-    // DEC-37: Include ordered blocks for block-aware consumers; legacy consumers use contentMarkdown.
-    blocks: getNoteBlocks(db, row.id),
+    contentMarkdown,
+    blocks,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -825,16 +839,19 @@ function getTopicNote(db, id) {
 }
 
 function listTopicNotes(db) {
-  return db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
-    id: row.id,
-    title: row.title,
-    date: row.date || '',
-    dropboxPath: row.dropbox_path || '',
-    preview: row.content_markdown.slice(0, 80),
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => {
+    const { contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+    return {
+      id: row.id,
+      title: row.title,
+      date: row.date || '',
+      dropboxPath: row.dropbox_path || '',
+      preview: contentMarkdown.slice(0, 80),
+      tags: getTagDisplayNames(db, row.id),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 function createTopicNoteRecord(db, input) {
@@ -844,16 +861,14 @@ function createTopicNoteRecord(db, input) {
     const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
       ? input.blocks
       : parseBlocksFromMarkdown(input.contentMarkdown);
-    const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
-      INSERT INTO topic_notes (id, title, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.title,
       input.date || '',
       JSON.stringify(input.content ?? {}),
-      assembledMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
       input.dropboxPath || '',
       input.createdAt,
@@ -888,12 +903,8 @@ function updateTopicNoteRecord(db, id, input) {
   let updatedBlocks;
   if (Array.isArray(input.blocks) && input.blocks.length > 0) {
     updatedBlocks = input.blocks;
-    fields.push('content_markdown = ?');
-    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
-    fields.push('content_markdown = ?');
-    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   }
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
@@ -934,15 +945,15 @@ function findDailyNoteRow(db, reference) {
 }
 
 function mapDailyNote(db, row) {
+  const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
   return {
     id: row.id,
     type: 'daily-note',
     date: row.date,
     dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
-    contentMarkdown: row.content_markdown,
-    // DEC-37: Include ordered blocks for block-aware consumers; legacy consumers use contentMarkdown.
-    blocks: getNoteBlocks(db, row.id),
+    contentMarkdown,
+    blocks,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
@@ -956,15 +967,18 @@ function getDailyNote(db, reference) {
 }
 
 function listDailyNotes(db) {
-  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => ({
-    id: row.id,
-    date: row.date,
-    dropboxPath: row.dropbox_path || '',
-    preview: row.content_markdown.slice(0, 80),
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => {
+    const { contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
+    return {
+      id: row.id,
+      date: row.date,
+      dropboxPath: row.dropbox_path || '',
+      preview: contentMarkdown.slice(0, 80),
+      tags: getTagDisplayNames(db, row.id),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 function createDailyNoteRecord(db, input) {
@@ -979,15 +993,13 @@ function createDailyNoteRecord(db, input) {
     const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
       ? input.blocks
       : parseBlocksFromMarkdown(input.contentMarkdown);
-    const assembledMarkdown = assembleMarkdownFromBlocks(blocks);
     db.prepare(`
-      INSERT INTO daily_notes (id, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.date,
       JSON.stringify(input.content ?? {}),
-      assembledMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
       input.dropboxPath || '',
       input.createdAt,
@@ -1024,12 +1036,8 @@ function updateDailyNoteRecord(db, reference, input) {
   let updatedBlocks;
   if (Array.isArray(input.blocks) && input.blocks.length > 0) {
     updatedBlocks = input.blocks;
-    fields.push('content_markdown = ?');
-    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
-    fields.push('content_markdown = ?');
-    values.push(assembleMarkdownFromBlocks(updatedBlocks));
   }
   if (input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
@@ -2298,11 +2306,7 @@ async function getLegacyDropboxAccountEmail(token) {
 
 function listDailyNotesForSync(db) {
   return db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all().map((row) => {
-    // DEC-38: Assemble contentMarkdown from note_blocks so that block IDs are always embedded,
-    // even for notes backfilled before blocks were introduced. Falls back to raw content_markdown
-    // if the note has no blocks (should not occur after backfillNoteBlocks runs).
-    const blocks = getNoteBlocks(db, row.id);
-    const contentMarkdown = blocks.length > 0 ? assembleMarkdownFromBlocks(blocks) : (row.content_markdown ?? '');
+    const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
     return {
       id: row.id,
       date: row.date,
@@ -2319,10 +2323,7 @@ function listDailyNotesForSync(db) {
 
 function listTopicNotesForSync(db) {
   return db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all().map((row) => {
-    // DEC-38: Assemble contentMarkdown from note_blocks so that block IDs are always embedded,
-    // even for notes backfilled before blocks were introduced.
-    const blocks = getNoteBlocks(db, row.id);
-    const contentMarkdown = blocks.length > 0 ? assembleMarkdownFromBlocks(blocks) : (row.content_markdown ?? '');
+    const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
     return {
       id: row.id,
       title: row.title,
