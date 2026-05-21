@@ -33,7 +33,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Calendar View** – Navigate daily notes by date
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
-- **@ Mentions** – Link to other objects by typing `@` in note content
+- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `dropboxPath#blockId` format (see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md) for the full block identity and lifecycle contract)
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Quick access to all views
 
