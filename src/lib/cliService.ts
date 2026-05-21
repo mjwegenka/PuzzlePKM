@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, TopicNote } from '../shared/types';
 
 export interface CliRunResult {
   exitCode: number;
@@ -19,6 +20,16 @@ export interface ResolvedObjectRef {
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
   dropboxPath: string;
 }
+
+type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+
+type CliObjectByType = {
+  'topic-note': TopicNote;
+  'daily-note': DailyNote;
+  project: Project;
+  'ref-material': ReferenceMaterial;
+  habit: Habit;
+};
 
 function normalizeDropboxPath(path: string): string {
   const value = path.replace(/\\/g, '/').trim();
@@ -197,10 +208,62 @@ export async function listObjects(type: string): Promise<string> {
   return result.stdout;
 }
 
-export async function getObject(type: string, id: string): Promise<Record<string, unknown>> {
+function fallbackBlockId(index: number): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now().toString(16)}${index.toString(16).padStart(2, '0')}`;
+  return `blk-${random.slice(0, 12).padEnd(12, '0')}`;
+}
+
+function parseLegacyBlocksFromMarkdown(contentMarkdown: string): NoteBlock[] {
+  const raw = contentMarkdown.trimEnd();
+  if (!raw) return [];
+  const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  return paragraphs.map((paragraph, index) => {
+    const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
+    return {
+      blockId: match?.[1] ?? fallbackBlockId(index),
+      position: index,
+      contentMarkdown: match ? paragraph.slice(0, match.index).trimEnd() : paragraph,
+    };
+  });
+}
+
+function normalizeBlocks(rawBlocks: unknown, contentMarkdown: string): NoteBlock[] {
+  if (Array.isArray(rawBlocks)) {
+    const parsed = rawBlocks
+      .map((rawBlock, index) => {
+        if (!rawBlock || typeof rawBlock !== 'object') return null;
+        const block = rawBlock as Record<string, unknown>;
+        const blockId = typeof block.blockId === 'string' && block.blockId
+          ? block.blockId
+          : fallbackBlockId(index);
+        const position = typeof block.position === 'number' ? block.position : index;
+        const blockContent = typeof block.contentMarkdown === 'string' ? block.contentMarkdown : '';
+        return { blockId, position, contentMarkdown: blockContent };
+      })
+      .filter((block): block is NoteBlock => Boolean(block));
+    if (parsed.length > 0) {
+      return parsed.map((block, index) => ({ ...block, position: index }));
+    }
+  }
+  return parseLegacyBlocksFromMarkdown(contentMarkdown);
+}
+
+function normalizeNotePayload<T extends TopicNote | DailyNote>(value: T): T {
+  const contentMarkdown = typeof value.contentMarkdown === 'string' ? value.contentMarkdown : '';
+  const blocks = normalizeBlocks((value as { blocks?: unknown }).blocks, contentMarkdown);
+  return { ...value, contentMarkdown, blocks };
+}
+
+export async function getObject<T extends CliObjectType>(type: T, id: string): Promise<CliObjectByType[T]> {
   const result = await runDropithCli(['get', type, id]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `get ${type} ${id} failed`);
-  return JSON.parse(result.stdout);
+  const parsed = JSON.parse(result.stdout) as CliObjectByType[T];
+  if (type === 'topic-note' || type === 'daily-note') {
+    return normalizeNotePayload(parsed as TopicNote | DailyNote) as CliObjectByType[T];
+  }
+  return parsed;
 }
 
 /** DEC-18: Non-interactive create/update for desktop UI. */
@@ -210,7 +273,11 @@ export async function writeObject(
 ): Promise<Record<string, unknown>> {
   const result = await runDropithCli(['write', type, JSON.stringify(data)]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `write ${type} failed`);
-  return JSON.parse(result.stdout);
+  const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+  if (type === 'topic-note' || type === 'daily-note') {
+    return normalizeNotePayload(parsed as unknown as TopicNote | DailyNote) as unknown as Record<string, unknown>;
+  }
+  return parsed;
 }
 
 export async function deleteObject(type: string, id: string): Promise<boolean> {

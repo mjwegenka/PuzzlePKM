@@ -7,12 +7,19 @@ export interface BaseObject {
   tags: string[];    // tag IDs
 }
 
+export interface NoteBlock {
+  blockId: string;
+  position: number;
+  contentMarkdown: string;
+}
+
 export interface TopicNote extends BaseObject {
   type: 'topic-note';
   title: string;
   date?: string; // optional YYYY-MM-DD
   content: object; // TipTap JSON
   contentMarkdown: string;
+  blocks: NoteBlock[];
   linkedObjectIds: string[];
 }
 
@@ -21,6 +28,7 @@ export interface DailyNote extends BaseObject {
   date: string; // YYYY-MM-DD (local timezone)
   content: object; // TipTap JSON
   contentMarkdown: string;
+  blocks: NoteBlock[];
   linkedObjectIds: string[];
 }
 
