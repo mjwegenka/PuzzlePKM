@@ -31,14 +31,17 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import MentionPopup, { type MentionOption } from './MentionPopup'
 import { searchObjects } from '../lib/cliService'
+import type { NoteBlock } from '../shared/types'
 
 interface RichMarkdownEditorProps {
   value: string
   onChange: (value: string) => void
+  blocks?: NoteBlock[]
+  onBlocksChange?: (blocks: NoteBlock[]) => void
   label: string
   placeholder?: string
   mentionEnabled?: boolean
-  resolveMentionHref?: (option: MentionOption) => string
+  resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
   onShiftClickLink?: (href: string) => void | Promise<void>
 }
@@ -76,6 +79,102 @@ function htmlToMarkdown(html: string): string {
   const markdown = turndown.turndown(normalizedHtml)
     .replace(/\r\n/g, '\n')
   return markdown === '\n' ? '' : markdown
+}
+
+function fallbackBlockId(index: number): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now().toString(16)}${index.toString(16).padStart(2, '0')}`
+  return `blk-${random.slice(0, 12).padEnd(12, '0')}`
+}
+
+function splitMarkdownIntoParagraphs(markdown: string): string[] {
+  const raw = markdown.trimEnd()
+  if (!raw) return []
+  return raw.split(/\n{2,}/).map((paragraph) => paragraph.trimEnd()).filter(Boolean)
+}
+
+function reconcileBlocksWithMarkdown(prevBlocks: NoteBlock[], markdown: string): NoteBlock[] {
+  const nextParagraphs = splitMarkdownIntoParagraphs(markdown)
+  if (nextParagraphs.length === 0) return []
+
+  const normalizedPrev = prevBlocks
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((block, index) => ({
+      blockId: block.blockId || fallbackBlockId(index),
+      position: index,
+      contentMarkdown: block.contentMarkdown ?? '',
+    }))
+
+  const usedPrev = new Set<number>()
+  const nextBlocks: NoteBlock[] = new Array(nextParagraphs.length)
+
+  for (let i = 0; i < nextParagraphs.length; i += 1) {
+    const paragraph = nextParagraphs[i]
+    const exactMatchIdx = normalizedPrev.findIndex(
+      (block, idx) => !usedPrev.has(idx) && block.contentMarkdown === paragraph,
+    )
+    if (exactMatchIdx >= 0) {
+      usedPrev.add(exactMatchIdx)
+      nextBlocks[i] = {
+        blockId: normalizedPrev[exactMatchIdx].blockId,
+        position: i,
+        contentMarkdown: paragraph,
+      }
+    }
+  }
+
+  for (let i = 0; i < nextParagraphs.length; i += 1) {
+    if (nextBlocks[i]) continue
+    const paragraph = nextParagraphs[i]
+    const positionalMatchIdx = normalizedPrev.findIndex(
+      (block, idx) => !usedPrev.has(idx) && block.position >= i,
+    )
+
+    if (positionalMatchIdx >= 0) {
+      usedPrev.add(positionalMatchIdx)
+      nextBlocks[i] = {
+        blockId: normalizedPrev[positionalMatchIdx].blockId,
+        position: i,
+        contentMarkdown: paragraph,
+      }
+      continue
+    }
+
+    const firstUnusedIdx = normalizedPrev.findIndex((_, idx) => !usedPrev.has(idx))
+    if (firstUnusedIdx >= 0) {
+      usedPrev.add(firstUnusedIdx)
+      nextBlocks[i] = {
+        blockId: normalizedPrev[firstUnusedIdx].blockId,
+        position: i,
+        contentMarkdown: paragraph,
+      }
+      continue
+    }
+
+    nextBlocks[i] = {
+      blockId: fallbackBlockId(i),
+      position: i,
+      contentMarkdown: paragraph,
+    }
+  }
+
+  return nextBlocks
+}
+
+function areBlocksEqual(left: NoteBlock[], right: NoteBlock[]): boolean {
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    if (
+      left[i].blockId !== right[i].blockId ||
+      left[i].position !== right[i].position ||
+      left[i].contentMarkdown !== right[i].contentMarkdown
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 interface ToolbarButtonProps {
@@ -118,6 +217,8 @@ function findAnchorTarget(target: EventTarget | null): HTMLAnchorElement | null 
 export default function RichMarkdownEditor({
   value,
   onChange,
+  blocks,
+  onBlocksChange,
   label,
   placeholder,
   mentionEnabled = false,
@@ -126,6 +227,8 @@ export default function RichMarkdownEditor({
   onShiftClickLink,
 }: RichMarkdownEditorProps) {
   const lastMarkdownRef = useRef(value)
+  const lastBlocksRef = useRef<NoteBlock[]>(blocks ?? reconcileBlocksWithMarkdown([], value))
+  const editorRef = useRef<Editor | null>(null)
   const isApplyingExternalValueRef = useRef(false)
   const mentionRangeRef = useRef<{ from: number; to: number } | null>(null)
   const lastHandledLinkRef = useRef<{ href: string; at: number } | null>(null)
@@ -217,6 +320,35 @@ export default function RichMarkdownEditor({
     openLinkedObject(href)
   }, [onShiftClickLink, openLinkedObject])
 
+  const insertMentionLink = useCallback(
+    async (option: MentionOption, activeEditor?: Editor | null) => {
+      const targetEditor = activeEditor ?? editorRef.current
+      if (!targetEditor) return
+
+      const range =
+        mentionRangeRef.current ??
+        { from: targetEditor.state.selection.from, to: targetEditor.state.selection.from }
+      const resolvedHref = await Promise.resolve(
+        resolveMentionHref?.(option) ?? option.dropboxPath ?? option.id,
+      )
+      const href = resolvedHref.trim()
+      if (!href) return
+
+      targetEditor
+        .chain()
+        .focus()
+        .insertContentAt(range, {
+          type: 'text',
+          text: `@${option.title}`,
+          marks: [{ type: 'link', attrs: { href } }],
+        })
+        .insertContent(' ')
+        .run()
+      closeMention()
+    },
+    [closeMention, resolveMentionHref],
+  )
+
   const editor = useEditor({
     extensions,
     content: markdownToHtml(value),
@@ -250,18 +382,7 @@ export default function RichMarkdownEditor({
           const option = mentionOptions[mentionSelectedIdx]
           if (!option) return false
           event.preventDefault()
-          const range = mentionRangeRef.current ?? { from: editor?.state.selection.from ?? 0, to: editor?.state.selection.from ?? 0 }
-          const href = resolveMentionHref?.(option) ?? option.dropboxPath ?? option.id
-          editor?.chain()
-            .focus()
-            .insertContentAt(range, {
-              type: 'text',
-              text: `@${option.title}`,
-              marks: [{ type: 'link', attrs: { href } }],
-            })
-            .insertContent(' ')
-            .run()
-          closeMention()
+          void insertMentionLink(option, editor)
           return true
         }
         if (event.key === 'Escape') {
@@ -278,6 +399,11 @@ export default function RichMarkdownEditor({
       const nextMarkdown = htmlToMarkdown(nextEditor.getHTML())
       if (nextMarkdown !== lastMarkdownRef.current) {
         lastMarkdownRef.current = nextMarkdown
+        const nextBlocks = reconcileBlocksWithMarkdown(lastBlocksRef.current, nextMarkdown)
+        if (!areBlocksEqual(nextBlocks, lastBlocksRef.current)) {
+          lastBlocksRef.current = nextBlocks
+          onBlocksChange?.(nextBlocks)
+        }
         onChange(nextMarkdown)
       }
     },
@@ -313,6 +439,27 @@ export default function RichMarkdownEditor({
       window.clearTimeout(timer)
     }
   }, [mentionActive, mentionQuery])
+
+  useEffect(() => {
+    editorRef.current = editor ?? null
+  }, [editor])
+
+  useEffect(() => {
+    if (blocks) {
+      const normalizedBlocks = blocks
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((block, index) => ({ ...block, position: index }))
+      if (!areBlocksEqual(lastBlocksRef.current, normalizedBlocks)) {
+        lastBlocksRef.current = normalizedBlocks
+      }
+      return
+    }
+    const derivedBlocks = reconcileBlocksWithMarkdown(lastBlocksRef.current, value)
+    if (!areBlocksEqual(lastBlocksRef.current, derivedBlocks)) {
+      lastBlocksRef.current = derivedBlocks
+    }
+  }, [blocks, value])
 
   useEffect(() => {
     if (!editor) return
@@ -459,19 +606,7 @@ export default function RichMarkdownEditor({
           options={mentionOptions}
           selectedIndex={mentionSelectedIdx}
           onSelect={(option) => {
-            if (!editor) return
-            const range = mentionRangeRef.current ?? { from: editor.state.selection.from, to: editor.state.selection.from }
-            const href = resolveMentionHref?.(option) ?? option.dropboxPath ?? option.id
-            editor.chain()
-              .focus()
-              .insertContentAt(range, {
-                type: 'text',
-                text: `@${option.title}`,
-                marks: [{ type: 'link', attrs: { href } }],
-              })
-              .insertContent(' ')
-              .run()
-            closeMention()
+            void insertMentionLink(option)
           }}
           onClose={closeMention}
           position={mentionPosition}
@@ -480,4 +615,3 @@ export default function RichMarkdownEditor({
     </Box>
   )
 }
-
