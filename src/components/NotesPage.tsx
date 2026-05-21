@@ -49,6 +49,7 @@ type EditorObjectType = NoteType | 'project' | 'ref-material'
 
 interface NotesPageProps {
   onSaved?: () => void
+  pendingSelection?: { id: string; type: NoteType; nonce: number } | null
 }
 
 // ── Typed list items ──────────────────────────────────────────────────────────
@@ -377,7 +378,7 @@ function CreatePanel({ createType, createKey, onTypeChange, onSave, onClose, onD
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function NotesPage({ onSaved }: NotesPageProps) {
+export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps) {
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
   const [habits, setHabits] = useState<HabitItem[]>([])
@@ -437,6 +438,11 @@ export default function NotesPage({ onSaved }: NotesPageProps) {
       setSelectedObject(null)
     }
   }, [])
+
+  useEffect(() => {
+    if (!pendingSelection) return
+    void handleSelectItem(pendingSelection.id, pendingSelection.type)
+  }, [handleSelectItem, pendingSelection])
 
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
     try {

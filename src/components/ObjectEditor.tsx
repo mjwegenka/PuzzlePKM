@@ -341,6 +341,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       };
       setIsDirty(false);
       onDirty?.(false);
+      window.dispatchEvent(new Event('dropith:objects-updated'));
       // Queue sync after save without extending the save interaction.
       triggerSyncInBackground();
       return saved;

@@ -11,6 +11,13 @@ import { getObject } from './lib/cliService'
 
 type Section = 'calendar' | 'files' | 'notes' | 'tags' | 'settings'
 type FileObjType = 'project' | 'ref-material'
+type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
+type PinnedObjType = NotesObjType | FileObjType
+
+interface PinnedTarget {
+  id: string
+  type: PinnedObjType
+}
 
 export default function App() {
   const [currentSection, setCurrentSection] = useState<Section>('calendar')
@@ -18,10 +25,30 @@ export default function App() {
   const [fileSelectedType, setFileSelectedType] = useState<FileObjType>('project')
   const [fileObject, setFileObject] = useState<Record<string, unknown> | undefined>()
   const [fileExplorerRefreshKey, setFileExplorerRefreshKey] = useState(0)
+  const [notesSelectionRequest, setNotesSelectionRequest] = useState<{ id: string; type: NotesObjType; nonce: number } | null>(null)
 
   const handleNavigate = (section: string) => {
     setCurrentSection(section as Section)
   }
+
+  const handleNavigateToPinned = useCallback(async (target: PinnedTarget) => {
+    if (target.type === 'project' || target.type === 'ref-material') {
+      setCurrentSection('files')
+      setFileSelectedId(target.id)
+      setFileSelectedType(target.type)
+      try {
+        const full = await getObject(target.type, target.id)
+        setFileObject({ ...full, type: target.type })
+      } catch (err) {
+        console.error('Failed to load pinned file object:', err)
+        setFileObject(undefined)
+      }
+      return
+    }
+
+    setCurrentSection('notes')
+    setNotesSelectionRequest((prev) => ({ id: target.id, type: target.type as NotesObjType, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
 
   // ── Files section handlers ───────────────────────────────────────────────
   const handleFileSelect = useCallback(async (id: string, type: FileObjType) => {
@@ -54,7 +81,11 @@ export default function App() {
   // ── New Note: after save, jump to calendar ───────────────────────────────
   return (
     <Box sx={{ display: 'flex', bgcolor: '#0b1828', minHeight: '100vh', color: '#e4f0fb' }}>
-      <NavigationSidebar currentSection={currentSection} onNavigate={handleNavigate} />
+      <NavigationSidebar
+        currentSection={currentSection}
+        onNavigate={handleNavigate}
+        onNavigateToPinned={handleNavigateToPinned}
+      />
 
       <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
         <Box
@@ -96,7 +127,7 @@ export default function App() {
 
           {/* ── NOTES ────────────────────────────────────────────────────── */}
           {currentSection === 'notes' && (
-            <NotesPage />
+            <NotesPage pendingSelection={notesSelectionRequest} />
           )}
 
           {/* ── TAGS ─────────────────────────────────────────────────────── */}
