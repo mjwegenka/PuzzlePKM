@@ -16,8 +16,10 @@ import {
 } from '@mui/material';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import FolderIcon from '@mui/icons-material/Folder';
-import ArticleIcon from '@mui/icons-material/Article';
 import TagIcon from '@mui/icons-material/Label';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
+import AutoStoriesIcon from '@mui/icons-material/AutoStories';
+import HubIcon from '@mui/icons-material/Hub';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SyncIcon from '@mui/icons-material/Sync';
 import PushPinIcon from '@mui/icons-material/PushPin';
@@ -57,9 +59,10 @@ const PINNED_ORDER_STORAGE_KEY = 'dropith:pinned-order:v1';
 
 const navItems: NavigationItem[] = [
   { id: 'calendar', label: 'Calendar', icon: <CalendarTodayIcon /> },
-  { id: 'files', label: 'Files', icon: <FolderIcon /> },
-  { id: 'notes', label: 'Notes', icon: <ArticleIcon /> },
+  { id: 'library', label: 'Library', icon: <LibraryBooksIcon /> },
+  { id: 'scripture', label: 'Scripture', icon: <AutoStoriesIcon /> },
   { id: 'tags', label: 'Tags', icon: <TagIcon /> },
+  { id: 'graph', label: 'Graph', icon: <HubIcon /> },
 ];
 
 function formatLastSynced(date: Date | null): string {
