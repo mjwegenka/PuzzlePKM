@@ -12,6 +12,7 @@ interface SyncState {
   lastSyncedAt: Date | null;
   syncError: string | null;
   triggerSync: () => void;
+  triggerSyncInBackground: () => void;
 }
 
 const SyncContext = createContext<SyncState>({
@@ -19,6 +20,7 @@ const SyncContext = createContext<SyncState>({
   lastSyncedAt: null,
   syncError: null,
   triggerSync: () => {},
+  triggerSyncInBackground: () => {},
 });
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
@@ -28,6 +30,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
   // Guard against concurrent syncs
   const syncingRef = useRef(false);
+  const scheduledSyncRef = useRef<number | null>(null);
 
   const doSync = useCallback(async () => {
     if (syncingRef.current) return;
@@ -51,8 +54,26 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(id);
   }, [doSync]);
 
+  const triggerSyncInBackground = useCallback(() => {
+    if (scheduledSyncRef.current !== null) {
+      window.clearTimeout(scheduledSyncRef.current);
+    }
+    scheduledSyncRef.current = window.setTimeout(() => {
+      scheduledSyncRef.current = null;
+      void doSync();
+    }, 1200);
+  }, [doSync]);
+
+  useEffect(() => {
+    return () => {
+      if (scheduledSyncRef.current !== null) {
+        window.clearTimeout(scheduledSyncRef.current);
+      }
+    };
+  }, []);
+
   return (
-    <SyncContext.Provider value={{ syncing, lastSyncedAt, syncError, triggerSync: doSync }}>
+    <SyncContext.Provider value={{ syncing, lastSyncedAt, syncError, triggerSync: doSync, triggerSyncInBackground }}>
       {children}
     </SyncContext.Provider>
   );

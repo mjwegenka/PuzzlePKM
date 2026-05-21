@@ -1,4 +1,4 @@
-import { format, parseISO, addDays, subDays, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
+import { format, parseISO, addDays, subDays, isToday, isYesterday, formatDistanceToNow, isValid } from 'date-fns'
 
 export function getTodayDate(): string {
   return format(new Date(), 'yyyy-MM-dd')
@@ -15,6 +15,15 @@ export function formatDateShort(dateStr: string): string {
   if (isYesterday(date)) return 'Yesterday'
   return format(date, 'MMM d, yyyy')
 }
+
+export function formatDatePretty(dateStr?: string | null): string {
+  const value = (dateStr ?? '').trim()
+  if (!value) return ''
+  const date = parseISO(value)
+  if (!isValid(date)) return value
+  return format(date, 'MMMM d, yyyy')
+}
+
 
 export function formatRelative(isoString: string): string {
   return formatDistanceToNow(parseISO(isoString), { addSuffix: true })

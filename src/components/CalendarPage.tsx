@@ -17,9 +17,19 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
 import ObjectEditor from './ObjectEditor'
+import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { getTodayDate } from '../lib/dateUtils'
+
+function normalizePathForLookup(path?: string): string {
+  return String(path ?? '')
+    .trim()
+    .replace(/[?#].*$/, '')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .toLowerCase()
+}
 
 type CalObjectType = 'daily-note' | 'topic-note' | 'habit' | 'project' | 'ref-material'
 
@@ -125,7 +135,11 @@ export default function CalendarPage() {
       const full = await getObject(evt.type, evt.id)
       setSelectedObject({ ...full, type: evt.type })
     } catch {
-      setSelectedObject({ id: evt.id, date: evt.date, type: evt.type, contentMarkdown: '', tags: [] })
+      setSelectedObject(
+        evt.type === 'habit'
+          ? { id: evt.id, date: evt.date, type: 'habit', text: '', tags: [] }
+          : { id: evt.id, date: evt.date, type: evt.type, contentMarkdown: '', tags: [] },
+      )
     }
   }, [])
 
@@ -171,21 +185,34 @@ export default function CalendarPage() {
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
     try {
       const full = await getObject(target.type, target.id)
-      if (!full || typeof full !== 'object') {
-        throw new Error(`Object not found: ${target.type} ${target.id}`)
+      if (full && typeof full === 'object') {
+        setSelectedType(target.type)
+        setSelectedObject({ ...full, type: target.type })
+        setHasUnsavedChanges(false)
+        return
       }
-      setSelectedType(target.type)
-      setSelectedObject({ ...full, type: target.type })
-      setHasUnsavedChanges(false)
     } catch {
-      if (target.type === 'habit') {
-        const habitsMeta = await listHabitMeta()
-        const fallback = habitsMeta.find((item) => item.id === target.id)
-        if (fallback) {
+      // Keep current object open and try a metadata fallback below.
+    }
+
+    if (target.type === 'habit') {
+      const habitsMeta = await listHabitMeta()
+      const targetPath = normalizePathForLookup(target.dropboxPath)
+      const fallback = habitsMeta.find((item) => item.id === target.id)
+        ?? habitsMeta.find((item) => normalizePathForLookup(item.dropboxPath) === targetPath)
+      if (fallback) {
+        try {
+          const fullFallback = await getObject('habit', fallback.id)
           setSelectedType('habit')
-          setSelectedObject({ ...fallback, type: 'habit' })
+          setSelectedObject({ ...fullFallback, type: 'habit' })
           setHasUnsavedChanges(false)
+          return
+        } catch {
+          // Fall through to metadata-only fallback.
         }
+        setSelectedType('habit')
+        setSelectedObject({ ...fallback, type: 'habit' })
+        setHasUnsavedChanges(false)
       }
     }
   }, [])
@@ -340,13 +367,15 @@ export default function CalendarPage() {
          </DialogTitle>
          <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
            {selectedObject ? (
-             <ObjectEditor
-               object={selectedObject}
-               type={selectedType}
-               onSave={handleSave}
-               onDirty={setHasUnsavedChanges}
-               onNavigateToObject={handleNavigateToObject}
-             />
+             <EditorErrorBoundary>
+               <ObjectEditor
+                 object={selectedObject}
+                 type={selectedType}
+                 onSave={handleSave}
+                 onDirty={setHasUnsavedChanges}
+                 onNavigateToObject={handleNavigateToObject}
+               />
+             </EditorErrorBoundary>
            ) : null}
          </DialogContent>
        </Dialog>

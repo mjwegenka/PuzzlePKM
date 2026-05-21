@@ -19,7 +19,10 @@ import LabelIcon from '@mui/icons-material/Label'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ClearIcon from '@mui/icons-material/Clear'
 import ObjectEditor from './ObjectEditor'
+import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
+import type { ResolvedObjectRef } from '../lib/cliService'
+import { formatDatePretty } from '../lib/dateUtils'
 
 type NoteType = 'daily-note' | 'topic-note' | 'habit'
 
@@ -29,6 +32,10 @@ interface TaggedItem {
   title: string
   tags: string[]
   date?: string
+}
+
+function isNoteType(type: ResolvedObjectRef['type']): type is NoteType {
+  return type === 'daily-note' || type === 'topic-note' || type === 'habit'
 }
 
 export default function TagsPage() {
@@ -50,12 +57,12 @@ export default function TagsPage() {
        const collected: TaggedItem[] = []
        if (dailyRes.status === 'fulfilled') {
          for (const n of dailyRes.value) {
-           collected.push({ id: n.id, type: 'daily-note', title: n.date, date: n.date, tags: n.tags })
+            collected.push({ id: n.id, type: 'daily-note', title: formatDatePretty(n.date) || n.date, date: n.date, tags: n.tags })
          }
        }
        if (topicRes.status === 'fulfilled') {
          for (const n of topicRes.value) {
-           collected.push({ id: n.id, type: 'topic-note', title: n.title, tags: n.tags })
+            collected.push({ id: n.id, type: 'topic-note', title: n.title, date: n.date, tags: n.tags })
          }
        }
        if (habitRes.status === 'fulfilled') {
@@ -106,6 +113,30 @@ export default function TagsPage() {
     },
     [loadAll, selectedType],
   )
+
+  const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
+    if (!isNoteType(target.type)) return
+
+    try {
+      const full = await getObject(target.type, target.id)
+      if (full && typeof full === 'object') {
+        setSelectedType(target.type)
+        setSelectedObject({ ...full, type: target.type })
+        return
+      }
+    } catch {
+      // Some habit rows can be stale for direct get calls, try metadata fallback.
+    }
+
+    if (target.type === 'habit') {
+      const habitsMeta = await listHabitMeta()
+      const fallback = habitsMeta.find((item) => item.id === target.id)
+      if (fallback) {
+        setSelectedType('habit')
+        setSelectedObject({ ...fallback, type: 'habit' })
+      }
+    }
+  }, [])
 
   const totalTagged = items.filter((i) => i.tags.length > 0).length
 
@@ -290,6 +321,11 @@ export default function TagsPage() {
                              >
                                {item.type === 'daily-note' ? '📓 Daily Note' : item.type === 'habit' ? '🔁 Habit' : '📝 Topic Note'}
                              </Typography>
+                              {item.date && (
+                                <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '10px' }}>
+                                  {formatDatePretty(item.date)}
+                                </Typography>
+                              )}
                             {item.tags.slice(0, 2).map((t) => (
                               <Typography
                                 key={t}
@@ -326,7 +362,14 @@ export default function TagsPage() {
       {/* ── Right: Editor ──────────────────────────────────────────────────── */}
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {selectedObject ? (
-          <ObjectEditor object={selectedObject} type={selectedType} onSave={handleSave} />
+          <EditorErrorBoundary>
+            <ObjectEditor
+              object={selectedObject}
+              type={selectedType}
+              onSave={handleSave}
+              onNavigateToObject={handleNavigateToObject}
+            />
+          </EditorErrorBoundary>
         ) : (
           <Box
             sx={{

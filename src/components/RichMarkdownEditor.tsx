@@ -58,8 +58,13 @@ const turndown = new TurndownService({
 
 turndown.addRule('tightLineBreaks', {
   filter: ['br'],
-  replacement: () => '  \n',
+  replacement: () => '<br>\n',
 })
+
+function normalizeEditorHtmlForMarkdown(html: string): string {
+  // Preserve visual blank lines by keeping empty paragraphs as explicit breaks.
+  return html.replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, '<p><br></p>')
+}
 
 function markdownToHtml(markdown: string): string {
   if (!markdown.trim()) return '<p></p>'
@@ -67,7 +72,8 @@ function markdownToHtml(markdown: string): string {
 }
 
 function htmlToMarkdown(html: string): string {
-  const markdown = turndown.turndown(html)
+  const normalizedHtml = normalizeEditorHtmlForMarkdown(html)
+  const markdown = turndown.turndown(normalizedHtml)
     .replace(/\r\n/g, '\n')
   return markdown === '\n' ? '' : markdown
 }
@@ -122,6 +128,7 @@ export default function RichMarkdownEditor({
   const lastMarkdownRef = useRef(value)
   const isApplyingExternalValueRef = useRef(false)
   const mentionRangeRef = useRef<{ from: number; to: number } | null>(null)
+  const lastHandledLinkRef = useRef<{ href: string; at: number } | null>(null)
   const [mentionActive, setMentionActive] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([])
@@ -184,6 +191,32 @@ export default function RichMarkdownEditor({
     setMentionPosition({ top: coords.bottom + 4, left: coords.left + 8 })
   }, [closeMention, mentionEnabled])
 
+  const openLinkedObject = useCallback((href: string) => {
+    const now = Date.now()
+    const lastHandled = lastHandledLinkRef.current
+    if (lastHandled && lastHandled.href === href && now - lastHandled.at < 250) return
+    lastHandledLinkRef.current = { href, at: now }
+    void Promise.resolve(onShiftClickLink?.(href)).catch(() => {
+      // ObjectEditor surfaces navigation errors; suppress unhandled rejection here.
+    })
+  }, [onShiftClickLink])
+
+  const handleModifiedLinkClick = useCallback((event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; target: EventTarget | null; preventDefault: () => void; stopPropagation?: () => void }) => {
+    const anchor = findAnchorTarget(event.target)
+    if (!anchor) return
+
+    const href = anchor.getAttribute('href')?.trim()
+    if (!href) return
+
+    // Never allow browser-level navigation from links inside the editor.
+    event.preventDefault()
+    event.stopPropagation?.()
+
+    const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
+    if (!hasOpenModifier || !onShiftClickLink) return
+    openLinkedObject(href)
+  }, [onShiftClickLink, openLinkedObject])
+
   const editor = useEditor({
     extensions,
     content: markdownToHtml(value),
@@ -195,16 +228,9 @@ export default function RichMarkdownEditor({
       handleDOMEvents: {
         click: (_view, event) => {
           const mouseEvent = event as MouseEvent
-          const hasOpenModifier = mouseEvent.shiftKey || mouseEvent.metaKey || mouseEvent.ctrlKey
-          if (!hasOpenModifier || !onShiftClickLink) return false
-
-          const anchor = findAnchorTarget(mouseEvent.target)
-          const href = anchor?.getAttribute('href')?.trim()
-          if (!href) return false
-
-          mouseEvent.preventDefault()
-          void onShiftClickLink(href)
-          return true
+          const beforeDefaultPrevented = mouseEvent.defaultPrevented
+          handleModifiedLinkClick(mouseEvent)
+          return mouseEvent.defaultPrevented && !beforeDefaultPrevented
         },
       },
       handleKeyDown: (_view, event) => {
@@ -303,6 +329,37 @@ export default function RichMarkdownEditor({
     return () => editor?.destroy()
   }, [editor])
 
+  useEffect(() => {
+    if (!editor) return
+
+    const root = editor.view.dom as HTMLElement
+    const interceptAnchorEvent = (event: MouseEvent) => {
+      const anchor = findAnchorTarget(event.target)
+      const href = anchor?.getAttribute('href')?.trim()
+      if (!anchor || !href) return
+
+      // Block native navigation paths inside the editor in all cases.
+      event.preventDefault()
+      event.stopPropagation()
+
+      const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
+      if (!hasOpenModifier || !onShiftClickLink) return
+      openLinkedObject(href)
+    }
+
+    root.addEventListener('mousedown', interceptAnchorEvent, true)
+    root.addEventListener('mouseup', interceptAnchorEvent, true)
+    root.addEventListener('click', interceptAnchorEvent, true)
+    root.addEventListener('auxclick', interceptAnchorEvent, true)
+
+    return () => {
+      root.removeEventListener('mousedown', interceptAnchorEvent, true)
+      root.removeEventListener('mouseup', interceptAnchorEvent, true)
+      root.removeEventListener('click', interceptAnchorEvent, true)
+      root.removeEventListener('auxclick', interceptAnchorEvent, true)
+    }
+  }, [editor, onShiftClickLink, openLinkedObject])
+
   const handleLinkPrompt = () => {
     if (!editor) return
     const previousUrl = editor.getAttributes('link').href as string | undefined
@@ -315,7 +372,9 @@ export default function RichMarkdownEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run()
   }
 
-  const currentCount = maxLength && editor ? editor.storage.characterCount.characters() : undefined
+  const currentCount = maxLength && editor
+    ? editor.storage.characterCount?.characters?.()
+    : undefined
 
   return (
     <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
@@ -381,7 +440,15 @@ export default function RichMarkdownEditor({
           </ToolbarButton>
         </Stack>
 
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 1.5, py: 1.25 }}>
+        <Box
+          sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 1.5, py: 1.25 }}
+          onMouseDownCapture={(event) => {
+            handleModifiedLinkClick(event)
+          }}
+          onClickCapture={(event) => {
+            handleModifiedLinkClick(event)
+          }}
+        >
           <EditorContent editor={editor} />
         </Box>
       </Box>

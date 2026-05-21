@@ -17,10 +17,14 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { format, isValid, parseISO } from 'date-fns';
 import type { MentionOption } from './MentionPopup';
 import RichMarkdownEditor from './RichMarkdownEditor';
-import { resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
-import { getTodayDate } from '../lib/dateUtils';
+import { deleteObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
+import { formatDatePretty, getTodayDate } from '../lib/dateUtils';
 import { useSyncStatus } from '../lib/syncContext';
 
 interface ObjectEditorProps {
@@ -30,6 +34,7 @@ interface ObjectEditorProps {
   onCancel?: () => void;
   onDirty?: (isDirty: boolean) => void;
   onNavigateToObject?: (target: ResolvedObjectRef) => void | Promise<void>;
+  onDateChange?: (date: string) => void | Promise<void>;
 }
 
 
@@ -107,10 +112,18 @@ function relativeDropboxPath(fromDir: string, targetPath: string): string {
   return [...up, ...down].join('/') || targetSegments[targetSegments.length - 1] || targetPath;
 }
 
-export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, onNavigateToObject }: ObjectEditorProps) {
-  const { triggerSync } = useSyncStatus();
+function isEffectivelyEmptyNoteContent(value: string): boolean {
+  const normalized = value
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, '')
+    .trim();
+  return normalized.length === 0;
+}
+
+export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
+  const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
-    type === 'daily-note' || type === 'topic-note' || type === 'habit' ? getTodayDate() : '';
+    type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
 
   const initialRef = useRef<{ title: string; date: string; content: string; tags: string[] }>({
     title: '',
@@ -129,11 +142,15 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<ResolvedObjectRef | null>(null);
+  const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
 
   // Reset form when a different object payload is loaded.
   useEffect(() => {
     const nextTitle = (object?.title as string) || (object?.name as string) || '';
-    const nextDate = (object?.date as string) || (object?.startDate as string) || defaultDate;
+    const nextDate =
+      (object?.date as string | undefined) ??
+      (object?.startDate as string | undefined) ??
+      defaultDate;
     const nextContent =
       (type === 'habit' ? (object?.text as string) : (object?.contentMarkdown as string)) || '';
     const nextTags = (object?.tags as string[]) || [];
@@ -217,8 +234,8 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       };
       setIsDirty(false);
       onDirty?.(false);
-      // DEC-19: trigger sync after every successful save
-      triggerSync();
+      // Queue sync after save without extending the save interaction.
+      triggerSyncInBackground();
       return saved;
     } catch (err) {
       setSaveError(String(err));
@@ -226,14 +243,61 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } finally {
       setSaving(false);
     }
-  }, [content, date, object?.dropboxPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSync, type]);
+  }, [content, date, object?.dropboxPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
 
   const handleSave = async () => {
+    const isEmptyNoteContent =
+      (type === 'topic-note' || type === 'daily-note') &&
+      isEffectivelyEmptyNoteContent(content);
+    const isHabitWithoutTags = type === 'habit' && tags.length === 0;
+
+    if (isEmptyNoteContent) {
+      setPendingDeleteReason('empty-note');
+      return;
+    }
+    if (isHabitWithoutTags) {
+      setPendingDeleteReason('untagged-habit');
+      return;
+    }
+
     try {
       const saved = await persistCurrentObject();
       onSave?.(saved);
     } catch {
       // Error already set in state by persistCurrentObject
+    }
+  };
+
+  const handleConfirmDeleteOnSave = async () => {
+    if (!pendingDeleteReason) return;
+
+    const id = (object?.id as string | undefined) ?? '';
+    const hasPersistedObject = Boolean(id);
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (hasPersistedObject) {
+        try {
+          await deleteObject(type, id);
+        } catch (err) {
+          const message = String(err instanceof Error ? err.message : err).toLowerCase();
+          if (!message.includes('not found')) {
+            setSaveError(String(err));
+            return;
+          }
+        }
+        triggerSyncInBackground();
+      }
+
+      setPendingDeleteReason(null);
+      setIsDirty(false);
+      onDirty?.(false);
+      onSave?.({ id: id || undefined, type, deleted: true });
+    } catch (err) {
+      setSaveError(String(err));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -244,20 +308,24 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
   const handleShiftClickLink = useCallback(async (href: string) => {
     if (!onNavigateToObject) return;
-    const currentPath = normalizeDropboxPath(object?.dropboxPath as string | undefined);
-    const target = await resolveObjectFromLinkPath(href, currentPath);
+    try {
+      const currentPath = normalizeDropboxPath(object?.dropboxPath as string | undefined);
+      const target = await resolveObjectFromLinkPath(href, currentPath);
 
-    if (!target) {
-      setSaveError(`Could not resolve linked object: ${href}`);
-      return;
+      if (!target) {
+        setSaveError(`Could not resolve linked object: ${href}`);
+        return;
+      }
+
+      if (isDirty) {
+        setPendingNavigation(target);
+        return;
+      }
+
+      await executeNavigation(target);
+    } catch (err) {
+      setSaveError(`Failed to open linked object: ${String(err)}`);
     }
-
-    if (isDirty) {
-      setPendingNavigation(target);
-      return;
-    }
-
-    await executeNavigation(target);
   }, [executeNavigation, isDirty, object?.dropboxPath, onNavigateToObject]);
 
   const handleDiscardAndNavigate = async () => {
@@ -291,10 +359,21 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     onDirty?.(isDirty);
   }, [title, date, content, tags, onDirty]);
 
+  useEffect(() => {
+    if (type !== 'daily-note' || !onDateChange) return;
+    void onDateChange(date);
+  }, [date, onDateChange, type]);
+
   const isNoteType = type === 'topic-note' || type === 'daily-note';
   const showTitle = type !== 'daily-note' && type !== 'habit';
   const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
+  const isOptionalDate = type === 'topic-note' || type === 'project';
   const showContent = type !== 'project' && type !== 'ref-material';
+  const selectedDate = (() => {
+    if (!date) return null;
+    const parsed = parseISO(date);
+    return isValid(parsed) ? parsed : null;
+  })();
 
   return (
     <Paper
@@ -314,7 +393,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         <Box sx={{ mb: 2, flexShrink: 0 }}>
           {type === 'daily-note' && (
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#e4f0fb', mb: 1 }}>
-              {date ? `Daily Note — ${date}` : 'Daily Note'}
+              {date ? `Daily Note — ${formatDatePretty(date)}` : 'Daily Note'}
             </Typography>
           )}
 
@@ -331,15 +410,48 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
           )}
 
           {showDate && (
-            <TextField
-              fullWidth
-              label={type === 'project' ? 'Start Date' : 'Date'}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              variant="standard"
-              placeholder="YYYY-MM-DD"
-              sx={{ mb: 1.5 }}
-            />
+            <Box sx={{ mb: 1.5 }}>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  <Box sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}>
+                    <MUIDatePicker
+                      label={type === 'project' ? 'Start Date' : 'Date'}
+                      value={selectedDate}
+                      format="MMMM d, yyyy"
+                      onChange={(nextValue) => {
+                        if (!nextValue || !isValid(nextValue)) {
+                          setDate('');
+                          return;
+                        }
+                        setDate(format(nextValue, 'yyyy-MM-dd'));
+                      }}
+                      slotProps={{
+                        textField: {
+                          variant: 'standard',
+                          helperText: !date && isOptionalDate ? 'No date set' : undefined,
+                          sx: {
+                            width: '100%',
+                            '& .MuiInputBase-root': {
+                              pr: 0.5,
+                            },
+                          },
+                        },
+                      }}
+                    />
+                  </Box>
+                  {isOptionalDate && date && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => setDate('')}
+                      sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </Stack>
+              </LocalizationProvider>
+            </Box>
           )}
         </Box>
 
@@ -479,6 +591,30 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
           </Button>
           <Button onClick={() => { void handleSaveAndNavigate(); }} variant="contained" disabled={saving}>
             Save &amp; Open
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={!!pendingDeleteReason}
+        onClose={() => {
+          if (!saving) setPendingDeleteReason(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: '#b0d4e8' }}>
+            {pendingDeleteReason === 'empty-note'
+              ? 'This note has empty content. Delete it instead of saving?'
+              : 'This habit has no tags. Delete it instead of saving?'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingDeleteReason(null)} disabled={saving}>Cancel</Button>
+          <Button onClick={() => { void handleConfirmDeleteOnSave(); }} color="error" variant="contained" disabled={saving}>
+            {saving ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>
