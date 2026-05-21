@@ -134,7 +134,7 @@ function EmptyFilesPrompt() {
       <Box component="p" sx={{ m: 0, fontSize: '14px', textAlign: 'center' }}>
         Select a project or reference material to view and edit.
         <br />
-        Add new ones by creating folders in Dropbox.
+        Add new ones by creating folders in your sync root.
       </Box>
     </Box>
   )

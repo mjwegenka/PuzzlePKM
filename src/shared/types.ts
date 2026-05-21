@@ -35,6 +35,7 @@ export interface DailyNote extends BaseObject {
 export interface Project extends BaseObject {
   type: 'project';
   name: string;
+  syncPath?: string;
   dropboxPath: string;
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
@@ -43,6 +44,7 @@ export interface Project extends BaseObject {
 export interface ReferenceMaterial extends BaseObject {
   type: 'ref-material';
   name: string;
+  syncPath?: string;
   dropboxPath: string;
 }
 

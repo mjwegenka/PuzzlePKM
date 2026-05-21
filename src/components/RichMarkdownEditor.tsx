@@ -329,7 +329,7 @@ export default function RichMarkdownEditor({
         mentionRangeRef.current ??
         { from: targetEditor.state.selection.from, to: targetEditor.state.selection.from }
       const resolvedHref = await Promise.resolve(
-        resolveMentionHref?.(option) ?? option.dropboxPath ?? option.id,
+        resolveMentionHref?.(option) ?? option.syncPath ?? option.dropboxPath ?? option.id,
       )
       const href = resolvedHref.trim()
       if (!href) return

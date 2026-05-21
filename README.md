@@ -9,7 +9,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 - **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
 - **Habits** – Lightweight dated text entries (≤ 255 chars) with tags
 - **Tags** – Case-insensitive, aggregate any object type
-- **Dropbox OAuth (legacy)** – Existing credential settings are still visible, but active sync no longer depends on Dropbox API auth
+- **Local-folder sync** – Sync against a configured local root folder
 - **Offline-first** – SQLite local store; sync when connected
 - **Background sync daemon** – `dropith sync --watch` for continuous background syncing
 
@@ -24,7 +24,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 | Local store | node:sqlite (built-in SQLite) |
 | Styling | Material UI + TailwindCSS v4 |
 | Secure storage | app-managed secrets file (see `DEC-03`) |
-| Dropbox | Local folder sync (Dropbox API auth deprecated for active sync) |
+| Sync transport | Local folder sync |
 
 ## Desktop UI Features
 
@@ -33,7 +33,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Calendar View** – Navigate daily notes by date
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
-- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `dropboxPath#blockId` format (see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md) for the full block identity and lifecycle contract)
+- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy `dropboxPath` still resolves for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Quick access to all views
@@ -93,21 +93,6 @@ npm run cli
 
 The shell exits with `Ctrl+C` or `Ctrl+D`.
 
-#### Dropbox authentication
-
-Dropbox OAuth commands remain available for legacy compatibility, but active sync does not require them.
-
-```bash
-# Legacy status (optional)
-dropith auth status
-
-# Legacy connect (deprecated no-op for active sync)
-dropith auth connect
-
-# Legacy disconnect
-dropith auth disconnect
-```
-
 #### Sync
 
 ```bash
@@ -129,7 +114,7 @@ dropith sync --watch --interval 5
 - **Projects**: `{rootFolder}/projects/{slug}/meta.yaml` (directory can contain user files)
 - **Reference Materials**: `{rootFolder}/ref-materials/{slug}/meta.yaml` (directory can contain user files)
 
-When a project or reference material name changes, its directory is renamed to match the new slug. Dropbox directory names are automatically determined by the project/reference material title.
+When a project or reference material name changes, its directory is renamed to match the new slug. Sync directory names are automatically determined by the project/reference material title.
 
 If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, Dropith recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
 
@@ -157,10 +142,7 @@ dropith import topic-note ./topic-notes
 
 ```bash
 dropith settings show
-dropith settings set dropbox <app-key> <app-secret>
 dropith settings set root-folder /Dropith
-dropith settings clear dropbox
-dropith settings disconnect dropbox
 ```
 
 Default CLI database path follows platform app-data conventions:

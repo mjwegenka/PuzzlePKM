@@ -24,7 +24,8 @@ import { listFileMeta } from '../lib/cliService';
 interface FileItem {
   id: string;
   name: string;
-  dropboxPath: string;
+  syncPath: string;
+  dropboxPath?: string;
   type: 'project' | 'ref-material';
 }
 
@@ -214,9 +215,9 @@ function FileListItem({
               </Typography>
             }
             secondary={
-              item.dropboxPath && item.dropboxPath !== '(no path)' ? (
+              item.syncPath && item.syncPath !== '(no path)' ? (
                 <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '11px' }}>
-                  {item.dropboxPath}
+                  {item.syncPath}
                 </Typography>
               ) : undefined
             }

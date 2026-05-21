@@ -197,9 +197,9 @@ export default function CalendarPage() {
 
     if (target.type === 'habit') {
       const habitsMeta = await listHabitMeta()
-      const targetPath = normalizePathForLookup(target.dropboxPath)
+      const targetPath = normalizePathForLookup(target.syncPath ?? target.dropboxPath)
       const fallback = habitsMeta.find((item) => item.id === target.id)
-        ?? habitsMeta.find((item) => normalizePathForLookup(item.dropboxPath) === targetPath)
+        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.dropboxPath) === targetPath)
       if (fallback) {
         try {
           const fullFallback = await getObject('habit', fallback.id)

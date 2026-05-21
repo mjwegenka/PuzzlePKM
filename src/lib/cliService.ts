@@ -12,13 +12,15 @@ export interface MentionSearchResult {
   type: string;
   title: string;
   date?: string;
+  syncPath?: string;
   dropboxPath?: string;
 }
 
 export interface ResolvedObjectRef {
   id: string;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
-  dropboxPath: string;
+  syncPath: string;
+  dropboxPath?: string;
 }
 
 type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
@@ -35,6 +37,13 @@ function normalizeDropboxPath(path: string): string {
   const value = path.replace(/\\/g, '/').trim();
   if (!value) return '';
   return value.startsWith('/') ? value : `/${value}`;
+}
+
+function withLegacyPathAlias<T extends { syncPath: string }>(item: T): T & { dropboxPath: string } {
+  return {
+    ...item,
+    dropboxPath: item.syncPath,
+  };
 }
 
 function normalizePathForLookup(path: string): string {
@@ -118,11 +127,11 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
             : (parts[3] ?? '');
         const path = rawPath.trim();
         if (!id || !path || path === '(no path)') continue;
-        rows.push({
+        rows.push(withLegacyPathAlias({
           id,
           type,
-          dropboxPath: normalizeDropboxPath(path),
-        });
+          syncPath: normalizeDropboxPath(path),
+        }));
       }
     } catch {
       // Ignore per-type lookup failures and continue.
@@ -133,11 +142,11 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
 }
 
 /**
- * Resolve a markdown link href (absolute Dropbox path or relative path) to a local object.
+ * Resolve a markdown link href (absolute sync path or relative path) to a local object.
  */
 export async function resolveObjectFromLinkPath(
   href: string,
-  currentObjectDropboxPath?: string,
+  currentObjectSyncPath?: string,
 ): Promise<ResolvedObjectRef | null> {
   const hrefPath = toPathLikeHref(decodeHref(href));
   const cleanedHref = hrefPath.trim().replace(/[?#].*$/, '');
@@ -155,14 +164,14 @@ export async function resolveObjectFromLinkPath(
 
   const targetPath = normalizedRootRelativeHref.startsWith('/')
     ? normalizeDropboxPath(normalizedRootRelativeHref)
-    : currentObjectDropboxPath
-      ? resolveRelativePath(normalizeDropboxPath(currentObjectDropboxPath), normalizedRootRelativeHref)
+    : currentObjectSyncPath
+      ? resolveRelativePath(normalizeDropboxPath(currentObjectSyncPath), normalizedRootRelativeHref)
       : null;
 
   if (!targetPath) return null;
 
   const normalizedTargetPath = normalizePathForLookup(targetPath);
-  const exactMatch = index.find((item) => normalizePathForLookup(item.dropboxPath) === normalizedTargetPath);
+  const exactMatch = index.find((item) => normalizePathForLookup(item.syncPath) === normalizedTargetPath);
   if (exactMatch) return exactMatch;
 
   // Fallback: when links are stored without a stable base path, compare relative/suffix paths.
@@ -171,14 +180,14 @@ export async function resolveObjectFromLinkPath(
   if (!targetRelative) return null;
 
   const suffixMatch = index.find((item) => {
-    const candidate = normalizePathForLookup(item.dropboxPath);
+    const candidate = normalizePathForLookup(item.syncPath);
     return candidate.endsWith(`/${targetRelative}`) || candidate.endsWith(targetRelative);
   });
   if (suffixMatch) return suffixMatch;
 
   if (!targetBaseName) return null;
   return index.find((item) => {
-    const candidateParts = splitPath(normalizePathForLookup(item.dropboxPath));
+    const candidateParts = splitPath(normalizePathForLookup(item.syncPath));
     return candidateParts.at(-1) === targetBaseName;
   }) ?? null;
 }
@@ -288,7 +297,7 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
   return true;
 }
 
-/** DEC-19: One-shot Dropbox sync triggered from the desktop UI. */
+/** DEC-19: One-shot local-folder sync triggered from the desktop UI. */
 export async function runSync(): Promise<void> {
   const result = await runDropithCli(['sync']);
   if (result.exitCode !== 0) throw new Error(result.stderr || 'sync failed');
@@ -297,11 +306,11 @@ export async function runSync(): Promise<void> {
 /**
  * Parse tab-separated list output from the CLI into structured objects.
  * Formats:
- *   daily-note  : id \t date \t preview \t dropboxPath [\t #tag1, #tag2]
- *   topic-note  : id \t updatedAt \t title \t dropboxPath \t date \t preview [\t #tag1, #tag2]
- *   project     : id \t name \t dropboxPath \t startDate [\t #tag1, #tag2]
- *   ref-material: id \t name \t dropboxPath [\t #tag1, #tag2]
- *   habit       : id \t date \t text \t dropboxPath [\t #tag1, #tag2]
+ *   daily-note  : id \t date \t preview \t syncPath [\t #tag1, #tag2]
+ *   topic-note  : id \t updatedAt \t title \t syncPath \t date \t preview [\t #tag1, #tag2]
+ *   project     : id \t name \t syncPath \t startDate [\t #tag1, #tag2]
+ *   ref-material: id \t name \t syncPath [\t #tag1, #tag2]
+ *   habit       : id \t date \t text \t syncPath [\t #tag1, #tag2]
  */
 function parseListOutput(
   type: string,
@@ -318,17 +327,19 @@ function parseListOutput(
     .map((line) => {
       const parts = line.split('\t');
       const id = parts[0] ?? '';
+      const path3 = normalizePath(parts[3]);
+      const path2 = normalizePath(parts[2]);
       switch (type) {
         case 'daily-note':
-          return { id, type, title: parts[2] ?? '', date: parts[1], dropboxPath: normalizePath(parts[3]) };
+          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', date: parts[1], syncPath: path3 ?? '' });
         case 'topic-note':
-          return { id, type, title: parts[2] ?? '', date: parts[4] ?? '', dropboxPath: normalizePath(parts[3]) };
+          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', date: parts[4] ?? '', syncPath: path3 ?? '' });
         case 'project':
-          return { id, type, title: parts[1] ?? '', dropboxPath: normalizePath(parts[2]), date: parts[3] };
+          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '', date: parts[3] });
         case 'ref-material':
-          return { id, type, title: parts[1] ?? '', dropboxPath: normalizePath(parts[2]) };
+          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '' });
         case 'habit':
-          return { id, type, title: parts[2] ?? '', dropboxPath: normalizePath(parts[3]), date: parts[1] };
+          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', syncPath: path3 ?? '', date: parts[1] });
         default:
           return { id, type, title: parts[1] ?? '' };
       }
@@ -437,10 +448,10 @@ export async function listTopicNoteMeta(): Promise<
 
 /**
  * List habits for list/calendar views (metadata only).
- * CLI format: id \t date \t text \t dropboxPath [\t #tag1, #tag2]
+ * CLI format: id \t date \t text \t syncPath [\t #tag1, #tag2]
  */
 export async function listHabitMeta(): Promise<
-  Array<{ id: string; date: string; text: string; dropboxPath: string; tags: string[]; type: 'habit' }>
+  Array<{ id: string; date: string; text: string; syncPath: string; dropboxPath: string; tags: string[]; type: 'habit' }>
 > {
   try {
     const stdout = await listObjects('habit');
@@ -457,7 +468,7 @@ export async function listHabitMeta(): Promise<
           id: parts[0] ?? '',
           date: parts[1] ?? '',
           text: parts[2] ?? '',
-          dropboxPath: parts[3] ?? '',
+          ...withLegacyPathAlias({ syncPath: parts[3] ?? '' }),
           tags,
           type: 'habit' as const,
         };
@@ -470,12 +481,12 @@ export async function listHabitMeta(): Promise<
 
 /**
  * List projects and ref-materials for file browser (metadata only).
- * Project CLI format: id \t name \t dropboxPath \t startDate
+ * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }>
+  Array<{ id: string; name: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }>
 > {
-  const results: Array<{ id: string; name: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }> = [];
+  const results: Array<{ id: string; name: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }> = [];
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
@@ -485,7 +496,7 @@ export async function listFileMeta(): Promise<
           results.push({
             id: parts[0],
             name: parts[1] ?? '',
-            dropboxPath: parts[2] ?? '',
+            ...withLegacyPathAlias({ syncPath: parts[2] ?? '' }),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
             type,
           });

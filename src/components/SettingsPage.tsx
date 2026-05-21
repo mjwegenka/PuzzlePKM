@@ -24,9 +24,7 @@ import { runDropithCli } from '../lib/cliService'
 
 interface ConfigState {
   dbPath?: string
-  dropboxRootFolder?: string
-  dropboxConnected?: boolean
-  dropboxAccountEmail?: string
+  syncRootFolder?: string
   loaded: boolean
   error?: string
 }
@@ -41,7 +39,7 @@ interface CliStatus {
 export default function SettingsPage() {
   const [config, setConfig] = useState<ConfigState>({ loaded: false })
   const [cliStatus, setCliStatus] = useState<CliStatus>({ ok: false, checked: false })
-  const [dropboxRoot, setDropboxRoot] = useState('')
+  const [syncRoot, setSyncRoot] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
@@ -72,12 +70,10 @@ export default function SettingsPage() {
           const parsed = JSON.parse(res.stdout)
           setConfig({
             dbPath: parsed?.dbPath,
-            dropboxRootFolder: parsed?.dropbox?.rootFolder,
-            dropboxConnected: Boolean(parsed?.dropbox?.isConnected),
-            dropboxAccountEmail: parsed?.dropbox?.accountEmail,
+            syncRootFolder: parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder,
             loaded: true,
           })
-          setDropboxRoot(parsed?.dropbox?.rootFolder ?? '')
+          setSyncRoot(parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder ?? '')
         } else {
           setConfig({ loaded: true, error: 'Could not load config — using defaults' })
         }
@@ -90,15 +86,15 @@ export default function SettingsPage() {
     loadConfig()
   }, [])
 
-  const handleSaveDropbox = async () => {
-    if (!dropboxRoot.trim()) return
+  const handleSaveSyncRoot = async () => {
+    if (!syncRoot.trim()) return
     setSaving(true)
     setSaveResult(null)
     try {
-      const res = await runDropithCli(['settings', 'set', 'root-folder', dropboxRoot.trim()])
+      const res = await runDropithCli(['settings', 'set', 'root-folder', syncRoot.trim()])
       if (res.exitCode === 0) {
-        setSaveResult({ ok: true, msg: 'Dropbox root folder saved.' })
-        setConfig((c) => ({ ...c, dropboxRootFolder: dropboxRoot.trim() }))
+        setSaveResult({ ok: true, msg: 'Sync root folder saved.' })
+        setConfig((c) => ({ ...c, syncRootFolder: syncRoot.trim() }))
       } else {
         setSaveResult({ ok: false, msg: res.stderr || 'Save failed' })
       }
@@ -247,14 +243,12 @@ export default function SettingsPage() {
               <ListItemText
                 primary={
                   <Typography variant="body2" sx={{ color: '#b0cce0' }}>
-                    Dropbox connection
+                    Sync root folder
                   </Typography>
                 }
                 secondary={
-                  <Typography variant="caption" sx={{ color: '#e4f0fb' }}>
-                    {config.dropboxConnected
-                      ? `Connected${config.dropboxAccountEmail ? ` (${config.dropboxAccountEmail})` : ''}`
-                      : 'Not connected'}
+                  <Typography variant="caption" sx={{ color: '#e4f0fb', wordBreak: 'break-all' }}>
+                    {config.syncRootFolder || '(not configured)'}
                   </Typography>
                 }
               />
@@ -268,7 +262,7 @@ export default function SettingsPage() {
         )}
       </Paper>
 
-      {/* ── Dropbox ────────────────────────────────────────────────────────── */}
+      {/* ── Sync ───────────────────────────────────────────────────────────── */}
       <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <CloudIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
@@ -282,24 +276,24 @@ export default function SettingsPage() {
               fontSize: '10px',
             }}
           >
-            Dropbox Integration
+            Local Sync
           </Typography>
         </Stack>
 
         <Typography variant="body2" sx={{ color: '#b0cce0', mb: 2 }}>
-          Projects and Reference Materials are discovered under your configured Dropbox app folder.
-          Set the Dropbox root folder path below.
+          Projects and Reference Materials are discovered under your configured sync folder.
+          Set the root folder path below.
         </Typography>
 
         <Stack spacing={1.5}>
           <TextField
             fullWidth
             size="small"
-            label="Dropbox root folder"
-            value={dropboxRoot}
-            onChange={(e) => setDropboxRoot(e.target.value)}
+            label="Sync root folder"
+            value={syncRoot}
+            onChange={(e) => setSyncRoot(e.target.value)}
             placeholder="/Dropith"
-            helperText="Dropbox app folder path used by sync (for example /Dropith)"
+            helperText="Folder path used by sync (for example /Dropith)"
             variant="outlined"
           />
 
@@ -312,8 +306,8 @@ export default function SettingsPage() {
           <Button
             variant="contained"
             size="small"
-            disabled={saving || !dropboxRoot.trim()}
-            onClick={handleSaveDropbox}
+            disabled={saving || !syncRoot.trim()}
+            onClick={handleSaveSyncRoot}
             sx={{ alignSelf: 'flex-start' }}
           >
             {saving ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
@@ -351,8 +345,8 @@ export default function SettingsPage() {
             overflow: 'auto',
           }}
         >
-          {`~/Dropbox/
-└── Dropith/
+          {`<sync-root>/
+└── ...
     ├── projects/      ← each sub-folder = one Project
     ├── ref-materials/ ← each sub-folder = one Ref Material
     ├── daily-notes/
@@ -360,7 +354,7 @@ export default function SettingsPage() {
     └── habits/`}
         </Box>
         <Typography variant="caption" sx={{ color: '#4a6a8a', display: 'block', mt: 1 }}>
-          New projects and reference materials are added by creating folders in Dropbox, not through
+          New projects and reference materials are added by creating folders in the sync root, not through
           the app.
         </Typography>
       </Paper>
@@ -387,7 +381,7 @@ export default function SettingsPage() {
             ['App', 'Dropith Desktop'],
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
             ['Storage', 'Local SQLite via node:sqlite'],
-            ['Sync', 'Dropbox (folder-based)'],
+            ['Sync', 'Local folder'],
           ].map(([label, value]) => (
             <ListItem key={label} disablePadding sx={{ py: 0.4 }}>
               <ListItemText
@@ -409,4 +403,3 @@ export default function SettingsPage() {
     </Box>
   )
 }
-

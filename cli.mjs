@@ -1735,64 +1735,14 @@ function saveSyncRootFolder(rootFolder) {
 
 function getSettingsState() {
   const store = readSecretStore();
-  const keyEntry = store.values[KEYCHAIN_APP_KEY];
-  const secretEntry = store.values[KEYCHAIN_APP_SECRET];
-  const tokenEntry = store.values[KEYCHAIN_ACCESS_TOKEN];
-  const emailEntry = store.values[KEYCHAIN_ACCOUNT_EMAIL];
   const rootEntry = store.values[KEYCHAIN_ROOT_FOLDER];
-  const envKey = normalize(process.env.DROPBOX_APP_KEY);
-  const envSecret = normalize(process.env.DROPBOX_APP_SECRET);
-
-  const appKeySource = keyEntry ? 'in-app' : (envKey ? 'environment' : 'none');
-  const appSecretSource = secretEntry ? 'in-app' : (envSecret ? 'environment' : 'none');
-  let source = 'mixed';
-  if (appKeySource === 'none' && appSecretSource === 'none') source = 'none';
-  else if (appKeySource === 'in-app' && appSecretSource === 'in-app') source = 'in-app';
-  else if (appKeySource === 'environment' && appSecretSource === 'environment') source = 'environment';
-
   return {
     dbPath: dbFile,
     secretsPath: secretsFilePath(),
-    dropbox: {
-      appKeySet: Boolean(keyEntry || envKey),
-      appSecretSet: Boolean(secretEntry || envSecret),
-      source,
-      isConnected: Boolean(tokenEntry),
-      accountEmail: decodeUnencryptedSecret(emailEntry) ?? (emailEntry ? '(stored securely)' : undefined),
+    sync: {
       rootFolder: decodeUnencryptedSecret(rootEntry) ?? undefined,
     },
   };
-}
-
-function setDropboxSettings(appKey, appSecret) {
-  const key = normalize(appKey);
-  const secret = normalize(appSecret);
-  if (!key || !secret) {
-    throw new Error('Both Dropbox App Key and App Secret are required');
-  }
-  const store = readSecretStore();
-  store.values[KEYCHAIN_APP_KEY] = encodeUnencryptedSecret(key);
-  store.values[KEYCHAIN_APP_SECRET] = encodeUnencryptedSecret(secret);
-  writeSecretStore(store);
-  return getSettingsState();
-}
-
-function clearDropboxSettings() {
-  const store = readSecretStore();
-  delete store.values[KEYCHAIN_APP_KEY];
-  delete store.values[KEYCHAIN_APP_SECRET];
-  writeSecretStore(store);
-  return getSettingsState();
-}
-
-function disconnectDropboxSettings() {
-  const store = readSecretStore();
-  delete store.values[KEYCHAIN_ACCESS_TOKEN];
-  delete store.values[KEYCHAIN_REFRESH_TOKEN];
-  delete store.values[KEYCHAIN_ACCOUNT_EMAIL];
-  // Keep KEYCHAIN_ROOT_FOLDER intact: it now controls local sync target.
-  writeSecretStore(store);
-  return getSettingsState();
 }
 
 // ── Note sync: path helpers ───────────────────────────────────────────────────
@@ -1928,7 +1878,7 @@ function dailyNoteToMarkdown(fields) {
     id: fields.id,
     type: 'daily-note',
     date: fields.date,
-    dropboxPath: fields.dropboxPath || '',
+    syncPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -1948,7 +1898,7 @@ function topicNoteToMarkdown(fields) {
     type: 'topic-note',
     title: fields.title,
     date: fields.date || '',
-    dropboxPath: fields.dropboxPath || '',
+    syncPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -1967,7 +1917,7 @@ function projectToMarkdown(fields) {
     id: fields.id,
     type: 'project',
     name: fields.name,
-    dropboxPath: fields.dropboxPath,
+    syncPath: fields.dropboxPath,
     startDate: fields.startDate || '',
     endDate: fields.endDate || '',
     tags: fields.tagNames,
@@ -1981,7 +1931,7 @@ function projectToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
-    dropboxPath: fields.dropboxPath,
+    syncPath: fields.dropboxPath,
     startDate: fields.startDate,
     endDate: fields.endDate,
     tags: fields.tagNames,
@@ -1995,7 +1945,7 @@ function refMaterialToMarkdown(fields) {
     id: fields.id,
     type: 'ref-material',
     name: fields.name,
-    dropboxPath: fields.dropboxPath,
+    syncPath: fields.dropboxPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
@@ -2007,7 +1957,7 @@ function refMaterialToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
-    dropboxPath: fields.dropboxPath,
+    syncPath: fields.dropboxPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
@@ -2020,12 +1970,18 @@ function habitToMarkdown(fields) {
     type: 'habit',
     text: fields.text,
     date: fields.date,
-    dropboxPath: fields.dropboxPath || '',
+    syncPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
   return `${fm}\n`;
+}
+
+function readSyncPathField(data) {
+  if (typeof data.syncPath === 'string') return data.syncPath;
+  if (typeof data.dropboxPath === 'string') return data.dropboxPath;
+  return '';
 }
 
 function parseDailyNoteMarkdown(content) {
@@ -2037,7 +1993,7 @@ function parseDailyNoteMarkdown(content) {
   return {
     id: data.id,
     date: data.date,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2057,7 +2013,7 @@ function parseTopicNoteMarkdown(content) {
     id: data.id,
     title: data.title,
     date: typeof data.date === 'string' ? data.date : '',
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2074,7 +2030,7 @@ function parseProjectMarkdown(content) {
   return {
     id: data.id,
     name: data.name,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     startDate: typeof data.startDate === 'string' ? data.startDate : '',
     endDate: typeof data.endDate === 'string' ? data.endDate : '',
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2090,7 +2046,7 @@ function parseProjectMetaYaml(content) {
   return {
     id: data.id,
     name: data.name,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     startDate: typeof data.startDate === 'string' ? data.startDate : '',
     endDate: typeof data.endDate === 'string' ? data.endDate : '',
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2106,7 +2062,7 @@ function parseRefMaterialMarkdown(content) {
   return {
     id: data.id,
     name: data.name,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -2120,7 +2076,7 @@ function parseRefMaterialMetaYaml(content) {
   return {
     id: data.id,
     name: data.name,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -2136,7 +2092,7 @@ function parseHabitMarkdown(content) {
     id: data.id,
     text: data.text,
     date: data.date,
-    dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
+    dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -3031,70 +2987,6 @@ async function runSync() {
   });
 }
 
-// ── Auth connect ──────────────────────────────────────────────────────────────
-
-async function runAuthConnect() {
-  const store = readSecretStore();
-  const appKey = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_KEY]) ?? normalize(process.env.DROPBOX_APP_KEY);
-  const appSecret = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_SECRET]) ?? normalize(process.env.DROPBOX_APP_SECRET);
-
-  if (!appKey || !appSecret) {
-    throw new Error('Dropbox App Key and Secret are not configured. Run: dropith settings set dropbox <key> <secret>');
-  }
-
-  const state = randomUUID();
-  const authUrl = buildDropboxAuthUrl(appKey, state);
-
-  console.log('\nDropbox OAuth — opening browser for authorization.');
-  console.log(`If the browser does not open automatically, visit:\n  ${authUrl}\n`);
-  openUrlInBrowser(authUrl);
-
-  return new Promise((resolve, reject) => {
-    const server = createServer(async (req, res) => {
-      const url = new URL(req.url ?? '/', 'http://localhost');
-      if (url.pathname !== '/callback') {
-        res.end('Not found');
-        return;
-      }
-
-      const code = url.searchParams.get('code');
-      const returnedState = url.searchParams.get('state');
-
-      if (!code || returnedState !== state) {
-        res.end('<html><body>Authorization failed. You can close this window.</body></html>');
-        server.close();
-        reject(new Error('Invalid OAuth state or missing authorization code'));
-        return;
-      }
-
-      try {
-        const tokens = await exchangeDropboxCode(code, appKey, appSecret);
-        const email = await getLegacyDropboxAccountEmail(tokens.access_token);
-        saveDropboxToken(tokens.access_token, email, tokens.refresh_token);
-        res.end('<html><body>Connected to Dropbox! You can close this window.</body></html>');
-        server.close();
-        resolve({ email });
-      } catch (err) {
-        res.end('<html><body>Authorization failed. You can close this window.</body></html>');
-        server.close();
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-
-    server.listen(42813, () => {
-      console.log('Waiting for Dropbox authorization callback on http://localhost:42813/callback ...');
-      console.log('(Timeout in 5 minutes)');
-    });
-
-    server.on('error', (err) => reject(err));
-
-    setTimeout(() => {
-      server.close();
-      reject(new Error('Authentication timed out after 5 minutes'));
-    }, 300_000);
-  });
-}
-
 async function prompt(rl, label, options = {}) {
   const suffix = options.showDefault && hasNonEmptyValue(options.defaultValue) ? ` [${options.defaultValue}]` : '';
   const hint = options.allowClear ? ' (blank keeps current, - clears)' : '';
@@ -3212,7 +3104,7 @@ async function createObjectInteractive(type, rl) {
       }
       case 'project': {
         const name = await prompt(rl, 'Name', { required: true });
-        const dropboxPath = await prompt(rl, 'Dropbox path');
+        const dropboxPath = await prompt(rl, 'Sync path');
         const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)');
         const endDate = await prompt(rl, 'End date (YYYY-MM-DD)');
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
@@ -3229,7 +3121,7 @@ async function createObjectInteractive(type, rl) {
       }
       case 'ref-material': {
         const name = await prompt(rl, 'Name', { required: true });
-        const dropboxPath = await prompt(rl, 'Dropbox path');
+        const dropboxPath = await prompt(rl, 'Sync path');
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
         return createRefMatRecord(db, {
           id: randomUUID(),
@@ -3324,7 +3216,7 @@ async function updateObjectInteractive(type, reference, rl) {
         const existing = getProject(db, reference);
         if (!existing) return null;
         const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
-        const dropboxPath = await prompt(rl, 'Dropbox path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
+        const dropboxPath = await prompt(rl, 'Sync path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
         const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)', { defaultValue: existing.startDate, showDefault: Boolean(existing.startDate), allowClear: true });
         const endDate = await prompt(rl, 'End date (YYYY-MM-DD)', { defaultValue: existing.endDate, showDefault: Boolean(existing.endDate), allowClear: true });
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
@@ -3341,7 +3233,7 @@ async function updateObjectInteractive(type, reference, rl) {
         const existing = getRefMat(db, reference);
         if (!existing) return null;
         const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
-        const dropboxPath = await prompt(rl, 'Dropbox path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
+        const dropboxPath = await prompt(rl, 'Sync path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
         return updateRefMatRecord(db, existing.id, {
           name,
@@ -3396,11 +3288,6 @@ Usage:
                            Delete an object
   dropith browse [target]   Browse notes, directories, files, or all objects
 
-Dropbox auth (deprecated; local-folder sync no longer requires auth):
-  dropith auth [status]     Show legacy Dropbox settings state
-  dropith auth connect      Deprecated (no-op)
-  dropith auth disconnect   Clear stored legacy Dropbox auth state
-
 Sync:
   dropith sync              Sync notes, habits, and directories to local sync folder (one-shot)
   dropith sync --watch      Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
@@ -3408,14 +3295,8 @@ Sync:
 
 Settings:
   dropith settings show     Show CLI-visible app settings
-  dropith settings set dropbox [appKey appSecret]
-                           Save Dropbox app credentials
   dropith settings set root-folder <path>
-                           Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
-  dropith settings clear dropbox
-                           Clear saved Dropbox app credentials
-  dropith settings disconnect dropbox
-                           Clear stored Dropbox connection state
+                            Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
 
 Object types:
   topic-note, daily-note, project, ref-material, habit, tag, link
@@ -3430,8 +3311,6 @@ Shell shortcuts:
 
 Environment:
   DROPITH_DB_PATH           Optional absolute path to a Dropith SQLite database
-  DROPBOX_APP_KEY           Dropbox app key fallback for settings state
-  DROPBOX_APP_SECRET        Dropbox app secret fallback for settings state
 `);
 }
 
@@ -3444,33 +3323,10 @@ async function runSettings(args, rl) {
     return;
   }
 
-  if (action === 'set' && target === 'dropbox') {
-    let appKey = args[2];
-    let appSecret = args[3];
-
-    if ((!appKey || !appSecret) && rl) {
-      appKey = await prompt(rl, 'Dropbox App Key', { required: true });
-      appSecret = await prompt(rl, 'Dropbox App Secret', { required: true });
-    }
-
-    console.log(formatCompact(setDropboxSettings(appKey, appSecret)));
-    return;
-  }
-
-  if (action === 'clear' && target === 'dropbox') {
-    console.log(formatCompact(clearDropboxSettings()));
-    return;
-  }
-
-  if (action === 'disconnect' && target === 'dropbox') {
-    console.log(formatCompact(disconnectDropboxSettings()));
-    return;
-  }
-
   if (action === 'set' && target === 'root-folder') {
     let folder = normalize(args[2]);
     if (!folder && rl) {
-      folder = await prompt(rl, 'Sync root folder (e.g. /Dropith or ~/Library/CloudStorage/Dropbox/Dropith)', { required: true });
+      folder = await prompt(rl, 'Sync root folder path (e.g. /Dropith)', { required: true });
     }
     if (!folder) throw new Error('Root folder path is required');
     saveSyncRootFolder(folder);
@@ -3801,23 +3657,6 @@ async function executeTokens(tokens, context = {}) {
     return;
   }
 
-  if (action === 'auth') {
-    const subAction = normalize(args[0]).toLowerCase();
-    if (!subAction || subAction === 'status') {
-      console.log(formatCompact(getSettingsState().dropbox));
-      return;
-    }
-    if (subAction === 'connect') {
-      console.log('Dropbox OAuth is deprecated. Sync now uses your configured local sync folder.');
-      return;
-    }
-    if (subAction === 'disconnect') {
-      console.log(formatCompact(disconnectDropboxSettings()));
-      return;
-    }
-    throw new Error('Usage: dropith auth [status|connect|disconnect]');
-  }
-
   if (action === 'sync') {
     const watch = args.includes('--watch') || args.includes('--daemon');
     const intervalIdx = args.findIndex((a) => a === '--interval');
@@ -3913,7 +3752,6 @@ export const __testing = {
   runSync,
   saveDropboxToken,
   saveSyncRootFolder,
-  disconnectDropboxSettings,
   createDailyNoteRecord,
   createTopicNoteRecord,
   getDailyNote,
