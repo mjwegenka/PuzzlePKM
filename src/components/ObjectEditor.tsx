@@ -461,6 +461,21 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   }, [date, onDateChange, type]);
 
   const isNoteType = type === 'topic-note' || type === 'daily-note';
+  const forwardLinks = isNoteType && Array.isArray(object?.links)
+    ? (object.links as Array<Record<string, unknown>>)
+    : [];
+  const backlinkLinks = isNoteType && Array.isArray(object?.backlinks)
+    ? (object.backlinks as Array<Record<string, unknown>>)
+    : [];
+  const relationLabel = (relation: Record<string, unknown>) => {
+    const rawTitle = String(relation.title ?? '').trim();
+    const rawDate = String(relation.date ?? '').trim();
+    const relationType = String(relation.type ?? '').trim();
+    if (relationType === 'daily-note' && rawDate) return rawDate;
+    if (rawTitle) return rawTitle;
+    if (rawDate) return rawDate;
+    return String(relation.id ?? '');
+  };
   const showTitle = type !== 'daily-note' && type !== 'habit';
   const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
   const isOptionalDate = type === 'topic-note' || type === 'project';
@@ -573,8 +588,65 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
           </Box>
         )}
 
-        {/* ── BOTTOM: Tags (always last) ── */}
+        {/* ── BOTTOM: Relationships + Tags ── */}
         <Box sx={{ borderTop: '1px solid #1c3558', pt: 2, flexShrink: 0, minHeight: 0 }}>
+          {isNoteType && (
+            <Stack spacing={1.5} sx={{ mb: 2 }}>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                  Links
+                </Typography>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {forwardLinks.length === 0 ? (
+                    <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+                      No links
+                    </Typography>
+                  ) : (
+                    forwardLinks.map((relation) => (
+                      <Chip
+                        key={`forward-${String(relation.id)}`}
+                        label={relationLabel(relation)}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(26,138,181,0.15)',
+                          border: '1px solid rgba(26,138,181,0.35)',
+                          color: '#b0d4e8',
+                          height: 22,
+                        }}
+                      />
+                    ))
+                  )}
+                </Stack>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                  Backlinks
+                </Typography>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {backlinkLinks.length === 0 ? (
+                    <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+                      No backlinks
+                    </Typography>
+                  ) : (
+                    backlinkLinks.map((relation) => (
+                      <Chip
+                        key={`backlink-${String(relation.id)}`}
+                        label={relationLabel(relation)}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(125,207,170,0.14)',
+                          border: '1px solid rgba(125,207,170,0.35)',
+                          color: '#c7e7d8',
+                          height: 22,
+                        }}
+                      />
+                    ))
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+          )}
+
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
             <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
               Tags

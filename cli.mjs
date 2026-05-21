@@ -242,6 +242,65 @@ function parseCsv(value) {
   ));
 }
 
+function decodeUriComponentSafe(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeSyncPath(value) {
+  const raw = String(value ?? '').trim().replace(/\\/g, '/');
+  if (!raw) return '';
+  const withoutQuery = raw.replace(/[?#].*$/, '');
+  if (!withoutQuery) return '';
+  const collapsed = withoutQuery.replace(/\/+/g, '/');
+  return collapsed.startsWith('/') ? collapsed : `/${collapsed}`;
+}
+
+function normalizeSyncPathForLookup(value) {
+  return normalizeSyncPath(value).toLowerCase();
+}
+
+function splitPathSegments(path) {
+  return String(path ?? '').split('/').filter(Boolean);
+}
+
+function dirnamePath(path) {
+  const parts = splitPathSegments(path);
+  if (parts.length <= 1) return '/';
+  return `/${parts.slice(0, -1).join('/')}`;
+}
+
+function resolveRelativeSyncPath(baseFilePath, hrefPath) {
+  const normalizedHref = String(hrefPath ?? '').replace(/\\/g, '/').trim();
+  if (!normalizedHref) return '';
+  if (normalizedHref.startsWith('/')) return normalizeSyncPath(normalizedHref);
+
+  const baseDirParts = splitPathSegments(dirnamePath(baseFilePath));
+  const hrefParts = splitPathSegments(normalizedHref);
+  const resolved = [...baseDirParts];
+
+  for (const part of hrefParts) {
+    if (part === '.') continue;
+    if (part === '..') {
+      if (resolved.length > 0) resolved.pop();
+      continue;
+    }
+    resolved.push(part);
+  }
+
+  return `/${resolved.join('/')}`;
+}
+
+function normalizeRelativePathSegments(path) {
+  return String(path ?? '')
+    .replace(/^[./]+/, '')
+    .replace(/\/+/g, '/')
+    .toLowerCase();
+}
+
 function parseFrontMatter(content) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content.trimStart());
 
@@ -818,6 +877,186 @@ function syncObjectTags(db, objectId, objectType, tagNames) {
   }
 }
 
+function listLinkableObjectRefs(db) {
+  return db.prepare(`
+    SELECT id, type, sync_path FROM (
+      SELECT id, 'topic-note' AS type, dropbox_path AS sync_path FROM topic_notes
+      UNION ALL
+      SELECT id, 'daily-note' AS type, dropbox_path AS sync_path FROM daily_notes
+      UNION ALL
+      SELECT id, 'project' AS type, dropbox_path AS sync_path FROM projects
+      UNION ALL
+      SELECT id, 'ref-material' AS type, dropbox_path AS sync_path FROM ref_materials
+      UNION ALL
+      SELECT id, 'habit' AS type, dropbox_path AS sync_path FROM habits
+    )
+  `).all().map((row) => ({
+    id: row.id,
+    type: row.type,
+    syncPath: row.sync_path || '',
+  }));
+}
+
+function lookupObjectSummary(db, id, typeHint) {
+  const lookupType = normalize(typeHint).toLowerCase();
+  const row = db.prepare(`
+    SELECT id, type, label, date, sync_path FROM (
+      SELECT id, 'topic-note' AS type, title AS label, date, dropbox_path AS sync_path FROM topic_notes
+      UNION ALL
+      SELECT id, 'daily-note' AS type, date AS label, date, dropbox_path AS sync_path FROM daily_notes
+      UNION ALL
+      SELECT id, 'project' AS type, name AS label, '' AS date, dropbox_path AS sync_path FROM projects
+      UNION ALL
+      SELECT id, 'ref-material' AS type, name AS label, '' AS date, dropbox_path AS sync_path FROM ref_materials
+      UNION ALL
+      SELECT id, 'habit' AS type, text AS label, date, dropbox_path AS sync_path FROM habits
+    )
+    WHERE id = ?
+      AND (? = '' OR type = ?)
+    ORDER BY type ASC
+    LIMIT 1
+  `).get(id, lookupType, lookupType);
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.label || '',
+    date: row.date || '',
+    syncPath: row.sync_path || '',
+  };
+}
+
+function parseMarkdownLinkHrefs(contentMarkdown) {
+  const markdown = String(contentMarkdown ?? '');
+  const matches = markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g);
+  const seen = new Set();
+  const hrefs = [];
+  for (const match of matches) {
+    const raw = String(match[1] ?? '').trim();
+    if (!raw) continue;
+    const withoutAngleBrackets = raw.replace(/^<|>$/g, '');
+    const href = withoutAngleBrackets.split(/\s+/)[0] || '';
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    hrefs.push(href);
+  }
+  return hrefs;
+}
+
+function resolveNoteLinkTarget(refs, href, sourceSyncPath) {
+  const decodedHref = decodeUriComponentSafe(String(href ?? '').trim());
+  if (!decodedHref || decodedHref.startsWith('#')) return null;
+  if (/^(mailto|tel):/i.test(decodedHref)) return null;
+
+  let hrefPath = decodedHref;
+  if (/^https?:\/\//i.test(decodedHref)) {
+    try {
+      hrefPath = new URL(decodedHref).pathname || decodedHref;
+    } catch {
+      return null;
+    }
+  }
+
+  const withoutFragment = hrefPath.replace(/[?#].*$/, '').trim();
+  if (!withoutFragment) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(withoutFragment)) return null;
+
+  const idMatch = refs.find((item) => item.id === withoutFragment);
+  if (idMatch) return { id: idMatch.id, type: idMatch.type };
+
+  const rootRelative = /^dropith\//i.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
+  const targetPath = rootRelative.startsWith('/')
+    ? normalizeSyncPath(rootRelative)
+    : sourceSyncPath
+      ? resolveRelativeSyncPath(sourceSyncPath, rootRelative)
+      : '';
+  if (!targetPath) return null;
+
+  const normalizedTargetPath = normalizeSyncPathForLookup(targetPath);
+  const exactPathMatch = refs.find((item) => normalizeSyncPathForLookup(item.syncPath) === normalizedTargetPath);
+  if (exactPathMatch) return { id: exactPathMatch.id, type: exactPathMatch.type };
+
+  const targetRelative = normalizeRelativePathSegments(rootRelative);
+  const targetBaseName = splitPathSegments(targetRelative).at(-1) ?? '';
+  if (!targetRelative) return null;
+
+  const suffixMatch = refs.find((item) => {
+    const candidate = normalizeSyncPathForLookup(item.syncPath);
+    return candidate.endsWith(`/${targetRelative}`) || candidate.endsWith(targetRelative);
+  });
+  if (suffixMatch) return { id: suffixMatch.id, type: suffixMatch.type };
+
+  if (!targetBaseName) return null;
+  const baseNameMatch = refs.find((item) => {
+    const candidateParts = splitPathSegments(normalizeSyncPathForLookup(item.syncPath));
+    return candidateParts.at(-1) === targetBaseName;
+  });
+  return baseNameMatch ? { id: baseNameMatch.id, type: baseNameMatch.type } : null;
+}
+
+function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdown) {
+  const refs = listLinkableObjectRefs(db);
+  const hrefs = parseMarkdownLinkHrefs(contentMarkdown);
+  const seenIds = new Set();
+  const targets = [];
+  for (const href of hrefs) {
+    const target = resolveNoteLinkTarget(refs, href, sourceSyncPath);
+    if (!target || target.id === sourceId || seenIds.has(target.id)) continue;
+    seenIds.add(target.id);
+    targets.push(target);
+  }
+  return targets;
+}
+
+function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
+  const targetIds = new Set(targets.map((target) => target.id));
+  const existingLinks = db
+    .prepare('SELECT source_id, target_id FROM object_links WHERE source_id = ? AND source_type = ?')
+    .all(sourceId, sourceType);
+  for (const link of existingLinks) {
+    if (!targetIds.has(link.target_id)) {
+      db.prepare('DELETE FROM object_links WHERE source_id = ? AND target_id = ?').run(link.source_id, link.target_id);
+    }
+  }
+
+  const insert = db.prepare(`
+    INSERT INTO object_links (id, source_id, target_id, source_type, target_type, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source_id, target_id) DO NOTHING
+  `);
+  for (const target of targets) {
+    insert.run(randomUUID(), sourceId, target.id, sourceType, target.type, getIsoNow());
+  }
+}
+
+function sortRelatedObjectsStable(items) {
+  return items.sort((a, b) => {
+    const typeCmp = String(a.type).localeCompare(String(b.type));
+    if (typeCmp !== 0) return typeCmp;
+    const titleCmp = String(a.title || '').toLowerCase().localeCompare(String(b.title || '').toLowerCase());
+    if (titleCmp !== 0) return titleCmp;
+    const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+function getRelatedObjects(db, noteId, direction) {
+  const isForward = direction === 'forward';
+  const rows = isForward
+    ? db.prepare('SELECT target_id AS related_id, target_type AS related_type FROM object_links WHERE source_id = ?').all(noteId)
+    : db.prepare('SELECT source_id AS related_id, source_type AS related_type FROM object_links WHERE target_id = ?').all(noteId);
+  const seen = new Set();
+  const related = [];
+  for (const row of rows) {
+    if (seen.has(row.related_id)) continue;
+    seen.add(row.related_id);
+    const summary = lookupObjectSummary(db, row.related_id, row.related_type);
+    if (summary) related.push(summary);
+  }
+  return sortRelatedObjectsStable(related);
+}
+
 function getTopicNote(db, id) {
   const row = db.prepare('SELECT * FROM topic_notes WHERE id = ?').get(id);
   if (!row) return null;
@@ -832,6 +1071,8 @@ function getTopicNote(db, id) {
     contentMarkdown,
     blocks,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
+    links: getRelatedObjects(db, row.id, 'forward'),
+    backlinks: getRelatedObjects(db, row.id, 'backward'),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -857,10 +1098,16 @@ function listTopicNotes(db) {
 function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
     const now = input.createdAt ?? getIsoNow();
+    const rootFolder = getSyncRootFolder();
+    const dropboxPath = normalizeSyncPath(input.dropboxPath) || topicNoteDropboxPath(rootFolder, input.title, input.id);
     // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
     const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
       ? input.blocks
       : parseBlocksFromMarkdown(input.contentMarkdown);
+    const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
+      ? assembleMarkdownFromBlocks(blocks)
+      : (input.contentMarkdown ?? '');
+    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
     db.prepare(`
       INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -869,13 +1116,14 @@ function createTopicNoteRecord(db, input) {
       input.title,
       input.date || '',
       JSON.stringify(input.content ?? {}),
-      JSON.stringify(input.linkedObjectIds ?? []),
-      input.dropboxPath || '',
+      JSON.stringify(derivedLinks.map((target) => target.id)),
+      dropboxPath,
       input.createdAt,
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
     persistNoteBlocks(db, input.id, 'topic-note', blocks, now);
+    syncNoteObjectLinks(db, input.id, 'topic-note', derivedLinks);
     return getTopicNote(db, input.id);
   });
 }
@@ -883,9 +1131,15 @@ function createTopicNoteRecord(db, input) {
 function updateTopicNoteRecord(db, id, input) {
   const existing = getTopicNote(db, id);
   if (!existing) return null;
+  const rootFolder = getSyncRootFolder();
   const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
   const values = [updatedAt];
+  const nextTitle = input.title ?? existing.title;
+  const nextDropboxPath =
+    normalizeSyncPath(input.dropboxPath !== undefined ? input.dropboxPath : existing.dropboxPath)
+    || topicNoteDropboxPath(rootFolder, nextTitle, id);
+  let derivedLinks;
 
   if (input.title !== undefined) {
     fields.push('title = ?');
@@ -905,14 +1159,24 @@ function updateTopicNoteRecord(db, id, input) {
     updatedBlocks = input.blocks;
   } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
+  } else if (Array.isArray(input.blocks) && input.blocks.length === 0) {
+    updatedBlocks = [];
   }
-  if (input.linkedObjectIds !== undefined) {
+  if (updatedBlocks !== undefined) {
+    const contentMarkdown = Array.isArray(updatedBlocks) && updatedBlocks.length > 0
+      ? assembleMarkdownFromBlocks(updatedBlocks)
+      : (input.contentMarkdown ?? '');
+    derivedLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, contentMarkdown);
+    fields.push('linked_object_ids = ?');
+    values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
+  }
+  if (derivedLinks === undefined && input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
   }
-  if (input.dropboxPath !== undefined) {
+  if (input.dropboxPath !== undefined || !normalizeSyncPath(existing.dropboxPath)) {
     fields.push('dropbox_path = ?');
-    values.push(input.dropboxPath);
+    values.push(nextDropboxPath);
   }
 
   values.push(id);
@@ -924,6 +1188,9 @@ function updateTopicNoteRecord(db, id, input) {
     }
     if (updatedBlocks !== undefined) {
       persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt);
+    }
+    if (derivedLinks !== undefined) {
+      syncNoteObjectLinks(db, id, 'topic-note', derivedLinks);
     }
     return getTopicNote(db, id);
   });
@@ -955,6 +1222,8 @@ function mapDailyNote(db, row) {
     contentMarkdown,
     blocks,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
+    links: getRelatedObjects(db, row.id, 'forward'),
+    backlinks: getRelatedObjects(db, row.id, 'backward'),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -989,10 +1258,16 @@ function createDailyNoteRecord(db, input) {
 
   return withTransaction(db, () => {
     const now = input.createdAt ?? getIsoNow();
+    const rootFolder = getSyncRootFolder();
+    const dropboxPath = normalizeSyncPath(input.dropboxPath) || dailyNoteDropboxPath(rootFolder, input.date);
     // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
     const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
       ? input.blocks
       : parseBlocksFromMarkdown(input.contentMarkdown);
+    const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
+      ? assembleMarkdownFromBlocks(blocks)
+      : (input.contentMarkdown ?? '');
+    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
     db.prepare(`
       INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1000,13 +1275,14 @@ function createDailyNoteRecord(db, input) {
       input.id,
       input.date,
       JSON.stringify(input.content ?? {}),
-      JSON.stringify(input.linkedObjectIds ?? []),
-      input.dropboxPath || '',
+      JSON.stringify(derivedLinks.map((target) => target.id)),
+      dropboxPath,
       input.createdAt,
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
     persistNoteBlocks(db, input.id, 'daily-note', blocks, now);
+    syncNoteObjectLinks(db, input.id, 'daily-note', derivedLinks);
     return getDailyNote(db, input.id);
   });
 }
@@ -1014,6 +1290,7 @@ function createDailyNoteRecord(db, input) {
 function updateDailyNoteRecord(db, reference, input) {
   const existing = findDailyNoteRow(db, reference);
   if (!existing) return null;
+  const rootFolder = getSyncRootFolder();
   const nextDate = input.date ?? existing.date;
   const duplicate = db.prepare('SELECT id FROM daily_notes WHERE date = ? AND id != ?').get(nextDate, existing.id);
   if (duplicate?.id) {
@@ -1023,6 +1300,10 @@ function updateDailyNoteRecord(db, reference, input) {
   const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
   const values = [updatedAt];
+  const nextDropboxPath =
+    normalizeSyncPath(input.dropboxPath !== undefined ? input.dropboxPath : existing.dropbox_path)
+    || dailyNoteDropboxPath(rootFolder, nextDate);
+  let derivedLinks;
 
   if (input.date !== undefined) {
     fields.push('date = ?');
@@ -1038,14 +1319,24 @@ function updateDailyNoteRecord(db, reference, input) {
     updatedBlocks = input.blocks;
   } else if (input.contentMarkdown !== undefined) {
     updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
+  } else if (Array.isArray(input.blocks) && input.blocks.length === 0) {
+    updatedBlocks = [];
   }
-  if (input.linkedObjectIds !== undefined) {
+  if (updatedBlocks !== undefined) {
+    const contentMarkdown = Array.isArray(updatedBlocks) && updatedBlocks.length > 0
+      ? assembleMarkdownFromBlocks(updatedBlocks)
+      : (input.contentMarkdown ?? '');
+    derivedLinks = deriveNoteLinksFromContent(db, existing.id, nextDropboxPath, contentMarkdown);
+    fields.push('linked_object_ids = ?');
+    values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
+  }
+  if (derivedLinks === undefined && input.linkedObjectIds !== undefined) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
   }
-  if (input.dropboxPath !== undefined) {
+  if (input.dropboxPath !== undefined || !normalizeSyncPath(existing.dropbox_path)) {
     fields.push('dropbox_path = ?');
-    values.push(input.dropboxPath);
+    values.push(nextDropboxPath);
   }
 
   values.push(existing.id);
@@ -1057,6 +1348,9 @@ function updateDailyNoteRecord(db, reference, input) {
     }
     if (updatedBlocks !== undefined) {
       persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt);
+    }
+    if (derivedLinks !== undefined) {
+      syncNoteObjectLinks(db, existing.id, 'daily-note', derivedLinks);
     }
     return getDailyNote(db, existing.id);
   });
@@ -3404,6 +3698,7 @@ async function executeTokens(tokens, context = {}) {
               title: input.title,
               date: input.date,
               contentMarkdown: input.contentMarkdown,
+              blocks: input.blocks,
               linkedObjectIds: input.linkedObjectIds,
               tags: input.tags,
               updatedAt: now,
@@ -3415,6 +3710,7 @@ async function executeTokens(tokens, context = {}) {
             date: input.date ?? '',
             content: {},
             contentMarkdown: input.contentMarkdown ?? '',
+            blocks: input.blocks,
             linkedObjectIds: input.linkedObjectIds ?? [],
             tags: input.tags ?? [],
             createdAt: now,
@@ -3430,6 +3726,7 @@ async function executeTokens(tokens, context = {}) {
             return updateDailyNoteRecord(db, input.id, {
               date: input.date,
               contentMarkdown: input.contentMarkdown,
+              blocks: input.blocks,
               linkedObjectIds: input.linkedObjectIds,
               tags: input.tags,
               updatedAt: now,
@@ -3443,6 +3740,7 @@ async function executeTokens(tokens, context = {}) {
             date,
             content: {},
             contentMarkdown: input.contentMarkdown ?? '',
+            blocks: input.blocks,
             linkedObjectIds: input.linkedObjectIds ?? [],
             tags: input.tags ?? [],
             createdAt: now,
