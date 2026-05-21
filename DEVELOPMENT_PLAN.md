@@ -84,6 +84,24 @@ See `DEC-54` in `IMPLEMENTATION_DECISIONS.md` for the full v1 readiness definiti
 
 Exit criteria: all checklist items pass and the release candidate satisfies `DEC-54`.
 
+## iOS Mobile Companion App
+Status: **Implemented** (DEC-55)
+
+A write-only iPhone app (`ios/`) lets users capture daily notes and habits on the go and sync them back to the desktop via a `mobile-inbox/` sub-folder in the configured sync root.
+
+### What was shipped
+
+- SwiftUI app (iOS 17+) with three tabs: **Daily Note**, **Habits**, and **Settings**.
+- Dropbox authentication via the SwiftyDropbox OAuth SDK.
+- Daily notes are written to `{rootFolder}/mobile-inbox/daily-notes/YYYY-MM-DD.md`.
+- Habits are written to `{rootFolder}/mobile-inbox/habits/{date}-{tag}-{shortId}.md`.
+- Desktop `puzzlepkm sync` processes mobile inbox files:
+  - Daily notes are **appended** to existing notes for the same date (or a new note is created).
+  - Habits are imported as new entries.
+  - Processed inbox files are deleted from the sync folder.
+- Xcode setup instructions and file format reference in `ios/README.md`.
+- Implementation decision recorded as `DEC-55` in `IMPLEMENTATION_DECISIONS.md`.
+
 ## Desktop UI Contract Plan (Tauri Desktop Shell)
 Status: **Planned**
 

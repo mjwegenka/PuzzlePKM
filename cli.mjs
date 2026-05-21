@@ -35,6 +35,9 @@ const TOPIC_NOTES_SUBFOLDER = 'topic-notes';
 const PROJECTS_SUBFOLDER = 'projects';
 const REF_MATERIALS_SUBFOLDER = 'ref-materials';
 const HABITS_SUBFOLDER = 'habits';
+const MOBILE_INBOX_SUBFOLDER = 'mobile-inbox';
+const MOBILE_INBOX_DAILY_NOTES_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/daily-notes`;
+const MOBILE_INBOX_HABITS_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/habits`;
 const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
@@ -2874,6 +2877,16 @@ function habitDropboxPath(rootFolder, id, date, tagNames) {
   return `${habitsFolderPath(rootFolder)}/${filename}`;
 }
 
+function mobileInboxDailyNotesFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${MOBILE_INBOX_DAILY_NOTES_SUBFOLDER}`;
+}
+
+function mobileInboxHabitsFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${MOBILE_INBOX_HABITS_SUBFOLDER}`;
+}
+
 function allSyncFolderPaths(rootFolder) {
   const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
   return [
@@ -2883,6 +2896,8 @@ function allSyncFolderPaths(rootFolder) {
     projectsFolderPath(rootFolder),
     refMaterialsFolderPath(rootFolder),
     habitsFolderPath(rootFolder),
+    mobileInboxDailyNotesFolderPath(rootFolder),
+    mobileInboxHabitsFolderPath(rootFolder),
   ].filter((path) => path && path !== '/');
 }
 
@@ -3157,6 +3172,35 @@ function parseHabitMarkdown(content) {
 
 function normalizeStringArray(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+// ── Mobile inbox: parsers ─────────────────────────────────────────────────────
+
+/** Parse a mobile-inbox daily note written by the iOS app. Returns null for unrecognized files. */
+function parseMobileDailyNoteMarkdown(content) {
+  const { data, body } = parseFrontMatter(content);
+  if (data.source !== 'mobile') return null;
+  if (typeof data.date !== 'string' || !LOCAL_DATE_PATTERN.test(data.date)) return null;
+  return {
+    date: data.date,
+    contentMarkdown: body.trim(),
+    writtenAt: typeof data.writtenAt === 'string' ? data.writtenAt : getIsoNow(),
+  };
+}
+
+/** Parse a mobile-inbox habit written by the iOS app. Returns null for unrecognized files. */
+function parseMobileHabitMarkdown(content) {
+  const { data } = parseFrontMatter(content);
+  if (data.source !== 'mobile') return null;
+  if (typeof data.date !== 'string' || !LOCAL_DATE_PATTERN.test(data.date)) return null;
+  if (typeof data.text !== 'string' || !data.text.trim()) return null;
+  return {
+    date: data.date,
+    text: data.text.trim().slice(0, MAX_HABIT_TEXT_LENGTH),
+    tag: typeof data.tag === 'string' ? data.tag.trim() : '',
+    status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
+    writtenAt: typeof data.writtenAt === 'string' ? data.writtenAt : getIsoNow(),
+  };
 }
 
 function sameStringArrayAsSet(left, right) {
@@ -4042,6 +4086,108 @@ async function reconcileHabitsDb(db, token, rootFolder) {
   return result;
 }
 
+// ── Mobile inbox reconciliation (DEC-55) ──────────────────────────────────────
+
+/**
+ * Process daily notes written by the iOS mobile app from the mobile-inbox folder.
+ * If a daily note for the same date already exists locally, the mobile content is
+ * appended below a section divider (append semantics per the mobile feature spec).
+ * If no daily note exists for that date, a new one is created.
+ * Mobile inbox files are deleted from the sync folder after successful processing.
+ */
+async function reconcileMobileInboxDailyNotes(db, rootFolder) {
+  const result = { imported: 0, appended: 0, errors: [] };
+  const { files, folderFound } = await listSyncMdFiles(mobileInboxDailyNotesFolderPath(rootFolder));
+  if (!folderFound || files.length === 0) return result;
+
+  for (const file of files) {
+    try {
+      const content = await syncDownloadText(file.path);
+      if (!content) continue;
+      const parsed = parseMobileDailyNoteMarkdown(content);
+      if (!parsed) continue;
+      if (!parsed.contentMarkdown) continue;
+
+      const existing = getDailyNote(db, parsed.date);
+      if (existing) {
+        // Append mobile content below a divider to preserve desktop content (DEC-55).
+        const existingMarkdown = existing.contentMarkdown ?? '';
+        const separator = existingMarkdown.trim() ? '\n\n---\n\n' : '';
+        const mobileSection = `*Written from mobile at ${parsed.writtenAt}*\n\n${parsed.contentMarkdown}`;
+        const merged = `${existingMarkdown.trimEnd()}${separator}${mobileSection}`;
+        updateDailyNoteRecord(db, existing.id, { contentMarkdown: merged });
+        // Re-upload the merged note so the sync folder reflects the appended content.
+        const updated = getDailyNote(db, parsed.date);
+        if (updated) {
+          await syncUploadText(dailyNoteDropboxPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated));
+        }
+        result.appended++;
+      } else {
+        createDailyNoteRecord(db, {
+          id: randomUUID(),
+          date: parsed.date,
+          content: {},
+          contentMarkdown: parsed.contentMarkdown,
+          linkedObjectIds: [],
+          dropboxPath: dailyNoteDropboxPath(rootFolder, parsed.date),
+          tags: [],
+          createdAt: parsed.writtenAt,
+          updatedAt: parsed.writtenAt,
+        });
+        result.imported++;
+      }
+
+      // Remove the processed mobile inbox file.
+      await deleteSyncPath(file.path);
+    } catch (e) {
+      result.errors.push(`mobile-inbox daily-note ${file.name}: ${String(e)}`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Process habits written by the iOS mobile app from the mobile-inbox folder.
+ * Each file creates a new habit in the local DB. Mobile inbox files are deleted
+ * from the sync folder after successful processing.
+ */
+async function reconcileMobileInboxHabits(db, rootFolder) {
+  const result = { imported: 0, errors: [] };
+  const { files, folderFound } = await listSyncMdFiles(mobileInboxHabitsFolderPath(rootFolder));
+  if (!folderFound || files.length === 0) return result;
+
+  for (const file of files) {
+    try {
+      const content = await syncDownloadText(file.path);
+      if (!content) continue;
+      const parsed = parseMobileHabitMarkdown(content);
+      if (!parsed) continue;
+
+      const newId = randomUUID();
+      const tagNames = parsed.tag ? [parsed.tag] : [];
+      createHabitRecord(db, {
+        id: newId,
+        text: parsed.text,
+        date: parsed.date,
+        status: parsed.status,
+        dropboxPath: habitDropboxPath(rootFolder, newId, parsed.date, tagNames),
+        tags: tagNames,
+        createdAt: parsed.writtenAt,
+        updatedAt: parsed.writtenAt,
+      });
+
+      // Remove the processed mobile inbox file.
+      await deleteSyncPath(file.path);
+      result.imported++;
+    } catch (e) {
+      result.errors.push(`mobile-inbox habit ${file.name}: ${String(e)}`);
+    }
+  }
+
+  return result;
+}
+
 async function runSync() {
   const token = null;
   const rootFolder = getSyncRootFolder();
@@ -4054,13 +4200,19 @@ async function runSync() {
       reconcileRefMaterialsDb(db, token, rootFolder),
       reconcileHabitsDb(db, token, rootFolder),
     ]);
+    // DEC-55: Process the mobile inbox sequentially after the main sync so that
+    // newly imported desktop notes are already present before appending mobile content.
+    const [mobileNoteResult, mobileHabitResult] = await Promise.all([
+      reconcileMobileInboxDailyNotes(db, rootFolder),
+      reconcileMobileInboxHabits(db, rootFolder),
+    ]);
     return {
-      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported,
-      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated,
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + mobileNoteResult.imported + mobileHabitResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + mobileNoteResult.appended,
       uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
       deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted,
       warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...mobileNoteResult.errors, ...mobileHabitResult.errors],
     };
   });
 }
