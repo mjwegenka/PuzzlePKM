@@ -190,6 +190,12 @@ To run the full build alias used by repo automation:
 npm run build:all
 ```
 
+Run the SQLite scale benchmark harness:
+
+```bash
+npm run benchmark:sqlite
+```
+
 Issue queue automation helpers:
 
 ```bash
@@ -201,6 +207,28 @@ npm run issues:queue:apply
 ```
 
 For full details on automated issue sequencing and Copilot PR merging, see [`SEQUENCING.md`](./SEQUENCING.md).
+
+## SQLite scale benchmark
+
+Use the benchmark harness to generate a repeatable synthetic dataset, run key operations, and emit JSON results:
+
+```bash
+npm run benchmark:sqlite -- --runs 5 --keep-artifacts
+```
+
+The script measures list/get/search/save/sync reconcile/backlink refresh and records query plans in `sqlite-benchmark-results.json`.
+The repository includes a captured sample run at [`benchmarks/sqlite-benchmark-sample.json`](./benchmarks/sqlite-benchmark-sample.json).
+
+Latest benchmark evidence (5,760-object dataset: 2,000 topic notes, 1,200 daily notes, 800 habits, 400 projects, 400 ref materials, 900 scriptures, 60 tags):
+
+- `list.topic-notes.legacy-simulation`: **54.35ms avg**
+- `list.topic-notes` (batched tags + block reads): **29.10ms avg**
+- `search.notes-filter`: **29.61ms avg**
+- `save.topic-note`: **10.97ms avg**
+- `backlink.refresh.topic-note`: **9.05ms avg**
+- `sync.reconcile` (single pass upload of 4,800 local objects): **6435.97ms**
+
+Recommendation: stay on SQLite for the current product scope (thousands of objects) and continue query/index hardening before considering an alternative datastore. Revisit only if routine list/search/save operations trend above ~150ms at this scale or if sync throughput requirements materially exceed current local-folder behavior.
 
 ## Project Structure
 
