@@ -190,6 +190,12 @@ To run the full build alias used by repo automation:
 npm run build:all
 ```
 
+Lint the codebase:
+
+```bash
+npm run lint
+```
+
 Run the SQLite scale benchmark harness:
 
 ```bash
