@@ -34,6 +34,7 @@ const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const INBOX_TAG_NAME = 'Inbox';
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
   ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
   : join(homedir(), 'Dropbox');
@@ -279,6 +280,21 @@ function normalizeHabitTagNames(tags) {
     .map((value) => String(value ?? '').trim())
     .filter(Boolean);
   return first ? [first] : [];
+}
+
+// Appends the Inbox tag to a tag list if not already present (for multi-tag object types).
+function addInboxTag(tagNames) {
+  const names = Array.isArray(tagNames) ? tagNames : [];
+  const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
+  return hasInbox ? names : [...names, INBOX_TAG_NAME];
+}
+
+// Prepends the Inbox tag for habits (single-tag constraint: DEC-45).
+// Inbox becomes the primary tag; the original remote tag is preserved in the sync file.
+function addInboxTagForHabit(tagNames) {
+  const names = Array.isArray(tagNames) ? tagNames : [];
+  const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
+  return hasInbox ? names : [INBOX_TAG_NAME, ...names];
 }
 
 function decodeUriComponentSafe(value) {
@@ -3038,7 +3054,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
            dropboxPath: fields.dropboxPath || dailyNoteDropboxPath(rootFolder, fields.date),
-           tags: fields.tagNames,
+           tags: addInboxTag(fields.tagNames),
            createdAt: fields.createdAt,
            updatedAt: fields.updatedAt,
          });
@@ -3123,7 +3139,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
            dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
-           tags: fields.tagNames,
+           tags: addInboxTag(fields.tagNames),
            createdAt: fields.createdAt,
            updatedAt: fields.updatedAt,
          });
@@ -3208,7 +3224,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
           dropboxPath: fields.dropboxPath,
           startDate: fields.startDate,
           endDate: fields.endDate,
-          tags: fields.tagNames,
+          tags: addInboxTag(fields.tagNames),
           createdAt: fields.createdAt,
           updatedAt: fields.updatedAt,
         });
@@ -3249,7 +3265,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         dropboxPath: stub.folderPath,
         startDate: null,
         endDate: null,
-        tags: [],
+        tags: [INBOX_TAG_NAME],
         createdAt: now,
         updatedAt: now,
       });
@@ -3340,7 +3356,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           name: fields.name,
           author: fields.author,
           dropboxPath: fields.dropboxPath,
-          tags: fields.tagNames,
+          tags: addInboxTag(fields.tagNames),
           createdAt: fields.createdAt,
           updatedAt: fields.updatedAt,
         });
@@ -3377,7 +3393,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         name: folderNameToTitle(stub.slug),
         author: '',
         dropboxPath: stub.folderPath,
-        tags: [],
+        tags: [INBOX_TAG_NAME],
         createdAt: now,
         updatedAt: now,
       });
@@ -3467,7 +3483,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
             date: fields.date,
             status: fields.status,
             dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
-            tags: fields.tagNames,
+            tags: addInboxTagForHabit(fields.tagNames),
             createdAt: fields.createdAt,
             updatedAt: fields.updatedAt,
          });

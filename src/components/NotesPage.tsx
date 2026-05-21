@@ -28,6 +28,7 @@ import RepeatIcon from '@mui/icons-material/Repeat'
 import ArticleIcon from '@mui/icons-material/Article'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
+import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
@@ -394,6 +395,9 @@ export default function NotesPage({ onSaved }: NotesPageProps) {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
 
+  // Inbox filter
+  const [showInbox, setShowInbox] = useState(false)
+
   // Column filters
   const [topicFilter, setTopicFilter] = useState('')
   const [dailyFilter, setDailyFilter] = useState('')
@@ -538,21 +542,25 @@ export default function NotesPage({ onSaved }: NotesPageProps) {
    }
 
    // Filtered lists
+  const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
   const filteredTopics = topicNotes.filter((n) =>
-    n.title.toLowerCase().includes(topicFilter.toLowerCase()) ||
-    n.preview.toLowerCase().includes(topicFilter.toLowerCase()),
+    (!showInbox || hasInboxTag(n.tags)) &&
+    (n.title.toLowerCase().includes(topicFilter.toLowerCase()) ||
+    n.preview.toLowerCase().includes(topicFilter.toLowerCase())),
   )
   const filteredDailies = dailyNotes.filter(
     (n) =>
-      n.date.includes(dailyFilter) ||
+      (!showInbox || hasInboxTag(n.tags)) &&
+      (n.date.includes(dailyFilter) ||
       formatDatePretty(n.date).toLowerCase().includes(dailyFilter.toLowerCase()) ||
-      n.preview?.toLowerCase().includes(dailyFilter.toLowerCase()),
+      n.preview?.toLowerCase().includes(dailyFilter.toLowerCase())),
   )
   const filteredHabits = habits.filter(
     (n) =>
-      n.text.toLowerCase().includes(habitFilter.toLowerCase()) ||
+      (!showInbox || hasInboxTag(n.tags)) &&
+      (n.text.toLowerCase().includes(habitFilter.toLowerCase()) ||
       n.date.includes(habitFilter) ||
-      formatDatePretty(n.date).toLowerCase().includes(habitFilter.toLowerCase()),
+      formatDatePretty(n.date).toLowerCase().includes(habitFilter.toLowerCase())),
   )
 
    return (
@@ -575,18 +583,47 @@ export default function NotesPage({ onSaved }: NotesPageProps) {
              </Typography>
            </Box>
          </Stack>
-         <Button
-           variant="contained"
-           size="small"
-           startIcon={<AddIcon />}
-           onClick={handleNewNote}
-           sx={{ flexShrink: 0 }}
-         >
-           New Note
-         </Button>
+         <Stack direction="row" alignItems="center" spacing={1}>
+           <IconButton
+             size="small"
+             onClick={() => setShowInbox((v) => !v)}
+             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+             sx={{
+               color: showInbox ? '#e8a84a' : '#4a6a8a',
+               bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
+               border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
+               borderRadius: '6px',
+               '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+             }}
+           >
+             <MoveToInboxIcon sx={{ fontSize: 18 }} />
+           </IconButton>
+           <Button
+             variant="contained"
+             size="small"
+             startIcon={<AddIcon />}
+             onClick={handleNewNote}
+             sx={{ flexShrink: 0 }}
+           >
+             New Note
+           </Button>
+         </Stack>
        </Stack>
 
        {/* ── 3-column list ────────────────────────────────── */}
+       {showInbox && (
+         <Stack
+           direction="row"
+           alignItems="center"
+           spacing={0.75}
+           sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'rgba(232,168,74,0.08)', borderRadius: '6px', border: '1px solid rgba(232,168,74,0.2)', flexShrink: 0 }}
+         >
+           <MoveToInboxIcon sx={{ fontSize: 14, color: '#e8a84a' }} />
+           <Typography variant="caption" sx={{ color: '#e8a84a', fontWeight: 600, fontSize: '11px' }}>
+             Inbox — showing only newly imported objects tagged Inbox
+           </Typography>
+         </Stack>
+       )}
        <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
          {/* Topic Notes */}
          <NoteColumn
