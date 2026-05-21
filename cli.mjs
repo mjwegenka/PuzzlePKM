@@ -29,6 +29,7 @@ const REF_MATERIALS_SUBFOLDER = 'ref-materials';
 const HABITS_SUBFOLDER = 'habits';
 const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
+const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
   ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
   : join(homedir(), 'Dropbox');
@@ -434,6 +435,7 @@ function openDb() {
   ensureSchema(db);
   backfillMissingDropboxPaths(db);
   backfillNoteBlocks(db);
+  repairNoteBlocksIntegrity(db);
   return db;
 }
 
@@ -506,21 +508,133 @@ function parseBlocksFromMarkdown(contentMarkdown) {
   const raw = (contentMarkdown ?? '').trimEnd();
   if (!raw) return [];
   const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  const seenIds = new Set();
   return paragraphs.map((paragraph) => {
     const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
-    if (match) {
-      return { blockId: match[1], contentMarkdown: paragraph.slice(0, match.index).trimEnd() };
+    const embeddedId = match?.[1] ?? '';
+    const blockId = embeddedId && !seenIds.has(embeddedId) ? embeddedId : generateBlockId();
+    seenIds.add(blockId);
+    if (match && blockId === embeddedId) {
+      return { blockId, contentMarkdown: paragraph.slice(0, match.index).trimEnd() };
     }
-    return { blockId: generateBlockId(), contentMarkdown: paragraph };
+    return { blockId, contentMarkdown: paragraph };
   });
+}
+
+function normalizeBlocksForPersistence(blocks, contextLabel) {
+  if (!Array.isArray(blocks)) {
+    throw new Error(`${contextLabel}: blocks must be an array`);
+  }
+  const seenBlockIds = new Set();
+  return blocks.map((block, index) => {
+    if (!block || typeof block !== 'object') {
+      throw new Error(`${contextLabel}: block at index ${index} must be an object`);
+    }
+    const rawId = typeof block.blockId === 'string' ? block.blockId.trim() : '';
+    if (!BLOCK_ID_PATTERN.test(rawId)) {
+      throw new Error(`${contextLabel}: block at index ${index} has an invalid block ID`);
+    }
+    if (seenBlockIds.has(rawId)) {
+      throw new Error(`${contextLabel}: duplicate block ID "${rawId}"`);
+    }
+    seenBlockIds.add(rawId);
+    const contentMarkdown = typeof block.contentMarkdown === 'string'
+      ? block.contentMarkdown
+      : String(block.contentMarkdown ?? '');
+    return {
+      blockId: rawId,
+      position: index,
+      contentMarkdown,
+    };
+  });
+}
+
+function ensureBackfillBlocks(contentMarkdown) {
+  const parsedBlocks = parseBlocksFromMarkdown(contentMarkdown);
+  if (parsedBlocks.length > 0) {
+    return normalizeBlocksForPersistence(parsedBlocks, 'Legacy note backfill');
+  }
+  return normalizeBlocksForPersistence(
+    [{ blockId: generateBlockId(), contentMarkdown: '' }],
+    'Legacy note backfill',
+  );
+}
+
+function repairNoteBlocksIntegrity(db) {
+  const now = getIsoNow();
+  const noteIds = db.prepare('SELECT DISTINCT note_id FROM note_blocks').all().map((row) => row.note_id);
+  const selectRows = db.prepare(`
+    SELECT rowid, note_id, block_id, note_type, position, content_markdown
+    FROM note_blocks
+    WHERE note_id = ?
+    ORDER BY position ASC, rowid ASC
+  `);
+  const deleteRows = db.prepare('DELETE FROM note_blocks WHERE note_id = ?');
+  const insertRow = db.prepare(
+    'INSERT INTO note_blocks (note_id, block_id, note_type, position, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  const hasTopicNote = db.prepare('SELECT 1 FROM topic_notes WHERE id = ? LIMIT 1');
+  const hasDailyNote = db.prepare('SELECT 1 FROM daily_notes WHERE id = ? LIMIT 1');
+  const warnings = [];
+
+  for (const noteId of noteIds) {
+    const rows = selectRows.all(noteId);
+    if (!rows.length) continue;
+
+    const rawType = typeof rows[0].note_type === 'string' ? rows[0].note_type : '';
+    const inferredType = hasTopicNote.get(noteId) ? 'topic-note' : (hasDailyNote.get(noteId) ? 'daily-note' : '');
+    const noteType = rawType === 'topic-note' || rawType === 'daily-note' ? rawType : inferredType;
+    if (!noteType) {
+      warnings.push(`note_id=${noteId}: could not infer note type while validating note_blocks`);
+      continue;
+    }
+
+    const seen = new Set();
+    let changed = false;
+    const normalized = rows.map((row, index) => {
+      const existingId = typeof row.block_id === 'string' ? row.block_id.trim() : '';
+      let nextId = existingId;
+      if (!BLOCK_ID_PATTERN.test(nextId) || seen.has(nextId)) {
+        nextId = generateBlockId();
+        changed = true;
+      }
+      seen.add(nextId);
+      if (row.position !== index || row.note_type !== noteType) {
+        changed = true;
+      }
+      return {
+        blockId: nextId,
+        position: index,
+        contentMarkdown: typeof row.content_markdown === 'string'
+          ? row.content_markdown
+          : String(row.content_markdown ?? ''),
+      };
+    });
+
+    if (!changed) continue;
+
+    withTransaction(db, () => {
+      deleteRows.run(noteId);
+      for (const block of normalized) {
+        insertRow.run(noteId, block.blockId, noteType, block.position, block.contentMarkdown, now, now);
+      }
+    });
+  }
+
+  if (warnings.length > 0) {
+    console.error(
+      `note_blocks integrity warnings during startup:\n${warnings.map((warning) => `- ${warning}`).join('\n')}`,
+    );
+  }
 }
 
 // DEC-36: Assemble full content_markdown from ordered blocks, embedding each block's ID as
 // a trailing HTML comment. Used for dual-write to the legacy content_markdown column so that
 // subsequent reads can round-trip block IDs without querying the note_blocks table.
 function assembleMarkdownFromBlocks(blocks) {
-  if (!blocks.length) return '';
-  return blocks.map(({ blockId, contentMarkdown }) => `${contentMarkdown} <!-- ${blockId} -->`).join('\n\n');
+  const normalizedBlocks = normalizeBlocksForPersistence(blocks, 'assembleMarkdownFromBlocks');
+  if (!normalizedBlocks.length) return '';
+  return normalizedBlocks.map(({ blockId, contentMarkdown }) => `${contentMarkdown} <!-- ${blockId} -->`).join('\n\n');
 }
 
 // DEC-37: Fetch ordered blocks for a note from the note_blocks table.
@@ -533,12 +647,13 @@ function getNoteBlocks(db, noteId) {
 
 // DEC-37: Atomically replace all blocks for a note. Must be called within a transaction.
 function persistNoteBlocks(db, noteId, noteType, blocks, now) {
+  const normalizedBlocks = normalizeBlocksForPersistence(blocks, `persistNoteBlocks(${noteId})`);
   db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(noteId);
   const insert = db.prepare(
     'INSERT INTO note_blocks (note_id, block_id, note_type, position, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
-  for (let i = 0; i < blocks.length; i++) {
-    insert.run(noteId, blocks[i].blockId, noteType, i, blocks[i].contentMarkdown, now, now);
+  for (const block of normalizedBlocks) {
+    insert.run(noteId, block.blockId, noteType, block.position, block.contentMarkdown, now, now);
   }
 }
 
@@ -549,19 +664,53 @@ function backfillNoteBlocks(db) {
     'INSERT INTO note_blocks (note_id, block_id, note_type, position, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   const hasBlocks = db.prepare('SELECT 1 FROM note_blocks WHERE note_id = ? LIMIT 1');
+  const errors = [];
 
   const topicNotes = db.prepare('SELECT id, content_markdown FROM topic_notes').all();
   for (const row of topicNotes) {
     if (hasBlocks.get(row.id)) continue;
-    const blockId = 'blk-' + randomUUID().replace(/-/g, '').slice(0, 12);
-    insertBlock.run(row.id, blockId, 'topic-note', 0, row.content_markdown ?? '', now, now);
+    try {
+      if (typeof row.id !== 'string' || !row.id.trim()) {
+        throw new Error('missing or invalid note id');
+      }
+      if (row.content_markdown !== null && row.content_markdown !== undefined && typeof row.content_markdown !== 'string') {
+        throw new Error('content_markdown must be text');
+      }
+      const blocks = ensureBackfillBlocks(row.content_markdown ?? '');
+      for (const block of blocks) {
+        insertBlock.run(row.id, block.blockId, 'topic-note', block.position, block.contentMarkdown, now, now);
+      }
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      errors.push(`topic-note ${String(row.id ?? '(unknown)')}: ${message}`);
+    }
   }
 
   const dailyNotes = db.prepare('SELECT id, content_markdown FROM daily_notes').all();
   for (const row of dailyNotes) {
     if (hasBlocks.get(row.id)) continue;
-    const blockId = 'blk-' + randomUUID().replace(/-/g, '').slice(0, 12);
-    insertBlock.run(row.id, blockId, 'daily-note', 0, row.content_markdown ?? '', now, now);
+    try {
+      if (typeof row.id !== 'string' || !row.id.trim()) {
+        throw new Error('missing or invalid note id');
+      }
+      if (row.content_markdown !== null && row.content_markdown !== undefined && typeof row.content_markdown !== 'string') {
+        throw new Error('content_markdown must be text');
+      }
+      const blocks = ensureBackfillBlocks(row.content_markdown ?? '');
+      for (const block of blocks) {
+        insertBlock.run(row.id, block.blockId, 'daily-note', block.position, block.contentMarkdown, now, now);
+      }
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      errors.push(`daily-note ${String(row.id ?? '(unknown)')}: ${message}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    const visibleErrors = errors.slice(0, 20);
+    console.error(
+      `Legacy note block backfill skipped malformed rows (${errors.length}):\n${visibleErrors.map((entry) => `- ${entry}`).join('\n')}`,
+    );
   }
 }
 
