@@ -6,10 +6,12 @@ import FileExplorer from './components/FileExplorer'
 import ObjectEditor from './components/ObjectEditor'
 import NotesPage from './components/NotesPage'
 import TagsPage from './components/TagsPage'
+import ScripturePage from './components/ScripturePage'
+import GraphPage from './components/GraphPage'
 import SettingsPage from './components/SettingsPage'
 import { getObject } from './lib/cliService'
 
-type Section = 'calendar' | 'files' | 'notes' | 'tags' | 'settings'
+type Section = 'calendar' | 'library' | 'files' | 'scripture' | 'tags' | 'graph' | 'settings'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
 type PinnedObjType = NotesObjType | FileObjType
@@ -46,7 +48,7 @@ export default function App() {
       return
     }
 
-    setCurrentSection('notes')
+    setCurrentSection('library')
     setNotesSelectionRequest((prev) => ({ id: target.id, type: target.type as NotesObjType, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [])
 
@@ -100,7 +102,12 @@ export default function App() {
           {/* ── CALENDAR ─────────────────────────────────────────────────── */}
           {currentSection === 'calendar' && <CalendarPage />}
 
-          {/* ── FILES ────────────────────────────────────────────────────── */}
+          {/* ── LIBRARY ──────────────────────────────────────────────────── */}
+          {currentSection === 'library' && (
+            <NotesPage pendingSelection={notesSelectionRequest} />
+          )}
+
+          {/* ── FILES (internal — reachable via pinned project/ref-material) */}
           {currentSection === 'files' && (
             <Stack direction="row" spacing={2} sx={{ height: '100%', minHeight: 0 }}>
               <Box sx={{ width: 300, flexShrink: 0 }}>
@@ -125,13 +132,14 @@ export default function App() {
             </Stack>
           )}
 
-          {/* ── NOTES ────────────────────────────────────────────────────── */}
-          {currentSection === 'notes' && (
-            <NotesPage pendingSelection={notesSelectionRequest} />
-          )}
+          {/* ── SCRIPTURE ─────────────────────────────────────────────────── */}
+          {currentSection === 'scripture' && <ScripturePage />}
 
           {/* ── TAGS ─────────────────────────────────────────────────────── */}
           {currentSection === 'tags' && <TagsPage />}
+
+          {/* ── GRAPH ────────────────────────────────────────────────────── */}
+          {currentSection === 'graph' && <GraphPage />}
 
           {/* ── SETTINGS ─────────────────────────────────────────────────── */}
           {currentSection === 'settings' && (
