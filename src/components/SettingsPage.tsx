@@ -25,6 +25,8 @@ import { runDropithCli } from '../lib/cliService'
 interface ConfigState {
   dbPath?: string
   syncRootFolder?: string
+  effectiveSyncRootFolder?: string
+  resolvedSyncRootFolder?: string
   loaded: boolean
   error?: string
 }
@@ -34,6 +36,36 @@ interface CliStatus {
   ok: boolean
   error?: string
   checked: boolean
+}
+
+const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:\//
+
+function normalizeSyncRootInput(value: string): string {
+  const trimmed = value.trim().replace(/\\/g, '/')
+  if (!trimmed) return ''
+  if (trimmed === '/') return '/'
+  return trimmed.replace(/\/+$/, '')
+}
+
+function hasControlCharacters(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) < 32) return true
+  }
+  return false
+}
+
+function getSyncRootValidationError(value: string): string | null {
+  const normalized = normalizeSyncRootInput(value)
+  if (!normalized) return 'Sync root folder path is required (example: /Dropith).'
+  if (hasControlCharacters(normalized)) return 'Path cannot contain control characters.'
+  if (normalized === '/') return 'Root folder cannot be "/". Use a dedicated folder like /Dropith.'
+  const isAbsoluteUnix = normalized.startsWith('/')
+  const isHomeRelative = normalized === '~' || normalized.startsWith('~/')
+  const isAbsoluteWindows = WINDOWS_ABSOLUTE_PATH.test(normalized)
+  if (!isAbsoluteUnix && !isHomeRelative && !isAbsoluteWindows) {
+    return 'Use an absolute path such as /Dropith, ~/Dropith, or C:/Dropith.'
+  }
+  return null
 }
 
 export default function SettingsPage() {
@@ -71,9 +103,11 @@ export default function SettingsPage() {
           setConfig({
             dbPath: parsed?.dbPath,
             syncRootFolder: parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder,
+            effectiveSyncRootFolder: parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder,
+            resolvedSyncRootFolder: parsed?.sync?.resolvedRootFolder,
             loaded: true,
           })
-          setSyncRoot(parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder ?? '')
+          setSyncRoot(parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder ?? '')
         } else {
           setConfig({ loaded: true, error: 'Could not load config — using defaults' })
         }
@@ -87,14 +121,26 @@ export default function SettingsPage() {
   }, [])
 
   const handleSaveSyncRoot = async () => {
-    if (!syncRoot.trim()) return
+    const inputError = getSyncRootValidationError(syncRoot)
+    if (inputError) {
+      setSaveResult({ ok: false, msg: inputError })
+      return
+    }
+    const normalizedRoot = normalizeSyncRootInput(syncRoot)
     setSaving(true)
     setSaveResult(null)
     try {
-      const res = await runDropithCli(['settings', 'set', 'root-folder', syncRoot.trim()])
+      const res = await runDropithCli(['settings', 'set', 'root-folder', normalizedRoot])
       if (res.exitCode === 0) {
+        const parsed = JSON.parse(res.stdout)
         setSaveResult({ ok: true, msg: 'Sync root folder saved.' })
-        setConfig((c) => ({ ...c, syncRootFolder: syncRoot.trim() }))
+        setConfig((c) => ({
+          ...c,
+          syncRootFolder: parsed?.sync?.rootFolder ?? normalizedRoot,
+          effectiveSyncRootFolder: parsed?.sync?.effectiveRootFolder ?? normalizedRoot,
+          resolvedSyncRootFolder: parsed?.sync?.resolvedRootFolder ?? c.resolvedSyncRootFolder,
+        }))
+        setSyncRoot(parsed?.sync?.effectiveRootFolder ?? normalizedRoot)
       } else {
         setSaveResult({ ok: false, msg: res.stderr || 'Save failed' })
       }
@@ -104,6 +150,9 @@ export default function SettingsPage() {
       setSaving(false)
     }
   }
+
+  const syncRootValidationError = getSyncRootValidationError(syncRoot)
+  const normalizedSyncRootPreview = normalizeSyncRootInput(syncRoot)
 
   return (
     <Box sx={{ maxWidth: 680, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2.5, pb: 4 }}>
@@ -293,9 +342,22 @@ export default function SettingsPage() {
             value={syncRoot}
             onChange={(e) => setSyncRoot(e.target.value)}
             placeholder="/Dropith"
-            helperText="Folder path used by sync (for example /Dropith)"
+            helperText={syncRootValidationError || 'Folder path used by sync (for example /Dropith)'}
+            error={Boolean(syncRootValidationError)}
             variant="outlined"
           />
+
+          {!syncRootValidationError && normalizedSyncRootPreview && (
+            <Typography variant="caption" sx={{ color: '#7dbad6', wordBreak: 'break-all' }}>
+              Effective sync root: <Box component="span" sx={{ color: '#e4f0fb', fontFamily: 'monospace' }}>{normalizedSyncRootPreview}</Box>
+            </Typography>
+          )}
+
+          {config.resolvedSyncRootFolder && (
+            <Typography variant="caption" sx={{ color: '#7dbad6', wordBreak: 'break-all' }}>
+              Resolved local folder: <Box component="span" sx={{ color: '#e4f0fb', fontFamily: 'monospace' }}>{config.resolvedSyncRootFolder}</Box>
+            </Typography>
+          )}
 
           {saveResult && (
             <Alert severity={saveResult.ok ? 'success' : 'error'} sx={{ py: 0.5, fontSize: '12px' }}>
@@ -306,7 +368,7 @@ export default function SettingsPage() {
           <Button
             variant="contained"
             size="small"
-            disabled={saving || !syncRoot.trim()}
+            disabled={saving || Boolean(syncRootValidationError)}
             onClick={handleSaveSyncRoot}
             sx={{ alignSelf: 'flex-start' }}
           >
