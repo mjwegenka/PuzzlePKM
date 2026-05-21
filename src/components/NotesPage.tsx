@@ -469,7 +469,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
     let loadedObject: Record<string, unknown> | null = null
     try {
       const full = await getObject(type, objectId)
-      loadedObject = { ...(full as Record<string, unknown>), type }
+      loadedObject = { ...(full as unknown as Record<string, unknown>), type }
     } catch {
       if (type === 'habit') {
         const habitsMeta = await listHabitMeta()
@@ -477,7 +477,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
         if (fallback) {
           try {
             const fullFallback = await getObject('habit', fallback.id)
-            loadedObject = { ...(fullFallback as Record<string, unknown>), type: 'habit' }
+            loadedObject = { ...(fullFallback as unknown as Record<string, unknown>), type: 'habit' }
           } catch {
             loadedObject = { ...fallback, type: 'habit' }
           }
