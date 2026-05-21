@@ -33,6 +33,7 @@ const HABITS_SUBFOLDER = 'habits';
 const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
   ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
   : join(homedir(), 'Dropbox');
@@ -327,6 +328,15 @@ function normalizeRelativePathSegments(path) {
     .replace(/^[./]+/, '')
     .replace(/\/+/g, '/')
     .toLowerCase();
+}
+
+function isLocalDateString(value) {
+  const candidate = normalize(value);
+  if (!LOCAL_DATE_PATTERN.test(candidate)) return false;
+  const [year, month, day] = candidate.split('-').map((part) => Number.parseInt(part, 10));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
 }
 
 function parseFrontMatter(content) {
@@ -1022,13 +1032,102 @@ function resolveNoteLinkTarget(refs, href, sourceSyncPath) {
   return baseNameMatch ? { id: baseNameMatch.id, type: baseNameMatch.type } : null;
 }
 
+function extractDateFromLinkHref(href, sourceSyncPath) {
+  const decodedHref = decodeUriComponentSafe(String(href ?? '').trim());
+  if (!decodedHref || decodedHref.startsWith('#')) return null;
+  if (/^(mailto|tel):/i.test(decodedHref)) return null;
+
+  let hrefPath = decodedHref;
+  if (/^https?:\/\//i.test(decodedHref)) {
+    try {
+      hrefPath = new URL(decodedHref).pathname || decodedHref;
+    } catch {
+      return null;
+    }
+  }
+
+  const withoutFragment = hrefPath.replace(/[?#].*$/, '').trim();
+  if (!withoutFragment) return null;
+
+  if (isLocalDateString(withoutFragment)) {
+    return withoutFragment;
+  }
+
+  const rootRelative = /^dropith\//i.test(withoutFragment) ? `/${withoutFragment}` : withoutFragment;
+  const resolvedPath = rootRelative.startsWith('/')
+    ? normalizeSyncPath(rootRelative)
+    : sourceSyncPath
+      ? resolveRelativeSyncPath(sourceSyncPath, rootRelative)
+      : normalizeSyncPath(rootRelative);
+
+  const normalizedCandidates = new Set(
+    [withoutFragment, rootRelative, resolvedPath]
+      .filter(Boolean)
+      .map((candidate) => normalizeSyncPathForLookup(candidate)),
+  );
+
+  for (const candidate of normalizedCandidates) {
+    const dailyNotesPathMatch = new RegExp(`(?:^|/)${DAILY_NOTES_SUBFOLDER}/(\\d{4}-\\d{2}-\\d{2})\\.md$`, 'i').exec(candidate);
+    if (dailyNotesPathMatch?.[1] && isLocalDateString(dailyNotesPathMatch[1])) {
+      return dailyNotesPathMatch[1];
+    }
+    const dateFileMatch = /^\/?(\d{4}-\d{2}-\d{2})(?:\.md)?$/i.exec(candidate);
+    if (dateFileMatch?.[1] && isLocalDateString(dateFileMatch[1])) {
+      return dateFileMatch[1];
+    }
+  }
+
+  return null;
+}
+
+function mergeLinkTargets(...groups) {
+  const seen = new Set();
+  const merged = [];
+  for (const group of groups) {
+    for (const target of group ?? []) {
+      if (!target?.id || seen.has(target.id)) continue;
+      seen.add(target.id);
+      merged.push(target);
+    }
+  }
+  return merged;
+}
+
+function collectDateLinkTargets(db, dates) {
+  const seenDailyIds = new Set();
+  const targets = [];
+  for (const rawDate of dates) {
+    const date = normalize(rawDate);
+    if (!isLocalDateString(date)) continue;
+    const dailyNote = ensureDailyNoteForDate(db, date);
+    if (!dailyNote?.id || seenDailyIds.has(dailyNote.id)) continue;
+    seenDailyIds.add(dailyNote.id);
+    targets.push({ id: dailyNote.id, type: 'daily-note' });
+  }
+  return targets;
+}
+
 function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdown) {
   const refs = listLinkableObjectRefs(db);
   const hrefs = parseMarkdownLinkHrefs(contentMarkdown);
   const seenIds = new Set();
   const targets = [];
   for (const href of hrefs) {
-    const target = resolveNoteLinkTarget(refs, href, sourceSyncPath);
+    let target = resolveNoteLinkTarget(refs, href, sourceSyncPath);
+    if (!target) {
+      const dateLink = extractDateFromLinkHref(href, sourceSyncPath);
+      if (dateLink) {
+        const dailyNote = ensureDailyNoteForDate(db, dateLink);
+        if (dailyNote?.id) {
+          target = { id: dailyNote.id, type: 'daily-note' };
+          refs.push({
+            id: dailyNote.id,
+            type: 'daily-note',
+            syncPath: dailyNote.dropboxPath || dailyNoteDropboxPath(getSyncRootFolder(), dateLink),
+          });
+        }
+      }
+    }
     if (!target || target.id === sourceId || seenIds.has(target.id)) continue;
     seenIds.add(target.id);
     targets.push(target);
@@ -1038,12 +1137,16 @@ function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdow
 
 function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   const targetIds = new Set(targets.map((target) => target.id));
+  const removedDailyTargetIds = [];
   const existingLinks = db
-    .prepare('SELECT source_id, target_id FROM object_links WHERE source_id = ? AND source_type = ?')
+    .prepare('SELECT source_id, target_id, target_type FROM object_links WHERE source_id = ? AND source_type = ?')
     .all(sourceId, sourceType);
   for (const link of existingLinks) {
     if (!targetIds.has(link.target_id)) {
       db.prepare('DELETE FROM object_links WHERE source_id = ? AND target_id = ?').run(link.source_id, link.target_id);
+      if (link.target_type === 'daily-note') {
+        removedDailyTargetIds.push(link.target_id);
+      }
     }
   }
 
@@ -1055,6 +1158,7 @@ function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   for (const target of targets) {
     insert.run(randomUUID(), sourceId, target.id, sourceType, target.type, getIsoNow());
   }
+  return removedDailyTargetIds;
 }
 
 function sortRelatedObjectsStable(items) {
@@ -1136,6 +1240,8 @@ function createTopicNoteRecord(db, input) {
       ? assembleMarkdownFromBlocks(blocks)
       : (input.contentMarkdown ?? '');
     const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
+    const dateLinks = collectDateLinkTargets(db, [input.date]);
+    const mergedLinks = mergeLinkTargets(derivedLinks, dateLinks);
     db.prepare(`
       INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1144,14 +1250,14 @@ function createTopicNoteRecord(db, input) {
       input.title,
       input.date || '',
       JSON.stringify(input.content ?? {}),
-      JSON.stringify(derivedLinks.map((target) => target.id)),
+      JSON.stringify(mergedLinks.map((target) => target.id)),
       dropboxPath,
       input.createdAt,
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
     persistNoteBlocks(db, input.id, 'topic-note', blocks, now);
-    syncNoteObjectLinks(db, input.id, 'topic-note', derivedLinks);
+    syncNoteObjectLinks(db, input.id, 'topic-note', mergedLinks);
     return getTopicNote(db, input.id);
   });
 }
@@ -1167,6 +1273,7 @@ function updateTopicNoteRecord(db, id, input) {
   const nextDropboxPath =
     normalizeSyncPath(input.dropboxPath !== undefined ? input.dropboxPath : existing.dropboxPath)
     || topicNoteDropboxPath(rootFolder, nextTitle, id);
+  const nextDate = input.date !== undefined ? (input.date || '') : (existing.date || '');
   let derivedLinks;
 
   if (input.title !== undefined) {
@@ -1190,11 +1297,17 @@ function updateTopicNoteRecord(db, id, input) {
   } else if (Array.isArray(input.blocks) && input.blocks.length === 0) {
     updatedBlocks = [];
   }
-  if (updatedBlocks !== undefined) {
-    const contentMarkdown = Array.isArray(updatedBlocks) && updatedBlocks.length > 0
-      ? assembleMarkdownFromBlocks(updatedBlocks)
-      : (input.contentMarkdown ?? '');
-    derivedLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, contentMarkdown);
+  if (updatedBlocks !== undefined || input.date !== undefined) {
+    const contentMarkdown = updatedBlocks !== undefined
+      ? (
+        Array.isArray(updatedBlocks) && updatedBlocks.length > 0
+          ? assembleMarkdownFromBlocks(updatedBlocks)
+          : (input.contentMarkdown ?? '')
+      )
+      : existing.contentMarkdown;
+    const contentLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, contentMarkdown);
+    const dateLinks = collectDateLinkTargets(db, [nextDate]);
+    derivedLinks = mergeLinkTargets(contentLinks, dateLinks);
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
   }
@@ -1218,7 +1331,8 @@ function updateTopicNoteRecord(db, id, input) {
       persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt);
     }
     if (derivedLinks !== undefined) {
-      syncNoteObjectLinks(db, id, 'topic-note', derivedLinks);
+      const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'topic-note', derivedLinks);
+      cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
     }
     return getTopicNote(db, id);
   });
@@ -1226,17 +1340,89 @@ function updateTopicNoteRecord(db, id, input) {
 
 function deleteTopicNoteRecord(db, id) {
   return withTransaction(db, () => {
+    const linkedDailyNoteIds = db
+      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
+      .all(id)
+      .map((row) => row.target_id);
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
     db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
     clearSyncState(db, 'topic-note', id);
     const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
+    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
     return result.changes > 0;
   });
 }
 
 function findDailyNoteRow(db, reference) {
   return db.prepare('SELECT * FROM daily_notes WHERE id = ? OR date = ?').get(reference, reference) ?? null;
+}
+
+function ensureDailyNoteForDate(db, date) {
+  const normalizedDate = normalize(date);
+  if (!isLocalDateString(normalizedDate)) return null;
+  const existing = getDailyNote(db, normalizedDate);
+  if (existing) return existing;
+  const now = getIsoNow();
+  return createDailyNoteRecordInternal(db, {
+    id: randomUUID(),
+    date: normalizedDate,
+    content: {},
+    contentMarkdown: '',
+    blocks: [],
+    linkedObjectIds: [],
+    tags: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function stripEmbeddedBlockComments(markdown) {
+  return String(markdown ?? '')
+    .replace(/\s*<!--\s*blk-[a-f0-9]{12}\s*-->\s*$/gim, '')
+    .trim();
+}
+
+function hasNonEmptyDailyNoteContent(db, row) {
+  const blocks = getNoteBlocks(db, row.id);
+  if (blocks.length > 0) {
+    return blocks.some((block) => normalize(block.contentMarkdown));
+  }
+  return Boolean(stripEmbeddedBlockComments(row.content_markdown));
+}
+
+function isDailyNoteDeleteEligible(db, dailyNoteId) {
+  const row = findDailyNoteRow(db, dailyNoteId);
+  if (!row) return false;
+  if (hasNonEmptyDailyNoteContent(db, row)) return false;
+  if (db.prepare('SELECT 1 FROM object_tags WHERE object_id = ? LIMIT 1').get(row.id)) return false;
+  if (db.prepare('SELECT 1 FROM object_links WHERE source_id = ? OR target_id = ? LIMIT 1').get(row.id, row.id)) return false;
+  return true;
+}
+
+function forceDeleteDailyNoteRecord(db, dailyNoteId) {
+  db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(dailyNoteId);
+  db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(dailyNoteId, dailyNoteId);
+  db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(dailyNoteId);
+  clearSyncState(db, 'daily-note', dailyNoteId);
+  const result = db.prepare('DELETE FROM daily_notes WHERE id = ?').run(dailyNoteId);
+  return result.changes > 0;
+}
+
+function autoDeleteDailyNoteIfEligible(db, dailyNoteId) {
+  const row = findDailyNoteRow(db, dailyNoteId);
+  if (!row?.id || !isDailyNoteDeleteEligible(db, row.id)) return false;
+  return forceDeleteDailyNoteRecord(db, row.id);
+}
+
+function cleanupDailyNotesIfEligible(db, dailyNoteIds) {
+  const seen = new Set();
+  for (const dailyNoteId of dailyNoteIds ?? []) {
+    const id = normalize(dailyNoteId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    autoDeleteDailyNoteIfEligible(db, id);
+  }
 }
 
 function mapDailyNote(db, row) {
@@ -1278,41 +1464,44 @@ function listDailyNotes(db) {
   });
 }
 
+function createDailyNoteRecordInternal(db, input) {
+  const now = input.createdAt ?? getIsoNow();
+  const rootFolder = getSyncRootFolder();
+  const dropboxPath = normalizeSyncPath(input.dropboxPath) || dailyNoteDropboxPath(rootFolder, input.date);
+  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
+  const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
+    ? input.blocks
+    : parseBlocksFromMarkdown(input.contentMarkdown);
+  const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
+    ? assembleMarkdownFromBlocks(blocks)
+    : (input.contentMarkdown ?? '');
+  const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
+  db.prepare(`
+      INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+    input.id,
+    input.date,
+    JSON.stringify(input.content ?? {}),
+    JSON.stringify(derivedLinks.map((target) => target.id)),
+    dropboxPath,
+    input.createdAt,
+    input.updatedAt,
+  );
+  syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
+  persistNoteBlocks(db, input.id, 'daily-note', blocks, now);
+  const removedDailyNoteIds = syncNoteObjectLinks(db, input.id, 'daily-note', derivedLinks);
+  cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
+  return getDailyNote(db, input.id);
+}
+
 function createDailyNoteRecord(db, input) {
   const existing = db.prepare('SELECT id FROM daily_notes WHERE date = ?').get(input.date);
   if (existing?.id) {
     throw new Error(`A daily note already exists for ${input.date}`);
   }
 
-  return withTransaction(db, () => {
-    const now = input.createdAt ?? getIsoNow();
-    const rootFolder = getSyncRootFolder();
-    const dropboxPath = normalizeSyncPath(input.dropboxPath) || dailyNoteDropboxPath(rootFolder, input.date);
-    // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
-    const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
-      ? input.blocks
-      : parseBlocksFromMarkdown(input.contentMarkdown);
-    const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
-      ? assembleMarkdownFromBlocks(blocks)
-      : (input.contentMarkdown ?? '');
-    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, contentMarkdown);
-    db.prepare(`
-      INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.id,
-      input.date,
-      JSON.stringify(input.content ?? {}),
-      JSON.stringify(derivedLinks.map((target) => target.id)),
-      dropboxPath,
-      input.createdAt,
-      input.updatedAt,
-    );
-    syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
-    persistNoteBlocks(db, input.id, 'daily-note', blocks, now);
-    syncNoteObjectLinks(db, input.id, 'daily-note', derivedLinks);
-    return getDailyNote(db, input.id);
-  });
+  return withTransaction(db, () => createDailyNoteRecordInternal(db, input));
 }
 
 function updateDailyNoteRecord(db, reference, input) {
@@ -1378,7 +1567,8 @@ function updateDailyNoteRecord(db, reference, input) {
       persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt);
     }
     if (derivedLinks !== undefined) {
-      syncNoteObjectLinks(db, existing.id, 'daily-note', derivedLinks);
+      const removedDailyNoteIds = syncNoteObjectLinks(db, existing.id, 'daily-note', derivedLinks);
+      cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
     }
     return getDailyNote(db, existing.id);
   });
@@ -1387,13 +1577,11 @@ function updateDailyNoteRecord(db, reference, input) {
 function deleteDailyNoteRecord(db, reference) {
   const existing = findDailyNoteRow(db, reference);
   if (!existing) return false;
+  if (!isDailyNoteDeleteEligible(db, existing.id)) {
+    throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
+  }
   return withTransaction(db, () => {
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(existing.id);
-    db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(existing.id, existing.id);
-    db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(existing.id);
-    clearSyncState(db, 'daily-note', existing.id);
-    const result = db.prepare('DELETE FROM daily_notes WHERE id = ?').run(existing.id);
-    return result.changes > 0;
+    return forceDeleteDailyNoteRecord(db, existing.id);
   });
 }
 
@@ -1433,6 +1621,7 @@ function createProjectRecord(db, input) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(input.id, input.name, input.dropboxPath, input.startDate || null, input.endDate || null, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'project', input.tags ?? []);
+    syncNoteObjectLinks(db, input.id, 'project', collectDateLinkTargets(db, [input.startDate, input.endDate]));
     return getProject(db, input.id);
   });
 }
@@ -1467,16 +1656,25 @@ function updateProjectRecord(db, id, input) {
     if (input.tags !== undefined) {
       syncObjectTags(db, id, 'project', input.tags);
     }
+    const nextStartDate = input.startDate !== undefined ? input.startDate : existing.startDate;
+    const nextEndDate = input.endDate !== undefined ? input.endDate : existing.endDate;
+    const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'project', collectDateLinkTargets(db, [nextStartDate, nextEndDate]));
+    cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
     return getProject(db, id);
   });
 }
 
 function deleteProjectRecord(db, id) {
   return withTransaction(db, () => {
+    const linkedDailyNoteIds = db
+      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
+      .all(id)
+      .map((row) => row.target_id);
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
     clearSyncState(db, 'project', id);
     const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
     return result.changes > 0;
   });
 }
@@ -1604,6 +1802,7 @@ function createHabitRecord(db, input) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(input.id, sanitized.text, input.date, status, dropboxPath, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'habit', tags);
+    syncNoteObjectLinks(db, input.id, 'habit', collectDateLinkTargets(db, [input.date]));
     return { ...getHabit(db, input.id), truncated: sanitized.truncated };
   });
 }
@@ -1641,16 +1840,24 @@ function updateHabitRecord(db, id, input) {
     if (input.tags !== undefined) {
       syncObjectTags(db, id, 'habit', normalizeHabitTagNames(input.tags));
     }
+    const nextDate = input.date ?? existing.date;
+    const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'habit', collectDateLinkTargets(db, [nextDate]));
+    cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
     return { ...getHabit(db, id), truncated };
   });
 }
 
 function deleteHabitRecord(db, id) {
   return withTransaction(db, () => {
+    const linkedDailyNoteIds = db
+      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
+      .all(id)
+      .map((row) => row.target_id);
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
     clearSyncState(db, 'habit', id);
     const result = db.prepare('DELETE FROM habits WHERE id = ?').run(id);
+    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
     return result.changes > 0;
   });
 }
@@ -3925,6 +4132,9 @@ async function executeTokens(tokens, context = {}) {
         case 'daily-note': {
           const existing = getDailyNote(db, reference);
           if (!existing) return null;
+          if (!isDailyNoteDeleteEligible(db, existing.id)) {
+            throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
+          }
           return {
             path: existing.dropboxPath || dailyNoteDropboxPath(rootFolder, existing.date),
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'daily-note', existing.id),
