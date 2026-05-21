@@ -198,6 +198,16 @@ To run the full build alias used by repo automation:
 npm run build:all
 ```
 
+Issue queue automation helpers:
+
+```bash
+# Dry run queue sequencing labels
+npm run issues:queue
+
+# Apply queue sequencing labels from local CLI
+npm run issues:queue:apply
+```
+
 ## Project Structure
 
 ```

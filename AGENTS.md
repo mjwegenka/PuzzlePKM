@@ -50,4 +50,6 @@ If information must change, update the canonical file above instead of duplicati
 - Build desktop wrapper: `npm run tauri:build`
 - Lint: `npm run lint`
 - Run full build alias: `npm run build:all`
+- Preview next issue queue labels (dry run): `npm run issues:queue`
+- Apply issue queue labels locally: `npm run issues:queue:apply`
 - If tooling changes, keep these commands updated here and in `README.md`.

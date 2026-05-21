@@ -10,6 +10,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:all": "npm run build",
+    "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
+    "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
