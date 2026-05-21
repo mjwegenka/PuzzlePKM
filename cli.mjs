@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { homedir, platform, tmpdir } from 'node:os';
@@ -29,11 +29,27 @@ const REF_MATERIALS_SUBFOLDER = 'ref-materials';
 const HABITS_SUBFOLDER = 'habits';
 const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
+const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
+  ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
+  : join(homedir(), 'Dropbox');
+
+function resolveLocalSyncPath(syncPath) {
+  const raw = normalize(syncPath) || DEFAULT_NOTES_ROOT;
+  const expanded = raw.startsWith('~/') ? join(homedir(), raw.slice(2)) : raw;
+  const normalized = expanded.replace(/\\/g, '/').replace(/\/+$/, '') || DEFAULT_NOTES_ROOT;
+
+  if (normalized === DEFAULT_NOTES_ROOT || normalized.startsWith(`${DEFAULT_NOTES_ROOT}/`)) {
+    return join(DEFAULT_LOCAL_STORAGE_DIR, normalized.replace(/^\//, ''));
+  }
+  if (normalized.startsWith('/')) return normalized;
+  return resolve(normalized);
+}
 
 const schema = `
   CREATE TABLE IF NOT EXISTS topic_notes (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL DEFAULT '',
+    date TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '{}',
     content_markdown TEXT NOT NULL DEFAULT '',
     linked_object_ids TEXT NOT NULL DEFAULT '[]',
@@ -128,6 +144,9 @@ const schema = `
    try {
      // Add dropbox_path column to topic_notes if it doesn't exist
      const topicColumnsCheck = db.prepare("PRAGMA table_info(topic_notes)").all();
+     if (!topicColumnsCheck.some(c => c.name === 'date')) {
+       db.prepare("ALTER TABLE topic_notes ADD COLUMN date TEXT NOT NULL DEFAULT ''").run();
+     }
      if (!topicColumnsCheck.some(c => c.name === 'dropbox_path')) {
        db.prepare("ALTER TABLE topic_notes ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
      }
@@ -289,6 +308,7 @@ function parseTopicNoteMarkdownForImport(content) {
   return {
     id,
     title,
+    date: normalize(typeof data.date === 'string' ? data.date : ''),
     content: {},
     contentMarkdown: body,
     linkedObjectIds: parseStringList(data.linkedObjectIds),
@@ -409,7 +429,7 @@ function isMissingDropboxPath(path) {
 }
 
 function backfillMissingDropboxPaths(db) {
-  const rootFolder = getDropboxRootFolder();
+  const rootFolder = getSyncRootFolder();
 
   const missingDaily = db.prepare("SELECT id, date, dropbox_path FROM daily_notes WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
   for (const row of missingDaily) {
@@ -548,6 +568,7 @@ function getTopicNote(db, id) {
     id: row.id,
     type: 'topic-note',
     title: row.title,
+    date: row.date || '',
     dropboxPath: row.dropbox_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown: row.content_markdown,
@@ -559,9 +580,10 @@ function getTopicNote(db, id) {
 }
 
 function listTopicNotes(db) {
-  return db.prepare('SELECT id, title, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
+  return db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
     id: row.id,
     title: row.title,
+    date: row.date || '',
     dropboxPath: row.dropbox_path || '',
     preview: row.content_markdown.slice(0, 80),
     tags: getTagDisplayNames(db, row.id),
@@ -573,11 +595,12 @@ function listTopicNotes(db) {
 function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO topic_notes (id, title, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO topic_notes (id, title, date, content, content_markdown, linked_object_ids, dropbox_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.title,
+      input.date || '',
       JSON.stringify(input.content ?? {}),
       input.contentMarkdown,
       JSON.stringify(input.linkedObjectIds ?? []),
@@ -599,6 +622,10 @@ function updateTopicNoteRecord(db, id, input) {
   if (input.title !== undefined) {
     fields.push('title = ?');
     values.push(input.title);
+  }
+  if (input.date !== undefined) {
+    fields.push('date = ?');
+    values.push(input.date || '');
   }
   if (input.content !== undefined) {
     fields.push('content = ?');
@@ -1183,7 +1210,7 @@ function printRecords(type, rows) {
   for (const row of rows) {
     switch (type) {
       case 'topic-note':
-        console.log(`${row.id}\t${row.updatedAt}\t${listField(row.title)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+        console.log(`${row.id}\t${row.updatedAt}\t${listField(row.title)}\t${row.dropboxPath || '(no path)'}\t${row.date || ''}\t${listField(row.preview)}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'daily-note':
         console.log(`${row.id}\t${row.date}\t${listField(row.preview)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
@@ -1394,7 +1421,7 @@ function getDropboxRefreshToken() {
   return decodeUnencryptedSecret(store.values[KEYCHAIN_REFRESH_TOKEN]) ?? null;
 }
 
-function getDropboxRootFolder() {
+function getSyncRootFolder() {
   const store = readSecretStore();
   return decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? DEFAULT_NOTES_ROOT;
 }
@@ -1407,7 +1434,7 @@ function saveDropboxToken(accessToken, email, refreshToken) {
   writeSecretStore(store);
 }
 
-function saveDropboxRootFolder(rootFolder) {
+function saveSyncRootFolder(rootFolder) {
   const store = readSecretStore();
   store.values[KEYCHAIN_ROOT_FOLDER] = encodeUnencryptedSecret(rootFolder);
   writeSecretStore(store);
@@ -1470,7 +1497,7 @@ function disconnectDropboxSettings() {
   delete store.values[KEYCHAIN_ACCESS_TOKEN];
   delete store.values[KEYCHAIN_REFRESH_TOKEN];
   delete store.values[KEYCHAIN_ACCOUNT_EMAIL];
-  delete store.values[KEYCHAIN_ROOT_FOLDER];
+  // Keep KEYCHAIN_ROOT_FOLDER intact: it now controls local sync target.
   writeSecretStore(store);
   return getSettingsState();
 }
@@ -1622,6 +1649,7 @@ function topicNoteToMarkdown(fields) {
     id: fields.id,
     type: 'topic-note',
     title: fields.title,
+    date: fields.date || '',
     dropboxPath: fields.dropboxPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
@@ -1720,6 +1748,7 @@ function parseTopicNoteMarkdown(content) {
   return {
     id: data.id,
     title: data.title,
+    date: typeof data.date === 'string' ? data.date : '',
     dropboxPath: typeof data.dropboxPath === 'string' ? data.dropboxPath : '',
     contentMarkdown: body,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -1842,6 +1871,7 @@ function shouldApplyRemoteTopicNote(existing, remote) {
   if (remoteUpdatedAt < localUpdatedAt) return false;
   // If timestamps are equal, detect actual content changes
   if ((remote.title ?? '') !== (existing.title ?? '')) return true;
+  if ((remote.date ?? '') !== (existing.date ?? '')) return true;
   if (remote.contentMarkdown !== existing.contentMarkdown) return true;
   if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
@@ -1886,253 +1916,81 @@ function shouldApplyRemoteHabit(existing, remote) {
   return false;
 }
 
-// ── Dropbox API helpers ───────────────────────────────────────────────────────
+// ── Local sync transport helpers ──────────────────────────────────────────────
 
-async function dropboxUploadText(token, path, content) {
-  const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/octet-stream',
-      'Dropbox-API-Arg': JSON.stringify({ path, mode: 'overwrite', autorename: false, mute: true }),
-    },
-    body: content,
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Dropbox upload failed (${response.status}): ${detail || response.statusText}`);
-  }
+async function syncUploadText(path, content) {
+  const filePath = resolveLocalSyncPath(path);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, content, 'utf8');
 }
 
-async function dropboxDownloadText(token, path) {
-  const response = await fetch('https://content.dropboxapi.com/2/files/download', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Dropbox-API-Arg': JSON.stringify({ path }),
-    },
-  });
-  if (response.status === 409) return null;
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Dropbox download failed (${response.status}): ${detail || response.statusText}`);
-  }
-  return response.text();
+async function syncDownloadText(path) {
+  const filePath = resolveLocalSyncPath(path);
+  if (!existsSync(filePath)) return null;
+  return readFileSync(filePath, 'utf8');
 }
 
-async function dropboxEnsureFolder(token, path) {
-  const response = await fetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ path, autorename: false }),
-  });
-  if (!response.ok && response.status !== 409) {
-    const detail = await response.text().catch(() => '');
-    if (!detail.includes('path/conflict/folder') && !detail.includes('path/conflict')) {
-      throw new Error(`Dropbox create_folder failed (${response.status}): ${detail || response.statusText}`);
-    }
-  }
+async function ensureSyncFolder(path) {
+  mkdirSync(resolveLocalSyncPath(path), { recursive: true });
 }
 
-async function dropboxMoveFolder(token, fromPath, toPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/files/move_v2', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from_path: fromPath, to_path: toPath, autorename: false }),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Dropbox move folder failed (${response.status}): ${detail || response.statusText}`);
-  }
+async function moveSyncFolder(fromPath, toPath) {
+  const source = resolveLocalSyncPath(fromPath);
+  const target = resolveLocalSyncPath(toPath);
+  mkdirSync(dirname(target), { recursive: true });
+  if (!existsSync(source)) return;
+  renameSync(source, target);
 }
 
-async function ensureSyncFolders(token, rootFolder) {
+async function deleteSyncPath(path) {
+  const target = resolveLocalSyncPath(path);
+  rmSync(target, { recursive: true, force: true });
+}
+
+async function ensureSyncFolders(rootFolder) {
   for (const folderPath of allSyncFolderPaths(rootFolder)) {
-    await dropboxEnsureFolder(token, folderPath);
+    await ensureSyncFolder(folderPath);
   }
 }
 
-async function dropboxListMdFiles(token, folderPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ path: folderPath }),
-  });
-  if (response.status === 409) {
-    const detail = await response.text().catch(() => '');
-    if (detail.includes('path/not_found') || detail.includes('not_found')) {
-      return { files: [], folderFound: false };
-    }
-    throw new Error(`Dropbox list_folder failed (409): ${detail || response.statusText}`);
+async function listSyncMdFiles(folderPath) {
+  const localFolder = resolveLocalSyncPath(folderPath);
+  if (!existsSync(localFolder)) {
+    return { files: [], folderFound: false };
   }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Dropbox list_folder failed (${response.status}): ${detail || response.statusText}`);
-  }
-  const raw = await response.json();
+  const entries = readdirSync(localFolder, { withFileTypes: true });
   return {
     folderFound: true,
-    files: raw.entries
-      .filter((e) => e['.tag'] === 'file' && e.name.endsWith('.md'))
+    files: entries
+      .filter((e) => e.isFile() && e.name.endsWith('.md'))
       .map((e) => ({
         name: e.name,
-        path: e.path_display,
-        serverModified: e.server_modified,
-        contentHash: e.content_hash,
+        path: `${folderPath.replace(/\/$/, '')}/${e.name}`,
+        serverModified: statSync(join(localFolder, e.name)).mtime.toISOString(),
+        contentHash: '',
       })),
   };
 }
 
-async function dropboxListFolders(token, folderPath) {
-  const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ path: folderPath }),
-  });
-  if (response.status === 409) {
-    const detail = await response.text().catch(() => '');
-    if (detail.includes('path/not_found') || detail.includes('not_found')) {
-      return { folders: [], folderFound: false };
-    }
-    throw new Error(`Dropbox list_folder failed (409): ${detail || response.statusText}`);
+async function listSyncFolders(folderPath) {
+  const localFolder = resolveLocalSyncPath(folderPath);
+  if (!existsSync(localFolder)) {
+    return { folders: [], folderFound: false };
   }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Dropbox list_folder failed (${response.status}): ${detail || response.statusText}`);
-  }
-  const raw = await response.json();
+  const entries = readdirSync(localFolder, { withFileTypes: true });
   return {
     folderFound: true,
-    folders: raw.entries
-      .filter((e) => e['.tag'] === 'folder')
+    folders: entries
+      .filter((e) => e.isDirectory())
       .map((e) => ({
         name: e.name,
-        path: e.path_display,
+        path: `${folderPath.replace(/\/$/, '')}/${e.name}`,
       })),
   };
 }
 
-async function dropboxGetAccountEmail(token) {
-  const response = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) return '';
-  const data = await response.json();
-  return data.email ?? '';
-}
-
-// ── Dropbox OAuth helpers ─────────────────────────────────────────────────────
-
-function buildDropboxAuthUrl(appKey, state) {
-  const params = new URLSearchParams({
-    client_id: appKey,
-    response_type: 'code',
-    redirect_uri: OAUTH_REDIRECT_URI,
-    token_access_type: 'offline',
-    state,
-  });
-  return `https://www.dropbox.com/oauth2/authorize?${params.toString()}`;
-}
-
-async function exchangeDropboxCode(code, appKey, appSecret) {
-  const params = new URLSearchParams({
-    code,
-    grant_type: 'authorization_code',
-    redirect_uri: OAUTH_REDIRECT_URI,
-    client_id: appKey,
-    client_secret: appSecret,
-  });
-  const response = await fetch('https://api.dropbox.com/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-  if (!response.ok) {
-    throw new Error(`Dropbox token exchange failed: ${response.statusText}`);
-  }
-  return response.json();
-}
-
-async function refreshDropboxAccessToken() {
-  const store = readSecretStore();
-  const refreshToken = decodeUnencryptedSecret(store.values[KEYCHAIN_REFRESH_TOKEN]);
-  const appKey = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_KEY]) ?? normalize(process.env.DROPBOX_APP_KEY);
-  const appSecret = decodeUnencryptedSecret(store.values[KEYCHAIN_APP_SECRET]) ?? normalize(process.env.DROPBOX_APP_SECRET);
-
-  if (!refreshToken) throw new Error('No Dropbox refresh token stored. Run: dropith auth connect');
-  if (!appKey || !appSecret) throw new Error('Dropbox App Key and Secret are not configured. Run: dropith settings set dropbox <key> <secret>');
-
-  const params = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-    client_id: appKey,
-    client_secret: appSecret,
-  });
-
-  const response = await fetch('https://api.dropbox.com/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`Dropbox token refresh failed (${response.status}): ${body}`);
-  }
-
-  const tokens = await response.json();
-  // Save new access token (refresh token is reusable — Dropbox does not rotate it)
-  store.values[KEYCHAIN_ACCESS_TOKEN] = encodeUnencryptedSecret(tokens.access_token);
-  writeSecretStore(store);
-  return tokens.access_token;
-}
-
-/**
- * Returns a valid Dropbox access token, refreshing it automatically if a
- * refresh token is available. Falls back to the stored access token when no
- * refresh token exists (legacy behaviour for users who connected before the
- * refresh-token feature was added).
- */
-async function getValidDropboxToken() {
-  const refreshToken = getDropboxRefreshToken();
-  if (refreshToken) {
-    try {
-      return await refreshDropboxAccessToken();
-    } catch (err) {
-      // If refresh itself fails, fall back to the stored access token and let
-      // the downstream call surface the real error.
-      console.error(`Warning: token refresh failed — ${err.message}`);
-      return getDropboxAccessToken();
-    }
-  }
-  return getDropboxAccessToken();
-}
-
-function openUrlInBrowser(url) {
-  try {
-    if (platform() === 'darwin') {
-      execSync(`open ${JSON.stringify(url)}`, { stdio: 'ignore' });
-    } else if (platform() === 'win32') {
-      execSync(`start "" ${JSON.stringify(url)}`, { stdio: 'ignore', shell: true });
-    } else {
-      execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: 'ignore' });
-    }
-  } catch {
-    // Browser open failed — user can open the URL manually
-  }
+async function getLegacyDropboxAccountEmail(token) {
+  return '';
 }
 
 // ── Sync: note list helpers (include full content for upload) ─────────────────
@@ -2153,6 +2011,7 @@ function listTopicNotesForSync(db) {
   return db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all().map((row) => ({
     id: row.id,
     title: row.title,
+    date: row.date || '',
     contentMarkdown: row.content_markdown,
     linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
     tagNames: getTagDisplayNames(db, row.id),
@@ -2202,11 +2061,11 @@ function listHabitsForSync(db) {
 
 // ── Sync: reconcile helpers ───────────────────────────────────────────────────
 
-async function fetchAllDailyNotesFromDropbox(token, rootFolder) {
-  const { files, folderFound } = await dropboxListMdFiles(token, dailyNotesFolderPath(rootFolder));
+async function fetchAllDailyNotesFromSyncFolder(token, rootFolder) {
+  const { files, folderFound } = await listSyncMdFiles(dailyNotesFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     files.map(async (f) => {
-      const content = await dropboxDownloadText(token, f.path);
+      const content = await syncDownloadText(f.path);
       if (!content) return null;
       const parsed = parseDailyNoteMarkdown(content);
       if (!parsed) return null;
@@ -2225,11 +2084,11 @@ async function fetchAllDailyNotesFromDropbox(token, rootFolder) {
   };
 }
 
-async function fetchAllTopicNotesFromDropbox(token, rootFolder) {
-  const { files, folderFound } = await dropboxListMdFiles(token, topicNotesFolderPath(rootFolder));
+async function fetchAllTopicNotesFromSyncFolder(token, rootFolder) {
+  const { files, folderFound } = await listSyncMdFiles(topicNotesFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     files.map(async (f) => {
-      const content = await dropboxDownloadText(token, f.path);
+      const content = await syncDownloadText(f.path);
       if (!content) return null;
       const parsed = parseTopicNoteMarkdown(content);
       if (!parsed) return null;
@@ -2248,12 +2107,12 @@ async function fetchAllTopicNotesFromDropbox(token, rootFolder) {
   };
 }
 
-async function fetchAllProjectsFromDropbox(token, rootFolder) {
-  const { folders, folderFound } = await dropboxListFolders(token, projectsFolderPath(rootFolder));
+async function fetchAllProjectsFromSyncFolder(token, rootFolder) {
+  const { folders, folderFound } = await listSyncFolders(projectsFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     folders.map(async (folder) => {
       const metaPath = `${folder.path}/meta.yaml`;
-      const content = await dropboxDownloadText(token, metaPath);
+      const content = await syncDownloadText(metaPath);
       if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
       const parsed = parseProjectMetaYaml(content);
       if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
@@ -2275,12 +2134,12 @@ async function fetchAllProjectsFromDropbox(token, rootFolder) {
   };
 }
 
-async function fetchAllRefMaterialsFromDropbox(token, rootFolder) {
-  const { folders, folderFound } = await dropboxListFolders(token, refMaterialsFolderPath(rootFolder));
+async function fetchAllRefMaterialsFromSyncFolder(token, rootFolder) {
+  const { folders, folderFound } = await listSyncFolders(refMaterialsFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     folders.map(async (folder) => {
       const metaPath = `${folder.path}/meta.yaml`;
-      const content = await dropboxDownloadText(token, metaPath);
+      const content = await syncDownloadText(metaPath);
       if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
       const parsed = parseRefMaterialMetaYaml(content);
       if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
@@ -2302,11 +2161,11 @@ async function fetchAllRefMaterialsFromDropbox(token, rootFolder) {
   };
 }
 
-async function fetchAllHabitsFromDropbox(token, rootFolder) {
-  const { files, folderFound } = await dropboxListMdFiles(token, habitsFolderPath(rootFolder));
+async function fetchAllHabitsFromSyncFolder(token, rootFolder) {
+  const { files, folderFound } = await listSyncMdFiles(habitsFolderPath(rootFolder));
   const settled = await Promise.allSettled(
     files.map(async (f) => {
-      const content = await dropboxDownloadText(token, f.path);
+      const content = await syncDownloadText(f.path);
       if (!content) return null;
       const parsed = parseHabitMarkdown(content);
       if (!parsed) return null;
@@ -2327,10 +2186,10 @@ async function fetchAllHabitsFromDropbox(token, rootFolder) {
 async function reconcileDailyNotesDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const { notes: dropboxNotes, folderFound } = await fetchAllDailyNotesFromDropbox(token, rootFolder);
-  const dropboxByDate = new Map(dropboxNotes.map((n) => [n.date, n]));
+  const { notes: syncNotes, folderFound } = await fetchAllDailyNotesFromSyncFolder(token, rootFolder);
+  const syncByDate = new Map(syncNotes.map((n) => [n.date, n]));
 
-   for (const fields of dropboxNotes) {
+   for (const fields of syncNotes) {
      try {
        const existing = getDailyNote(db, fields.date);
        if (!existing) {
@@ -2364,7 +2223,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
 
    const localNotes = listDailyNotesForSync(db);
    if (!folderFound) {
-      await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
+      await ensureSyncFolder(dailyNotesFolderPath(rootFolder));
      if (localNotes.length > 0) {
         result.warnings.push('Dropbox daily-notes folder was missing and has been created; skipped remote-deletion reconciliation for local daily notes.');
      }
@@ -2372,15 +2231,15 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
    }
 
    for (const note of localNotes) {
-     if (!dropboxByDate.has(note.date)) {
+     if (!syncByDate.has(note.date)) {
        try {
          if (hasKnownRemoteCopy(db, 'daily-note', note.id)) {
            if (deleteDailyNoteRecord(db, note.id)) {
              result.deleted++;
            }
          } else {
-           await dropboxEnsureFolder(token, dailyNotesFolderPath(rootFolder));
-           await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+           await ensureSyncFolder(dailyNotesFolderPath(rootFolder));
+           await syncUploadText(dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
            markRemotePresence(db, 'daily-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -2389,13 +2248,13 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
        }
      } else {
        // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
-       const remoteNote = dropboxByDate.get(note.date);
+       const remoteNote = syncByDate.get(note.date);
        if (remoteNote) {
          const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await dropboxUploadText(token, dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+             await syncUploadText(dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`daily-note upload ${note.date}: ${String(e)}`);
@@ -2411,16 +2270,17 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
 async function reconcileTopicNotesDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const { notes: dropboxNotes, folderFound } = await fetchAllTopicNotesFromDropbox(token, rootFolder);
-  const dropboxById = new Map(dropboxNotes.map((n) => [n.id, n]));
+  const { notes: syncNotes, folderFound } = await fetchAllTopicNotesFromSyncFolder(token, rootFolder);
+  const syncById = new Map(syncNotes.map((n) => [n.id, n]));
 
-   for (const fields of dropboxNotes) {
+   for (const fields of syncNotes) {
      try {
        const existing = getTopicNote(db, fields.id);
        if (!existing) {
          createTopicNoteRecord(db, {
            id: fields.id,
            title: fields.title,
+           date: fields.date || '',
            content: {},
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
@@ -2433,6 +2293,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
        } else if (shouldApplyRemoteTopicNote(existing, fields)) {
          updateTopicNoteRecord(db, existing.id, {
            title: fields.title,
+           date: fields.date || '',
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
            dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
@@ -2449,7 +2310,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
 
    const localNotes = listTopicNotesForSync(db);
    if (!folderFound) {
-      await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
+      await ensureSyncFolder(topicNotesFolderPath(rootFolder));
      if (localNotes.length > 0) {
         result.warnings.push('Dropbox topic-notes folder was missing and has been created; skipped remote-deletion reconciliation for local topic notes.');
      }
@@ -2457,15 +2318,15 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
    }
 
    for (const note of localNotes) {
-     if (!dropboxById.has(note.id)) {
+     if (!syncById.has(note.id)) {
        try {
          if (hasKnownRemoteCopy(db, 'topic-note', note.id)) {
            if (deleteTopicNoteRecord(db, note.id)) {
              result.deleted++;
            }
          } else {
-           await dropboxEnsureFolder(token, topicNotesFolderPath(rootFolder));
-           await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+           await ensureSyncFolder(topicNotesFolderPath(rootFolder));
+           await syncUploadText(topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
            markRemotePresence(db, 'topic-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -2474,13 +2335,13 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
        }
      } else {
        // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
-       const remoteNote = dropboxById.get(note.id);
+       const remoteNote = syncById.get(note.id);
        if (remoteNote) {
          const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await dropboxUploadText(token, topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+             await syncUploadText(topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`topic-note upload ${note.id}: ${String(e)}`);
@@ -2496,10 +2357,10 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
 async function reconcileProjectsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const { items: dropboxItems, stubs, folderFound } = await fetchAllProjectsFromDropbox(token, rootFolder);
-  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+  const { items: syncItems, stubs, folderFound } = await fetchAllProjectsFromSyncFolder(token, rootFolder);
+  const syncById = new Map(syncItems.map((item) => [item.id, item]));
 
-  for (const fields of dropboxItems) {
+  for (const fields of syncItems) {
     try {
       const existing = getProject(db, fields.id);
       if (!existing) {
@@ -2537,9 +2398,9 @@ async function reconcileProjectsDb(db, token, rootFolder) {
       // Avoid duplicates: skip if a project already tracks this folder path
       const existing = db.prepare('SELECT id FROM projects WHERE dropbox_path = ?').get(stub.folderPath);
       if (existing) {
-        // Make sure the existing project is in dropboxById so it isn't deleted
-        if (!dropboxById.has(existing.id)) {
-          dropboxById.set(existing.id, { id: existing.id });
+        // Make sure the existing project is in syncById so it isn't deleted
+        if (!syncById.has(existing.id)) {
+          syncById.set(existing.id, { id: existing.id });
         }
         continue;
       }
@@ -2555,7 +2416,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         updatedAt: now,
       });
       // Upload a meta.yaml so future syncs recognise this record by ID
-      await dropboxUploadText(token, projectMetaPath(rootFolder, stub.slug), projectToMetaYaml({
+      await syncUploadText(projectMetaPath(rootFolder, stub.slug), projectToMetaYaml({
         id: newProject.id,
         name: newProject.name,
         dropboxPath: newProject.dropboxPath,
@@ -2566,8 +2427,8 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         updatedAt: newProject.updatedAt,
       }));
       markRemotePresence(db, 'project', newProject.id, getIsoNow());
-      // Add to dropboxById so the local-cleanup loop below won't see it as "deleted remotely"
-      dropboxById.set(newProject.id, { id: newProject.id, name: newProject.name, slug: stub.slug, updatedAt: now });
+      // Add to syncById so the local-cleanup loop below won't see it as "deleted remotely"
+      syncById.set(newProject.id, { id: newProject.id, name: newProject.name, slug: stub.slug, updatedAt: now });
       result.imported++;
     } catch (e) {
       result.errors.push(`project stub ${stub.slug}: ${String(e)}`);
@@ -2576,7 +2437,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
 
   const localItems = listProjectsForSync(db);
   if (!folderFound) {
-    await dropboxEnsureFolder(token, projectsFolderPath(rootFolder));
+    await ensureSyncFolder(projectsFolderPath(rootFolder));
     if (localItems.length > 0) {
       result.warnings.push('Dropbox projects folder was missing and has been created; skipped remote-deletion reconciliation for local projects.');
     }
@@ -2584,7 +2445,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
   }
 
   for (const item of localItems) {
-    if (!dropboxById.has(item.id)) {
+    if (!syncById.has(item.id)) {
       try {
         if (hasKnownRemoteCopy(db, 'project', item.id)) {
           if (deleteProjectRecord(db, item.id)) {
@@ -2592,8 +2453,8 @@ async function reconcileProjectsDb(db, token, rootFolder) {
           }
         } else {
           const slug = slugify(item.name);
-          await dropboxEnsureFolder(token, projectDirectoryPath(rootFolder, slug));
-          await dropboxUploadText(token, projectMetaPath(rootFolder, slug), projectToMetaYaml(item));
+          await ensureSyncFolder(projectDirectoryPath(rootFolder, slug));
+          await syncUploadText(projectMetaPath(rootFolder, slug), projectToMetaYaml(item));
           markRemotePresence(db, 'project', item.id, getIsoNow());
           result.uploaded++;
         }
@@ -2601,7 +2462,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         result.errors.push(`project reconcile ${item.id}: ${String(e)}`);
       }
     } else {
-      const remoteItem = dropboxById.get(item.id);
+      const remoteItem = syncById.get(item.id);
       if (remoteItem) {
         const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
         const localTime = new Date(item.updatedAt ?? 0).getTime();
@@ -2611,9 +2472,9 @@ async function reconcileProjectsDb(db, token, rootFolder) {
             const remoteSlug = remoteItem.slug;
             if (newSlug !== remoteSlug) {
               // Name changed; rename directory by moving to new slug
-              await dropboxMoveFolder(token, projectDirectoryPath(rootFolder, remoteSlug), projectDirectoryPath(rootFolder, newSlug));
+              await moveSyncFolder(projectDirectoryPath(rootFolder, remoteSlug), projectDirectoryPath(rootFolder, newSlug));
             }
-            await dropboxUploadText(token, projectMetaPath(rootFolder, newSlug), projectToMetaYaml(item));
+            await syncUploadText(projectMetaPath(rootFolder, newSlug), projectToMetaYaml(item));
             result.uploaded++;
           } catch (e) {
             result.errors.push(`project upload ${item.id}: ${String(e)}`);
@@ -2629,10 +2490,10 @@ async function reconcileProjectsDb(db, token, rootFolder) {
 async function reconcileRefMaterialsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const { items: dropboxItems, stubs, folderFound } = await fetchAllRefMaterialsFromDropbox(token, rootFolder);
-  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+  const { items: syncItems, stubs, folderFound } = await fetchAllRefMaterialsFromSyncFolder(token, rootFolder);
+  const syncById = new Map(syncItems.map((item) => [item.id, item]));
 
-  for (const fields of dropboxItems) {
+  for (const fields of syncItems) {
     try {
       const existing = getRefMat(db, fields.id);
       if (!existing) {
@@ -2665,8 +2526,8 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
     try {
       const existing = db.prepare('SELECT id FROM ref_materials WHERE dropbox_path = ?').get(stub.folderPath);
       if (existing) {
-        if (!dropboxById.has(existing.id)) {
-          dropboxById.set(existing.id, { id: existing.id });
+        if (!syncById.has(existing.id)) {
+          syncById.set(existing.id, { id: existing.id });
         }
         continue;
       }
@@ -2679,7 +2540,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         createdAt: now,
         updatedAt: now,
       });
-      await dropboxUploadText(token, refMaterialMetaPath(rootFolder, stub.slug), refMaterialToMetaYaml({
+      await syncUploadText(refMaterialMetaPath(rootFolder, stub.slug), refMaterialToMetaYaml({
         id: newRefMat.id,
         name: newRefMat.name,
         dropboxPath: newRefMat.dropboxPath,
@@ -2688,8 +2549,8 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         updatedAt: newRefMat.updatedAt,
       }));
       markRemotePresence(db, 'ref-material', newRefMat.id, getIsoNow());
-      // Add to dropboxById so the local-cleanup loop below won't see it as "deleted remotely"
-      dropboxById.set(newRefMat.id, { id: newRefMat.id, name: newRefMat.name, slug: stub.slug, updatedAt: now });
+      // Add to syncById so the local-cleanup loop below won't see it as "deleted remotely"
+      syncById.set(newRefMat.id, { id: newRefMat.id, name: newRefMat.name, slug: stub.slug, updatedAt: now });
       result.imported++;
     } catch (e) {
       result.errors.push(`ref-material stub ${stub.slug}: ${String(e)}`);
@@ -2698,7 +2559,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
 
   const localItems = listRefMaterialsForSync(db);
   if (!folderFound) {
-    await dropboxEnsureFolder(token, refMaterialsFolderPath(rootFolder));
+    await ensureSyncFolder(refMaterialsFolderPath(rootFolder));
     if (localItems.length > 0) {
       result.warnings.push('Dropbox ref-materials folder was missing and has been created; skipped remote-deletion reconciliation for local reference materials.');
     }
@@ -2706,7 +2567,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
   }
 
   for (const item of localItems) {
-    if (!dropboxById.has(item.id)) {
+    if (!syncById.has(item.id)) {
       try {
         if (hasKnownRemoteCopy(db, 'ref-material', item.id)) {
           if (deleteRefMatRecord(db, item.id)) {
@@ -2714,8 +2575,8 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           }
         } else {
           const slug = slugify(item.name);
-          await dropboxEnsureFolder(token, refMaterialDirectoryPath(rootFolder, slug));
-          await dropboxUploadText(token, refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml(item));
+          await ensureSyncFolder(refMaterialDirectoryPath(rootFolder, slug));
+          await syncUploadText(refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml(item));
           markRemotePresence(db, 'ref-material', item.id, getIsoNow());
           result.uploaded++;
         }
@@ -2723,7 +2584,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         result.errors.push(`ref-material reconcile ${item.id}: ${String(e)}`);
       }
     } else {
-      const remoteItem = dropboxById.get(item.id);
+      const remoteItem = syncById.get(item.id);
       if (remoteItem) {
         const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
         const localTime = new Date(item.updatedAt ?? 0).getTime();
@@ -2733,9 +2594,9 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
             const remoteSlug = remoteItem.slug;
             if (newSlug !== remoteSlug) {
               // Name changed; rename directory by moving to new slug
-              await dropboxMoveFolder(token, refMaterialDirectoryPath(rootFolder, remoteSlug), refMaterialDirectoryPath(rootFolder, newSlug));
+              await moveSyncFolder(refMaterialDirectoryPath(rootFolder, remoteSlug), refMaterialDirectoryPath(rootFolder, newSlug));
             }
-            await dropboxUploadText(token, refMaterialMetaPath(rootFolder, newSlug), refMaterialToMetaYaml(item));
+            await syncUploadText(refMaterialMetaPath(rootFolder, newSlug), refMaterialToMetaYaml(item));
             result.uploaded++;
           } catch (e) {
             result.errors.push(`ref-material upload ${item.id}: ${String(e)}`);
@@ -2751,10 +2612,10 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
 async function reconcileHabitsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  const { items: dropboxItems, folderFound } = await fetchAllHabitsFromDropbox(token, rootFolder);
-  const dropboxById = new Map(dropboxItems.map((item) => [item.id, item]));
+  const { items: syncItems, folderFound } = await fetchAllHabitsFromSyncFolder(token, rootFolder);
+  const syncById = new Map(syncItems.map((item) => [item.id, item]));
 
-   for (const fields of dropboxItems) {
+   for (const fields of syncItems) {
      try {
        const existing = getHabit(db, fields.id);
        if (!existing) {
@@ -2786,7 +2647,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
 
   const localItems = listHabitsForSync(db);
   if (!folderFound) {
-    await dropboxEnsureFolder(token, habitsFolderPath(rootFolder));
+    await ensureSyncFolder(habitsFolderPath(rootFolder));
     if (localItems.length > 0) {
       result.warnings.push('Dropbox habits folder was missing and has been created; skipped remote-deletion reconciliation for local habits.');
     }
@@ -2794,14 +2655,14 @@ async function reconcileHabitsDb(db, token, rootFolder) {
   }
 
    for (const item of localItems) {
-     if (!dropboxById.has(item.id)) {
+     if (!syncById.has(item.id)) {
        try {
          if (hasKnownRemoteCopy(db, 'habit', item.id)) {
            if (deleteHabitRecord(db, item.id)) {
              result.deleted++;
            }
          } else {
-           await dropboxUploadText(token, habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+           await syncUploadText(habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
            markRemotePresence(db, 'habit', item.id, getIsoNow());
            result.uploaded++;
          }
@@ -2809,13 +2670,13 @@ async function reconcileHabitsDb(db, token, rootFolder) {
          result.errors.push(`habit reconcile ${item.id}: ${String(e)}`);
        }
      } else {
-       const remoteItem = dropboxById.get(item.id);
+       const remoteItem = syncById.get(item.id);
        if (remoteItem) {
          const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
          const localTime = new Date(item.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await dropboxUploadText(token, habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+             await syncUploadText(habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`habit upload ${item.id}: ${String(e)}`);
@@ -2829,13 +2690,10 @@ async function reconcileHabitsDb(db, token, rootFolder) {
 }
 
 async function runSync() {
-  const storedToken = getDropboxAccessToken();
-  if (!storedToken && !getDropboxRefreshToken()) throw new Error('Not connected to Dropbox. Run: dropith auth connect');
-  const token = await getValidDropboxToken();
-  if (!token) throw new Error('Not connected to Dropbox. Run: dropith auth connect');
-  const rootFolder = getDropboxRootFolder();
+  const token = null;
+  const rootFolder = getSyncRootFolder();
   return withDbAsync(async (db) => {
-    await ensureSyncFolders(token, rootFolder);
+    await ensureSyncFolders(rootFolder);
     const [dailyResult, topicResult, projectResult, refMaterialResult, habitResult] = await Promise.all([
       reconcileDailyNotesDb(db, token, rootFolder),
       reconcileTopicNotesDb(db, token, rootFolder),
@@ -2852,44 +2710,6 @@ async function runSync() {
       errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors],
     };
   });
-}
-
-async function runSyncWatch(intervalMinutes) {
-  console.log(`Dropith sync daemon — syncing every ${intervalMinutes} minute(s). Press Ctrl+C to stop.`);
-
-  let running = true;
-  process.on('SIGINT', () => {
-    running = false;
-    stdout.write('\nSync daemon stopping.\n');
-  });
-  process.on('SIGTERM', () => {
-    running = false;
-    stdout.write('\nSync daemon stopping.\n');
-  });
-
-  while (running) {
-    const now = new Date().toISOString();
-    process.stdout.write(`[${now}] Syncing...`);
-    try {
-      const result = await runSync();
-      console.log(` done — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
-      if (result.warnings.length > 0) {
-        for (const warning of result.warnings) {
-          console.warn(`  [warning] ${warning}`);
-        }
-      }
-      if (result.errors.length > 0) {
-        for (const error of result.errors) {
-          console.error(`  [error] ${error}`);
-        }
-      }
-    } catch (err) {
-      console.log(` failed — ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    if (!running) break;
-    await new Promise((resolve) => setTimeout(resolve, intervalMinutes * MILLISECONDS_PER_MINUTE));
-  }
 }
 
 // ── Auth connect ──────────────────────────────────────────────────────────────
@@ -2930,7 +2750,7 @@ async function runAuthConnect() {
 
       try {
         const tokens = await exchangeDropboxCode(code, appKey, appSecret);
-        const email = await dropboxGetAccountEmail(tokens.access_token);
+        const email = await getLegacyDropboxAccountEmail(tokens.access_token);
         saveDropboxToken(tokens.access_token, email, tokens.refresh_token);
         res.end('<html><body>Connected to Dropbox! You can close this window.</body></html>');
         server.close();
@@ -3039,12 +2859,14 @@ async function createObjectInteractive(type, rl) {
     switch (type) {
       case 'topic-note': {
         const title = await prompt(rl, 'Title', { required: true });
+        const date = await prompt(rl, 'Date (optional, YYYY-MM-DD)', { defaultValue: '', showDefault: false, allowClear: true });
         const contentMarkdown = await promptMultiline(rl, 'Content');
         const linkedObjectIds = parseCsv(await prompt(rl, 'Linked object IDs (comma separated)'));
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
         return createTopicNoteRecord(db, {
           id: randomUUID(),
           title,
+          date,
           content: {},
           contentMarkdown,
           linkedObjectIds,
@@ -3149,11 +2971,13 @@ async function updateObjectInteractive(type, reference, rl) {
         const existing = getTopicNote(db, reference);
         if (!existing) return null;
         const title = await prompt(rl, 'Title', { defaultValue: existing.title, showDefault: true });
+        const date = await prompt(rl, 'Date (optional, YYYY-MM-DD)', { defaultValue: existing.date ?? '', showDefault: true, allowClear: true });
         const contentMarkdown = await promptMultiline(rl, 'Content', existing.contentMarkdown);
         const linkedObjectIds = await promptList(rl, 'Linked object IDs (comma separated)', existing.linkedObjectIds);
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
         return updateTopicNoteRecord(db, existing.id, {
           title,
+          date,
           content: existing.content,
           contentMarkdown,
           linkedObjectIds,
@@ -3253,13 +3077,13 @@ Usage:
                            Delete an object
   dropith browse [target]   Browse notes, directories, files, or all objects
 
-Dropbox auth:
-  dropith auth [status]     Show Dropbox connection status
-  dropith auth connect      Authenticate with Dropbox via OAuth (opens browser)
-  dropith auth disconnect   Clear stored Dropbox connection token
+Dropbox auth (deprecated; local-folder sync no longer requires auth):
+  dropith auth [status]     Show legacy Dropbox settings state
+  dropith auth connect      Deprecated (no-op)
+  dropith auth disconnect   Clear stored legacy Dropbox auth state
 
 Sync:
-  dropith sync              Sync notes, habits, and Dropbox-backed directories (one-shot)
+  dropith sync              Sync notes, habits, and directories to local sync folder (one-shot)
   dropith sync --watch      Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
     [--interval <minutes>]    Override sync interval in minutes
 
@@ -3268,7 +3092,7 @@ Settings:
   dropith settings set dropbox [appKey appSecret]
                            Save Dropbox app credentials
   dropith settings set root-folder <path>
-                           Set Dropbox root folder (default: ${DEFAULT_NOTES_ROOT})
+                           Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
   dropith settings clear dropbox
                            Clear saved Dropbox app credentials
   dropith settings disconnect dropbox
@@ -3327,10 +3151,10 @@ async function runSettings(args, rl) {
   if (action === 'set' && target === 'root-folder') {
     let folder = normalize(args[2]);
     if (!folder && rl) {
-      folder = await prompt(rl, 'Dropbox root folder (e.g. /Dropith)', { required: true });
+      folder = await prompt(rl, 'Sync root folder (e.g. /Dropith or ~/Library/CloudStorage/Dropbox/Dropith)', { required: true });
     }
     if (!folder) throw new Error('Root folder path is required');
-    saveDropboxRootFolder(folder);
+    saveSyncRootFolder(folder);
     console.log(formatCompact(getSettingsState()));
     return;
   }
@@ -3403,6 +3227,7 @@ async function executeTokens(tokens, context = {}) {
           if (id && getTopicNote(db, id)) {
             return updateTopicNoteRecord(db, id, {
               title: input.title,
+              date: input.date,
               contentMarkdown: input.contentMarkdown,
               linkedObjectIds: input.linkedObjectIds,
               tags: input.tags,
@@ -3412,6 +3237,7 @@ async function executeTokens(tokens, context = {}) {
           return createTopicNoteRecord(db, {
             id: id ?? randomUUID(),
             title: input.title ?? 'Untitled',
+            date: input.date ?? '',
             content: {},
             contentMarkdown: input.contentMarkdown ?? '',
             linkedObjectIds: input.linkedObjectIds ?? [],
@@ -3424,15 +3250,18 @@ async function executeTokens(tokens, context = {}) {
           const date = input.date;
           if (!date) throw new Error('daily-note write requires a date field');
           const existingRow = db.prepare('SELECT id FROM daily_notes WHERE date = ?').get(date);
-          const existingId = existingRow?.id ?? input.id;
-          if (existingId && getDailyNote(db, existingId)) {
-            return updateDailyNoteRecord(db, existingId, {
+          const existingById = input.id ? getDailyNote(db, input.id) : null;
+          if (existingById) {
+            return updateDailyNoteRecord(db, input.id, {
               date: input.date,
               contentMarkdown: input.contentMarkdown,
               linkedObjectIds: input.linkedObjectIds,
               tags: input.tags,
               updatedAt: now,
             });
+          }
+          if (existingRow?.id) {
+            throw new Error(`A daily note already exists for ${date}. Open that note instead of creating a new one.`);
           }
           return createDailyNoteRecord(db, {
             id: input.id ?? randomUUID(),
@@ -3573,6 +3402,58 @@ async function executeTokens(tokens, context = {}) {
       throw new Error(usage);
     }
 
+    const remoteDeleteTarget = withDb((db) => {
+      const rootFolder = getSyncRootFolder();
+      switch (type) {
+        case 'daily-note': {
+          const existing = getDailyNote(db, reference);
+          if (!existing) return null;
+          return {
+            path: existing.dropboxPath || dailyNoteDropboxPath(rootFolder, existing.date),
+            requiresRemoteDelete: hasKnownRemoteCopy(db, 'daily-note', existing.id),
+          };
+        }
+        case 'topic-note': {
+          const existing = getTopicNote(db, reference);
+          if (!existing) return null;
+          return {
+            path: existing.dropboxPath || topicNoteDropboxPath(rootFolder, existing.title, existing.id),
+            requiresRemoteDelete: hasKnownRemoteCopy(db, 'topic-note', existing.id),
+          };
+        }
+        case 'habit': {
+          const existing = getHabit(db, reference);
+          if (!existing) return null;
+          return {
+            path: existing.dropboxPath || habitDropboxPath(rootFolder, existing.id, existing.date, existing.tags ?? []),
+            requiresRemoteDelete: hasKnownRemoteCopy(db, 'habit', existing.id),
+          };
+        }
+        case 'project': {
+          const existing = getProject(db, reference);
+          if (!existing) return null;
+          return {
+            path: existing.dropboxPath || '',
+            requiresRemoteDelete: hasKnownRemoteCopy(db, 'project', existing.id),
+          };
+        }
+        case 'ref-material': {
+          const existing = getRefMat(db, reference);
+          if (!existing) return null;
+          return {
+            path: existing.dropboxPath || '',
+            requiresRemoteDelete: hasKnownRemoteCopy(db, 'ref-material', existing.id),
+          };
+        }
+        default:
+          return null;
+      }
+    });
+
+    if (remoteDeleteTarget?.path) {
+      await deleteSyncPath(remoteDeleteTarget.path);
+    }
+
     const deleted = withDb((db) => {
       switch (type) {
         case 'topic-note': return deleteTopicNoteRecord(db, reference);
@@ -3608,8 +3489,7 @@ async function executeTokens(tokens, context = {}) {
       return;
     }
     if (subAction === 'connect') {
-      const result = await runAuthConnect();
-      console.log(`Connected to Dropbox${result.email ? ` as ${result.email}` : ''}.`);
+      console.log('Dropbox OAuth is deprecated. Sync now uses your configured local sync folder.');
       return;
     }
     if (subAction === 'disconnect') {
@@ -3631,7 +3511,7 @@ async function executeTokens(tokens, context = {}) {
       return;
     }
 
-    console.log('Syncing with Dropbox...');
+    console.log('Syncing with local folder...');
     const result = await runSync();
     console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
     if (result.warnings.length > 0) {
@@ -3713,7 +3593,7 @@ export const __testing = {
   openDb,
   runSync,
   saveDropboxToken,
-  saveDropboxRootFolder,
+  saveSyncRootFolder,
   disconnectDropboxSettings,
   createDailyNoteRecord,
   createTopicNoteRecord,

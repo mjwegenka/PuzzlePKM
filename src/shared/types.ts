@@ -10,6 +10,7 @@ export interface BaseObject {
 export interface TopicNote extends BaseObject {
   type: 'topic-note';
   title: string;
+  date?: string; // optional YYYY-MM-DD
   content: object; // TipTap JSON
   contentMarkdown: string;
   linkedObjectIds: string[];

@@ -34,7 +34,7 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
     noteType === 'daily-note'
       ? { date: getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
       : noteType === 'topic-note'
-        ? { title: '', date: getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
+        ? { title: '', date: '', contentMarkdown: '', tags: [], linkedObjectIds: [] }
         : { date: getTodayDate(), contentMarkdown: '', tags: [] }
 
   const handleSave = (saved: Record<string, unknown>) => {

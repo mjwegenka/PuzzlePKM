@@ -26,6 +26,40 @@ function normalizeDropboxPath(path: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
+function normalizePathForLookup(path: string): string {
+  return normalizeDropboxPath(path)
+    .replace(/[?#].*$/, '')
+    .replace(/\/+/g, '/')
+    .toLowerCase();
+}
+
+function decodeHref(rawHref: string): string {
+  try {
+    return decodeURIComponent(rawHref);
+  } catch {
+    return rawHref;
+  }
+}
+
+function toPathLikeHref(href: string): string {
+  const value = href.trim();
+  if (!value) return '';
+  if (!/^https?:\/\//i.test(value)) return value;
+  try {
+    const parsed = new URL(value);
+    return parsed.pathname || value;
+  } catch {
+    return value;
+  }
+}
+
+function normalizeRelativeSegments(path: string): string {
+  return path
+    .replace(/^[./]+/, '')
+    .replace(/\/+/g, '/')
+    .toLowerCase();
+}
+
 function splitPath(path: string): string[] {
   return path.split('/').filter(Boolean);
 }
@@ -94,19 +128,48 @@ export async function resolveObjectFromLinkPath(
   href: string,
   currentObjectDropboxPath?: string,
 ): Promise<ResolvedObjectRef | null> {
-  const cleanedHref = href.trim();
+  const hrefPath = toPathLikeHref(decodeHref(href));
+  const cleanedHref = hrefPath.trim().replace(/[?#].*$/, '');
   if (!cleanedHref) return null;
 
-  const targetPath = cleanedHref.startsWith('/')
-    ? normalizeDropboxPath(cleanedHref)
+  const index = await listObjectPathIndex();
+
+  // Legacy fallback: some older links store just the object id in href.
+  const idLikeHref = cleanedHref.replace(/^#/, '').trim();
+  const directIdMatch = index.find((item) => item.id === idLikeHref);
+  if (directIdMatch) return directIdMatch;
+
+  const hrefLooksLikeRootRelative = /^dropith\//i.test(cleanedHref);
+  const normalizedRootRelativeHref = hrefLooksLikeRootRelative ? `/${cleanedHref}` : cleanedHref;
+
+  const targetPath = normalizedRootRelativeHref.startsWith('/')
+    ? normalizeDropboxPath(normalizedRootRelativeHref)
     : currentObjectDropboxPath
-      ? resolveRelativePath(normalizeDropboxPath(currentObjectDropboxPath), cleanedHref)
+      ? resolveRelativePath(normalizeDropboxPath(currentObjectDropboxPath), normalizedRootRelativeHref)
       : null;
 
   if (!targetPath) return null;
 
-  const index = await listObjectPathIndex();
-  return index.find((item) => normalizeDropboxPath(item.dropboxPath) === targetPath) ?? null;
+  const normalizedTargetPath = normalizePathForLookup(targetPath);
+  const exactMatch = index.find((item) => normalizePathForLookup(item.dropboxPath) === normalizedTargetPath);
+  if (exactMatch) return exactMatch;
+
+  // Fallback: when links are stored without a stable base path, compare relative/suffix paths.
+  const targetRelative = normalizeRelativeSegments(normalizedRootRelativeHref);
+  const targetBaseName = splitPath(targetRelative).at(-1) ?? '';
+  if (!targetRelative) return null;
+
+  const suffixMatch = index.find((item) => {
+    const candidate = normalizePathForLookup(item.dropboxPath);
+    return candidate.endsWith(`/${targetRelative}`) || candidate.endsWith(targetRelative);
+  });
+  if (suffixMatch) return suffixMatch;
+
+  if (!targetBaseName) return null;
+  return index.find((item) => {
+    const candidateParts = splitPath(normalizePathForLookup(item.dropboxPath));
+    return candidateParts.at(-1) === targetBaseName;
+  }) ?? null;
 }
 
 export async function runDropithCli(args: string[]): Promise<CliRunResult> {
@@ -152,7 +215,10 @@ export async function writeObject(
 
 export async function deleteObject(type: string, id: string): Promise<boolean> {
   const result = await runDropithCli(['delete', type, id]);
-  return result.exitCode === 0;
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || `delete ${type} ${id} failed`);
+  }
+  return true;
 }
 
 /** DEC-19: One-shot Dropbox sync triggered from the desktop UI. */
@@ -165,7 +231,7 @@ export async function runSync(): Promise<void> {
  * Parse tab-separated list output from the CLI into structured objects.
  * Formats:
  *   daily-note  : id \t date \t preview \t dropboxPath [\t #tag1, #tag2]
- *   topic-note  : id \t updatedAt \t title \t dropboxPath [\t #tag1, #tag2]
+ *   topic-note  : id \t updatedAt \t title \t dropboxPath \t date \t preview [\t #tag1, #tag2]
  *   project     : id \t name \t dropboxPath \t startDate [\t #tag1, #tag2]
  *   ref-material: id \t name \t dropboxPath [\t #tag1, #tag2]
  *   habit       : id \t date \t text \t dropboxPath [\t #tag1, #tag2]
@@ -189,7 +255,7 @@ function parseListOutput(
         case 'daily-note':
           return { id, type, title: parts[2] ?? '', date: parts[1], dropboxPath: normalizePath(parts[3]) };
         case 'topic-note':
-          return { id, type, title: parts[2] ?? '', date: parts[1], dropboxPath: normalizePath(parts[3]) };
+          return { id, type, title: parts[2] ?? '', date: parts[4] ?? '', dropboxPath: normalizePath(parts[3]) };
         case 'project':
           return { id, type, title: parts[1] ?? '', dropboxPath: normalizePath(parts[2]), date: parts[3] };
         case 'ref-material':
@@ -273,7 +339,7 @@ export async function listDailyNoteMeta(): Promise<
  * List topic notes for list views (metadata only).
  */
 export async function listTopicNoteMeta(): Promise<
-  Array<{ id: string; title: string; updatedAt: string; tags: string[]; type: 'topic-note' }>
+  Array<{ id: string; title: string; updatedAt: string; date?: string; preview: string; tags: string[]; type: 'topic-note' }>
 > {
   try {
     const stdout = await listObjects('topic-note');
@@ -282,7 +348,7 @@ export async function listTopicNoteMeta(): Promise<
       .filter(Boolean)
       .map((line) => {
         const parts = line.split('\t');
-        const rawTags = parts[4] ?? '';
+        const rawTags = parts[6] ?? '';
         const tags = rawTags
           ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
           : [];
@@ -290,6 +356,8 @@ export async function listTopicNoteMeta(): Promise<
           id: parts[0] ?? '',
           updatedAt: parts[1] ?? '',
           title: parts[2] ?? '',
+          date: (parts[4] ?? '').trim() || undefined,
+          preview: parts[5] ?? '',
           tags,
           type: 'topic-note' as const,
         };

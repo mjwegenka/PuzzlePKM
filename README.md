@@ -1,15 +1,15 @@
 # Dropith
 
-A local-first knowledge management app with Dropbox sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
+A local-first knowledge management app with folder-based sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
 
 ## Features
 
-- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects
+- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views
 - **Daily Notes** – One note per calendar day (date-anchored routing, uniqueness enforced)
-- **Projects & Reference Materials** – Dropbox-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
+- **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
 - **Habits** – Lightweight dated text entries (≤ 255 chars) with tags
 - **Tags** – Case-insensitive, aggregate any object type
-- **Dropbox OAuth** – CLI-driven browser-based OAuth; token stored locally in secrets file
+- **Dropbox OAuth (legacy)** – Existing credential settings are still visible, but active sync no longer depends on Dropbox API auth
 - **Offline-first** – SQLite local store; sync when connected
 - **Background sync daemon** – `dropith sync --watch` for continuous background syncing
 
@@ -20,11 +20,11 @@ A local-first knowledge management app with Dropbox sync. The core product surfa
 | CLI | Pure Node.js (`cli.mjs`) — no build step required |
 | Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
 | Companion web shell | React 18 + TypeScript + Vite |
-| Desktop UI | Material-UI v5 + custom components |
+| Desktop UI | Material UI + custom components |
 | Local store | node:sqlite (built-in SQLite) |
 | Styling | Material UI + TailwindCSS v4 |
-| Secure storage | app-managed secrets file (see `DEC-31`) |
-| Dropbox | `fetch`-based Dropbox API integration |
+| Secure storage | app-managed secrets file (see `DEC-03`) |
+| Dropbox | Local folder sync (Dropbox API auth deprecated for active sync) |
 
 ## Desktop UI Features
 
@@ -44,7 +44,7 @@ See [DESKTOP_UI_GUIDE.md](./DESKTOP_UI_GUIDE.md) for detailed UI architecture an
 ### Prerequisites
 - Node.js 22+ (uses built-in `node:sqlite`)
 - macOS, Linux, or Windows
-- A Dropbox developer account for OAuth credentials
+- Optional: Dropbox desktop client if you want cloud replication of the sync folder
 
 ### 1. Install dependencies
 
@@ -52,22 +52,17 @@ See [DESKTOP_UI_GUIDE.md](./DESKTOP_UI_GUIDE.md) for detailed UI architecture an
 npm install
 ```
 
-### 2. Configure Dropbox credentials
+### 2. Configure sync root folder
 
-Save your Dropbox App credentials using the CLI:
-
-```bash
-dropith settings set dropbox <app-key> <app-secret>
-```
-
-Or pass them as environment variables:
+Set the folder Dropith should sync against. You can use a local folder that is also synced by the Dropbox desktop app.
 
 ```bash
-export DROPBOX_APP_KEY=your_app_key
-export DROPBOX_APP_SECRET=your_app_secret
+npm run cli -- settings set root-folder "/Dropith"
 ```
 
-Create your Dropbox app at <https://www.dropbox.com/developers/apps> and set the Redirect URI to `http://localhost:42813/callback`.
+By default, `/Dropith` maps to:
+- macOS: `~/Library/CloudStorage/Dropbox/Dropith`
+- Linux/Windows fallback: `~/Dropbox/Dropith`
 
 ### 3. Run the companion web shell in development
 
@@ -99,21 +94,23 @@ The shell exits with `Ctrl+C` or `Ctrl+D`.
 
 #### Dropbox authentication
 
-```bash
-# Connect to Dropbox (opens browser for OAuth)
-dropith auth connect
+Dropbox OAuth commands remain available for legacy compatibility, but active sync does not require them.
 
-# Show connection status
+```bash
+# Legacy status (optional)
 dropith auth status
 
-# Disconnect (clear token)
+# Legacy connect (deprecated no-op for active sync)
+dropith auth connect
+
+# Legacy disconnect
 dropith auth disconnect
 ```
 
 #### Sync
 
 ```bash
-# One-shot sync with Dropbox
+# One-shot sync with local folder
 dropith sync
 
 # Background sync daemon (syncs every 15 minutes by default)
@@ -123,17 +120,21 @@ dropith sync --watch
 dropith sync --watch --interval 5
 ```
 
-`dropith sync` syncs daily notes, topic notes, habits, projects, and reference materials. If sync folders are missing in Dropbox, Dropith creates them automatically. Projects and reference materials are stored as directories:
+`dropith sync` syncs daily notes, topic notes, habits, projects, and reference materials against the configured local sync root. If sync folders are missing, Dropith creates them automatically. Projects and reference materials are stored as directories:
 
 - **Daily notes**: `{rootFolder}/daily-notes/{date}.md`
 - **Topic notes**: `{rootFolder}/topic-notes/{slug}-{shortId}.md`
-- **Habits**: `{rootFolder}/habits/{id}.md`
+- **Habits**: `{rootFolder}/habits/{date}-{firstTag}-{last6CharsOfId}.md`
 - **Projects**: `{rootFolder}/projects/{slug}/meta.yaml` (directory can contain user files)
 - **Reference Materials**: `{rootFolder}/ref-materials/{slug}/meta.yaml` (directory can contain user files)
 
 When a project or reference material name changes, its directory is renamed to match the new slug. Dropbox directory names are automatically determined by the project/reference material title.
 
-If a note has previously been synced to Dropbox and then its Markdown file is deleted from an existing Dropbox notes folder, the next sync deletes the local copy instead of recreating it. If an entire Dropbox notes folder is missing, Dropith recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
+If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, Dropith recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
+
+Deleting sync-tracked objects from Dropith (`dropith delete ...` or desktop UI delete flows) performs a hard delete: Dropith deletes the corresponding file/folder path in the configured sync root first, then removes the local database record.
+
+Daily Note creation is non-overwriting: if a note already exists for a date, Dropith opens/edits the existing note instead of creating a second note or overwriting via “new note” flow.
 
 #### Notes and objects
 
@@ -209,4 +210,3 @@ public/            Static assets for the web shell
 ## Development Plan
 
 See [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the full staged roadmap.
-
