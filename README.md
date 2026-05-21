@@ -8,6 +8,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 - **Daily Notes** – One note per calendar day with date-link lifecycle guardrails (date-anchored routing, uniqueness enforced; see [`DEC-42`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-46`](./IMPLEMENTATION_DECISIONS.md))
 - **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
 - **Habits** – Lightweight dated entries (≤ 255 chars) with a single identity tag and lifecycle status (`planned`/`accomplished`) (see [`DEC-45`](./IMPLEMENTATION_DECISIONS.md))
+- **Scripture** – Save-time scripture reference extraction/normalization for notes, with canonical Bible Gateway links and shared Scripture objects ordered by canonical book sequence (see [`DEC-51`](./IMPLEMENTATION_DECISIONS.md))
 - **Tags** – Case-insensitive, aggregate any object type
 - **Local-folder sync** – Sync against a configured local root folder
 - **Offline-first** – SQLite local store; sync when connected

@@ -25,6 +25,7 @@ export const objectColors: Record<ColorableType, ObjectColorToken> = {
   'habit':        { text: '#e8a84a', bg: 'rgba(200,131,42,0.18)',  border: 'rgba(200,131,42,0.45)',  accent: '#c8832a' },
   'project':      { text: '#c49be8', bg: 'rgba(156,109,212,0.18)', border: 'rgba(156,109,212,0.45)', accent: '#9c6dd4' },
   'ref-material': { text: '#9ed8ef', bg: 'rgba(109,176,212,0.18)', border: 'rgba(109,176,212,0.45)', accent: '#6db0d4' },
+  'scripture':    { text: '#f1c768', bg: 'rgba(214,154,44,0.18)',  border: 'rgba(214,154,44,0.45)',  accent: '#d69a2c' },
 }
 
 /** Look up the color token for a given object type string, falling back to daily-note colors. */
