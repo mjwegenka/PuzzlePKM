@@ -163,7 +163,7 @@ export async function resolveObjectFromLinkPath(
   const directIdMatch = index.find((item) => item.id === idLikeHref);
   if (directIdMatch) return directIdMatch;
 
-  const hrefLooksLikeRootRelative = /^dropith\//i.test(cleanedHref);
+  const hrefLooksLikeRootRelative = /^(?:dropith|puzzlepkm)\//i.test(cleanedHref);
   const normalizedRootRelativeHref = hrefLooksLikeRootRelative ? `/${cleanedHref}` : cleanedHref;
 
   const targetPath = normalizedRootRelativeHref.startsWith('/')

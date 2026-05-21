@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Dropith",
+  "productName": "PuzzlePKM",
   "version": "0.1.0",
   "identifier": "com.dropith.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Dropith",
+        "title": "PuzzlePKM",
         "width": 1280,
         "height": 840,
         "minWidth": 980,
@@ -39,4 +39,3 @@
     ]
   }
 }
-

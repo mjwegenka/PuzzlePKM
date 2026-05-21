@@ -1,4 +1,4 @@
-# Dropith
+# PuzzlePKM
 
 A local-first knowledge management app with folder-based sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
 
@@ -12,7 +12,7 @@ A local-first knowledge management app with folder-based sync. The core product 
 - **Tags** – Case-insensitive, aggregate any object type
 - **Local-folder sync** – Sync against a configured local root folder
 - **Offline-first** – SQLite local store; sync when connected
-- **Background sync daemon** – `dropith sync --watch` for continuous background syncing
+- **Background sync daemon** – `puzzlepkm sync --watch` for continuous background syncing
 
 ## Tech Stack
 
@@ -58,7 +58,7 @@ npm install
 
 ### 2. Configure sync root folder
 
-Set the folder Dropith should sync against. You can use a local folder that is also synced by the Dropbox desktop app.
+Set the folder PuzzlePKM should sync against. You can use a local folder that is also synced by the Dropbox desktop app. The legacy `/Dropith` virtual root remains the compatibility default for existing installs.
 
 ```bash
 npm run cli -- settings set root-folder "/Dropith"
@@ -100,16 +100,16 @@ The shell exits with `Ctrl+C` or `Ctrl+D`.
 
 ```bash
 # One-shot sync with local folder
-dropith sync
+puzzlepkm sync
 
 # Background sync daemon (syncs every 15 minutes by default)
-dropith sync --watch
+puzzlepkm sync --watch
 
 # Background sync with custom interval
-dropith sync --watch --interval 5
+puzzlepkm sync --watch --interval 5
 ```
 
-`dropith sync` syncs daily notes, topic notes, habits, projects, and reference materials against the configured local sync root. If sync folders are missing, Dropith creates them automatically. Projects and reference materials are stored as directories:
+`puzzlepkm sync` syncs daily notes, topic notes, habits, projects, and reference materials against the configured local sync root. If sync folders are missing, PuzzlePKM creates them automatically. Projects and reference materials are stored as directories:
 
 - **Daily notes**: `{rootFolder}/daily-notes/{date}.md`
 - **Topic notes**: `{rootFolder}/topic-notes/{slug}-{shortId}.md`
@@ -119,33 +119,33 @@ dropith sync --watch --interval 5
 
 When a project or reference material name changes, its directory is renamed to match the new slug. Sync directory names are automatically determined by the project/reference material title.
 
-If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, Dropith recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
+If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, PuzzlePKM recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
 
-Deleting sync-tracked objects from Dropith (`dropith delete ...` or desktop UI delete flows) performs a hard delete: Dropith deletes the corresponding file/folder path in the configured sync root first, then removes the local database record.
+Deleting sync-tracked objects from PuzzlePKM (`puzzlepkm delete ...` or desktop UI delete flows) performs a hard delete: PuzzlePKM deletes the corresponding file/folder path in the configured sync root first, then removes the local database record.
 
-Daily Note creation is non-overwriting: if a note already exists for a date, Dropith opens/edits the existing note instead of creating a second note or overwriting via “new note” flow.
+Daily Note creation is non-overwriting: if a note already exists for a date, PuzzlePKM opens/edits the existing note instead of creating a second note or overwriting via “new note” flow.
 
 #### Notes and objects
 
 ```bash
-dropith add "Quick note text"
-dropith list daily-note
-dropith get topic-note <id>
-dropith create project
-dropith update habit <id>
-dropith delete tag <id>
-dropith browse all
+puzzlepkm add "Quick note text"
+puzzlepkm list daily-note
+puzzlepkm get topic-note <id>
+puzzlepkm create project
+puzzlepkm update habit <id>
+puzzlepkm delete tag <id>
+puzzlepkm browse all
 
 # Batch import Markdown notes from a directory
-dropith import daily-note ./daily-notes
-dropith import topic-note ./topic-notes
+puzzlepkm import daily-note ./daily-notes
+puzzlepkm import topic-note ./topic-notes
 ```
 
 #### Settings
 
 ```bash
-dropith settings show
-dropith settings set root-folder /Dropith
+puzzlepkm settings show
+puzzlepkm settings set root-folder /Dropith
 ```
 
 Default CLI database path follows platform app-data conventions:
@@ -153,18 +153,24 @@ Default CLI database path follows platform app-data conventions:
 - Linux: `~/.config/dropith/dropith.sqlite` (or `$XDG_CONFIG_HOME/dropith/dropith.sqlite`)
 - Windows: `%APPDATA%\\dropith\\dropith.sqlite`
 
-Install globally from a checkout (optional) to use the `dropith` command:
+Install globally from a checkout (optional) to use the `puzzlepkm` command. The legacy `dropith` alias is still installed for compatibility:
 
 ```bash
 npm install -g .
-dropith --help
+puzzlepkm --help
 ```
 
-Use `DROPITH_DB_PATH` to point the CLI at a specific Dropith SQLite file:
+Use `PUZZLEPKM_DB_PATH` to point the CLI at a specific PuzzlePKM SQLite file. `DROPITH_DB_PATH` remains supported as a legacy alias:
 
 ```bash
-DROPITH_DB_PATH=/absolute/path/to/dropith.sqlite dropith list
+PUZZLEPKM_DB_PATH=/absolute/path/to/dropith.sqlite puzzlepkm list
 ```
+
+#### Compatibility strategy
+
+- `puzzlepkm` is the primary CLI name; `dropith` remains available as a compatibility alias in this release.
+- Existing local data/config continue to live in legacy `dropith` app-data folders, and the desktop bundle identifier stays `com.dropith.desktop`, to avoid abrupt migration breakage.
+- The legacy `/Dropith` virtual root remains supported and is still the default auto-mapped sync location for current installs.
 
 ### 5. Build for production
 

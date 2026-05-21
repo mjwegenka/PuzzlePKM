@@ -1,7 +1,7 @@
 {
-  "name": "dropith",
-  "description": "A local-first knowledge management app with Dropbox sync",
-  "author": "Dropith",
+  "name": "puzzlepkm",
+  "description": "A local-first knowledge management app with local folder sync",
+  "author": "PuzzlePKM",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -81,6 +81,7 @@
     "vite": "^6.4.2"
   },
   "bin": {
+    "puzzlepkm": "./cli.mjs",
     "dropith": "./cli.mjs"
   }
 }
