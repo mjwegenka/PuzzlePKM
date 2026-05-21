@@ -37,6 +37,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Quick access to all views
+- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally
 
 See [DESKTOP_UI_GUIDE.md](./DESKTOP_UI_GUIDE.md) for detailed UI architecture and layout specifications.
 

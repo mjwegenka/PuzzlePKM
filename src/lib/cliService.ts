@@ -490,14 +490,18 @@ export async function listHabitMeta(): Promise<
  * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }>
+  Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }>
 > {
-  const results: Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; type: 'project' | 'ref-material' }> = [];
+  const results: Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }> = [];
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
       for (const line of stdout.split('\n').filter(Boolean)) {
         const parts = line.split('\t');
+        const rawTags = parts[4] ?? '';
+        const tags = rawTags
+          ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
+          : [];
         if (parts[0]) {
           results.push({
             id: parts[0],
@@ -505,6 +509,7 @@ export async function listFileMeta(): Promise<
             author: type === 'ref-material' ? (parts[2] ?? '') : undefined,
             ...withLegacyPathAlias({ syncPath: type === 'ref-material' ? (parts[3] ?? '') : (parts[2] ?? '') }),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
+            tags,
             type,
           });
         }
