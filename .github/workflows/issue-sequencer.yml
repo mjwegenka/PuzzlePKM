@@ -152,6 +152,8 @@ jobs:
                       READY_COMMENT_MARKER,
                       'This issue is now next in the automated sequence (all dependencies are closed).',
                       '',
+                      '@copilot Please start this issue now. Follow the issue acceptance criteria, run repo validations, and open a PR that closes this issue.',
+                      '',
                       '**Dependency context**',
                       depText,
                       '',
