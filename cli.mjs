@@ -128,6 +128,17 @@ const schema = `
     PRIMARY KEY (object_id, object_type)
   );
 
+  CREATE TABLE IF NOT EXISTS note_blocks (
+    note_id TEXT NOT NULL,
+    block_id TEXT NOT NULL,
+    note_type TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    content_markdown TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (note_id, block_id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
@@ -136,7 +147,9 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_object_links_target ON object_links(target_id);
   CREATE INDEX IF NOT EXISTS idx_sync_state_object_type ON sync_state(object_type, object_id);
   CREATE INDEX IF NOT EXISTS idx_habits_date ON habits(date);
-   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
+  CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
+  CREATE INDEX IF NOT EXISTS idx_note_blocks_note_id ON note_blocks(note_id);
+  CREATE INDEX IF NOT EXISTS idx_note_blocks_position ON note_blocks(note_id, position);
  `;
 
  // DEC-20: Ensure schema is migrated for new dropbox_path columns (DEC-21)
@@ -412,6 +425,7 @@ function openDb() {
   const db = new DatabaseSync(dbFile);
   ensureSchema(db);
   backfillMissingDropboxPaths(db);
+  backfillNoteBlocks(db);
   return db;
 }
 
@@ -468,6 +482,29 @@ function backfillMissingDropboxPaths(db) {
       // Placeholder gets rewritten by type-specific pass on next open.
       db.prepare(`UPDATE ${table} SET dropbox_path = '' WHERE id = ?`).run(row.id);
     }
+  }
+}
+
+// DEC-36, DEC-37: Backfill note_blocks for legacy notes that have content_markdown but no blocks yet.
+function backfillNoteBlocks(db) {
+  const now = getIsoNow();
+  const insertBlock = db.prepare(
+    'INSERT INTO note_blocks (note_id, block_id, note_type, position, content_markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  const hasBlocks = db.prepare('SELECT 1 FROM note_blocks WHERE note_id = ? LIMIT 1');
+
+  const topicNotes = db.prepare('SELECT id, content_markdown FROM topic_notes').all();
+  for (const row of topicNotes) {
+    if (hasBlocks.get(row.id)) continue;
+    const blockId = 'blk-' + randomUUID().replace(/-/g, '').slice(0, 12);
+    insertBlock.run(row.id, blockId, 'topic-note', 0, row.content_markdown ?? '', now, now);
+  }
+
+  const dailyNotes = db.prepare('SELECT id, content_markdown FROM daily_notes').all();
+  for (const row of dailyNotes) {
+    if (hasBlocks.get(row.id)) continue;
+    const blockId = 'blk-' + randomUUID().replace(/-/g, '').slice(0, 12);
+    insertBlock.run(row.id, blockId, 'daily-note', 0, row.content_markdown ?? '', now, now);
   }
 }
 
