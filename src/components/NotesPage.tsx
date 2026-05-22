@@ -134,7 +134,7 @@ function NoteCard({ card, selectedId, selectedType, onSelect }: NoteCardProps) {
           ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
           : 'none',
         borderRadius: '6px',
-        p: 1.5,
+        p: 2,
         cursor: 'pointer',
         transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
         breakInside: 'avoid',
