@@ -11,7 +11,6 @@ import {
   IconButton,
   ToggleButton,
   ToggleButtonGroup,
-  Chip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -32,6 +31,8 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import FilterChip from './ui/FilterChip'
+import { NoteCard } from './ui/NoteCard'
+import type { NoteCardData } from './ui/NoteCard'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
@@ -92,115 +93,9 @@ interface OpenEditorTab {
 
 // ── Unified card board ────────────────────────────────────────────────────────
 
-interface BoardCard {
-  id: string
+/** Internal board card shape — maps 1:1 to NoteCardData for rendering. */
+interface BoardCard extends NoteCardData {
   type: NoteType
-  primary: string
-  secondary?: string
-  preview?: string
-  tags: string[]
-}
-
-interface NoteCardProps {
-  card: BoardCard
-  selectedId: string | null
-  selectedType: NoteType | null
-  onSelect: (id: string, type: NoteType, options?: { forceNewTab?: boolean }) => void
-}
-
-function NoteCard({ card, selectedId, selectedType, onSelect }: NoteCardProps) {
-  const token = getObjectColor(card.type)
-  const isSelected = selectedId === card.id && selectedType === card.type
-  const icon =
-    card.type === 'topic-note' ? (
-      <NoteAddIcon sx={{ fontSize: 12 }} />
-    ) : card.type === 'daily-note' ? (
-      <CalendarTodayIcon sx={{ fontSize: 12 }} />
-    ) : (
-      <RepeatIcon sx={{ fontSize: 12 }} />
-    )
-
-  const displaySecondary = card.secondary ?? card.preview
-
-  return (
-    <Paper
-      onClick={(e) => onSelect(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
-      title="Click to open • Ctrl/Cmd-click to open in new tab"
-      sx={{
-        bgcolor: '#0e2038',
-        border: `1px solid ${isSelected ? token.accent : '#1c3558'}`,
-        boxShadow: isSelected
-          ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
-          : 'none',
-        borderRadius: '6px',
-        p: 1.5,
-        cursor: 'pointer',
-        transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
-        breakInside: 'avoid',
-        '&:hover': {
-          bgcolor: token.bg,
-          borderColor: isSelected ? token.accent : token.border,
-          boxShadow: isSelected
-            ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
-            : 'none',
-        },
-      }}
-    >
-      {/* Type icon + title */}
-      <Stack direction="row" alignItems="flex-start" spacing={0.75} sx={{ mb: displaySecondary || card.tags.length > 0 ? 0.75 : 0 }}>
-        <Box sx={{ color: token.text, display: 'flex', alignItems: 'center', mt: '2px', flexShrink: 0 }}>
-          {icon}
-        </Box>
-        <Typography
-          variant="body2"
-          sx={{ fontSize: '13px', fontWeight: 600, color: '#e4f0fb', lineHeight: 1.35, wordBreak: 'break-word' }}
-        >
-          {card.primary || '(untitled)'}
-        </Typography>
-      </Stack>
-
-      {/* Preview / secondary */}
-      {displaySecondary && (
-        <Typography
-          variant="caption"
-          sx={{
-            color: '#4a6a8a',
-            fontSize: '11.5px',
-            lineHeight: 1.4,
-            mb: card.tags.length > 0 ? 0.75 : 0,
-            wordBreak: 'break-word',
-            display: '-webkit-box',
-            WebkitLineClamp: 4,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {displaySecondary}
-        </Typography>
-      )}
-
-      {/* Tags */}
-      {card.tags.length > 0 && (
-        <Stack direction="row" flexWrap="wrap" gap={0.5}>
-          {card.tags.slice(0, 4).map((tag) => (
-            <Chip
-              key={tag}
-              label={tag}
-              size="small"
-              sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
-            />
-          ))}
-          {card.tags.length > 4 && (
-            <Chip
-              label={`+${card.tags.length - 4}`}
-              size="small"
-              sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
-            />
-          )}
-        </Stack>
-      )}
-    </Paper>
-  )
 }
 
 // ── Create panel (type selector + blank editor) ───────────────────────────────
@@ -553,9 +448,9 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       .map((n) => ({
         id: n.id,
         type: 'topic-note' as NoteType,
-        primary: n.title || '(untitled)',
-        secondary: n.date ? formatDatePretty(n.date) : undefined,
-        preview: n.preview,
+        title: n.title || '(untitled)',
+        metadata: n.date ? formatDatePretty(n.date) : undefined,
+        snippet: n.preview || undefined,
         tags: n.tags,
       }))
 
@@ -570,8 +465,8 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       .map((n) => ({
         id: n.id,
         type: 'daily-note' as NoteType,
-        primary: formatDatePretty(n.date),
-        secondary: n.preview || undefined,
+        title: formatDatePretty(n.date),
+        snippet: n.preview || undefined,
         tags: n.tags,
       }))
 
@@ -586,8 +481,8 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
-        primary: n.text || '(no text)',
-        secondary: n.date ? formatDatePretty(n.date) : undefined,
+        title: n.text || '(no text)',
+        metadata: n.date ? formatDatePretty(n.date) : undefined,
         tags: n.tags,
       }))
 
@@ -773,9 +668,9 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
                <NoteCard
                  key={`${card.type}:${card.id}`}
                  card={card}
-                 selectedId={activeNoteId}
-                 selectedType={activeNoteType}
-                 onSelect={handleSelectItem}
+                 isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                 onClick={(e) => handleSelectItem(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
+                 title="Click to open • Ctrl/Cmd-click to open in new tab"
                />
              ))}
            </Box>
