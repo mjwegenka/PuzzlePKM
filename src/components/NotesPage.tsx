@@ -6,10 +6,6 @@ import {
   Typography,
   Button,
   TextField,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
   CircularProgress,
   Divider,
   IconButton,
@@ -91,178 +87,105 @@ interface OpenEditorTab {
   isDirty: boolean
 }
 
-// ── Column component ──────────────────────────────────────────────────────────
+// ── Unified card board ────────────────────────────────────────────────────────
 
-interface ColumnItem {
+interface BoardCard {
   id: string
+  type: NoteType
   primary: string
   secondary?: string
-  tags?: string[]
+  preview?: string
+  tags: string[]
 }
 
-interface NoteColumnProps {
-  title: string
-  icon: React.ReactNode
-  objectType: string
-  items: ColumnItem[]
-  loading: boolean
-  filter: string
-  onFilterChange: (v: string) => void
+interface NoteCardProps {
+  card: BoardCard
   selectedId: string | null
-  onSelect: (id: string, options?: { forceNewTab?: boolean }) => void
+  selectedType: NoteType | null
+  onSelect: (id: string, type: NoteType, options?: { forceNewTab?: boolean }) => void
 }
 
-function NoteColumn({
-  title,
-  icon,
-  objectType,
-  items,
-  loading,
-  filter,
-  onFilterChange,
-  selectedId,
-  onSelect,
-}: NoteColumnProps) {
-  const token = getObjectColor(objectType)
+function NoteCard({ card, selectedId, selectedType, onSelect }: NoteCardProps) {
+  const token = getObjectColor(card.type)
+  const isSelected = selectedId === card.id && selectedType === card.type
+  const icon =
+    card.type === 'topic-note' ? (
+      <NoteAddIcon sx={{ fontSize: 12 }} />
+    ) : card.type === 'daily-note' ? (
+      <CalendarTodayIcon sx={{ fontSize: 12 }} />
+    ) : (
+      <RepeatIcon sx={{ fontSize: 12 }} />
+    )
+
+  const displaySecondary = card.secondary ?? card.preview
+
   return (
     <Paper
+      onClick={(e) => onSelect(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
+      title="Click to open • Ctrl/Cmd-click to open in new tab"
       sx={{
-        flex: 1,
-        minWidth: 0,
-        bgcolor: '#0e2038',
-        border: '1px solid #1c3558',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
+        bgcolor: isSelected ? token.bg : '#0e2038',
+        border: `1px solid ${isSelected ? token.border : '#1c3558'}`,
+        borderRadius: '6px',
+        p: 1.5,
+        cursor: 'pointer',
+        transition: 'border-color 0.15s, background-color 0.15s',
+        breakInside: 'avoid',
+        '&:hover': { bgcolor: token.bg, borderColor: token.border },
       }}
     >
-      {/* Column header */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={0.75}
-        sx={{ px: 1.5, pt: 1.5, pb: 1, flexShrink: 0 }}
-      >
-        <Box sx={{ color: token.text, display: 'flex', alignItems: 'center' }}>{icon}</Box>
+      {/* Type icon + title */}
+      <Stack direction="row" alignItems="flex-start" spacing={0.75} sx={{ mb: displaySecondary || card.tags.length > 0 ? 0.75 : 0 }}>
+        <Box sx={{ color: token.text, display: 'flex', alignItems: 'center', mt: '2px', flexShrink: 0 }}>
+          {icon}
+        </Box>
         <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 700,
-            color: token.text,
-            textTransform: 'uppercase',
-            letterSpacing: '0.07em',
-            fontSize: '10px',
-          }}
+          variant="body2"
+          sx={{ fontSize: '13px', fontWeight: 600, color: '#e4f0fb', lineHeight: 1.35, wordBreak: 'break-word' }}
         >
-          {title}
-        </Typography>
-        <Box sx={{ flex: 1 }} />
-        <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '10px' }}>
-          {items.length}
+          {card.primary || '(untitled)'}
         </Typography>
       </Stack>
 
-      {/* Filter */}
-      <Box sx={{ px: 1.5, pb: 1, flexShrink: 0 }}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Filter…"
-          value={filter}
-          onChange={(e) => onFilterChange(e.target.value)}
-          variant="outlined"
-          sx={{
-            '& .MuiOutlinedInput-root': { fontSize: '12px', bgcolor: 'rgba(0,0,0,0.2)' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
-          }}
-        />
-      </Box>
-
-      <Divider sx={{ borderColor: '#1c3558' }} />
-
-      {/* Item list */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={20} />
-        </Box>
-      ) : items.length === 0 ? (
+      {/* Preview / secondary */}
+      {displaySecondary && (
         <Typography
           variant="caption"
-          sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block' }}
+          sx={{
+            color: '#4a6a8a',
+            fontSize: '11.5px',
+            lineHeight: 1.4,
+            mb: card.tags.length > 0 ? 0.75 : 0,
+            wordBreak: 'break-word',
+            display: '-webkit-box',
+            WebkitLineClamp: 4,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
         >
-          {filter ? 'No matches' : 'Nothing here yet'}
+          {displaySecondary}
         </Typography>
-      ) : (
-        <List sx={{ p: 0, flex: 1, overflow: 'auto' }}>
-          {items.map((item) => (
-            <React.Fragment key={item.id}>
-              <ListItem disablePadding>
-                <ListItemButton
-                  selected={selectedId === item.id}
-                  onClick={(event) => onSelect(item.id, { forceNewTab: event.metaKey || event.ctrlKey })}
-                  title="Click to open • Ctrl/Cmd-click to open in new tab"
-                  sx={{
-                    py: 0.75,
-                    px: 1.5,
-                    '&.Mui-selected': { bgcolor: token.bg },
-                    '&:hover': { bgcolor: token.bg.replace('0.18', '0.09') },
-                  }}
-                >
-                  <ListItemText
-                    primary={
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          fontSize: '12.5px',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {item.primary || '(untitled)'}
-                      </Typography>
-                    }
-                    secondary={
-                      item.secondary ? (
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: '#4a6a8a',
-                            fontSize: '11px',
-                            display: 'block',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {item.secondary}
-                        </Typography>
-                      ) : undefined
-                    }
-                    disableTypography
-                  />
-                  {item.tags && item.tags.length > 0 && (
-                    <Box sx={{ ml: 0.5, flexShrink: 0 }}>
-                      <Chip
-                        label={`+${item.tags.length}`}
-                        size="small"
-                        sx={{
-                          height: 16,
-                          fontSize: '9px',
-                          bgcolor: token.bg,
-                          color: token.text,
-                          border: `1px solid ${token.border}`,
-                        }}
-                      />
-                    </Box>
-                  )}
-                </ListItemButton>
-              </ListItem>
-              <Divider sx={{ borderColor: 'rgba(28,53,88,0.4)' }} />
-            </React.Fragment>
+      )}
+
+      {/* Tags */}
+      {card.tags.length > 0 && (
+        <Stack direction="row" flexWrap="wrap" gap={0.5}>
+          {card.tags.slice(0, 4).map((tag) => (
+            <Chip
+              key={tag}
+              label={tag}
+              size="small"
+              sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
+            />
           ))}
-        </List>
+          {card.tags.length > 4 && (
+            <Chip
+              label={`+${card.tags.length - 4}`}
+              size="small"
+              sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
+            />
+          )}
+        </Stack>
       )}
     </Paper>
   )
@@ -410,10 +333,8 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
   // Inbox filter
   const [showInbox, setShowInbox] = useState(false)
 
-  // Column filters
-  const [topicFilter, setTopicFilter] = useState('')
-  const [dailyFilter, setDailyFilter] = useState('')
-  const [habitFilter, setHabitFilter] = useState('')
+  // Board filter
+  const [boardFilter, setBoardFilter] = useState('')
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -600,27 +521,59 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
     setConfirmCloseTabId(null)
   }
 
-   // Filtered lists
+   // Unified card list
   const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
-  const filteredTopics = topicNotes.filter((n) =>
-    (!showInbox || hasInboxTag(n.tags)) &&
-    (n.title.toLowerCase().includes(topicFilter.toLowerCase()) ||
-    n.preview.toLowerCase().includes(topicFilter.toLowerCase())),
-  )
-  const filteredDailies = dailyNotes.filter(
-    (n) =>
-      (!showInbox || hasInboxTag(n.tags)) &&
-      (n.date.includes(dailyFilter) ||
-      formatDatePretty(n.date).toLowerCase().includes(dailyFilter.toLowerCase()) ||
-      n.preview?.toLowerCase().includes(dailyFilter.toLowerCase())),
-  )
-  const filteredHabits = habits.filter(
-    (n) =>
-      (!showInbox || hasInboxTag(n.tags)) &&
-      (n.text.toLowerCase().includes(habitFilter.toLowerCase()) ||
-      n.date.includes(habitFilter) ||
-      formatDatePretty(n.date).toLowerCase().includes(habitFilter.toLowerCase())),
-  )
+  const allCards = useMemo((): BoardCard[] => {
+    const topicCards: BoardCard[] = topicNotes
+      .filter((n) =>
+        (!showInbox || hasInboxTag(n.tags)) &&
+        (!boardFilter ||
+          n.title.toLowerCase().includes(boardFilter.toLowerCase()) ||
+          n.preview.toLowerCase().includes(boardFilter.toLowerCase())),
+      )
+      .map((n) => ({
+        id: n.id,
+        type: 'topic-note' as NoteType,
+        primary: n.title || '(untitled)',
+        secondary: n.date ? formatDatePretty(n.date) : undefined,
+        preview: n.preview,
+        tags: n.tags,
+      }))
+
+    const dailyCards: BoardCard[] = dailyNotes
+      .filter((n) =>
+        (!showInbox || hasInboxTag(n.tags)) &&
+        (!boardFilter ||
+          n.date.includes(boardFilter) ||
+          formatDatePretty(n.date).toLowerCase().includes(boardFilter.toLowerCase()) ||
+          n.preview?.toLowerCase().includes(boardFilter.toLowerCase())),
+      )
+      .map((n) => ({
+        id: n.id,
+        type: 'daily-note' as NoteType,
+        primary: formatDatePretty(n.date),
+        secondary: n.preview || undefined,
+        tags: n.tags,
+      }))
+
+    const habitCards: BoardCard[] = habits
+      .filter((n) =>
+        (!showInbox || hasInboxTag(n.tags)) &&
+        (!boardFilter ||
+          n.text.toLowerCase().includes(boardFilter.toLowerCase()) ||
+          n.date.includes(boardFilter) ||
+          formatDatePretty(n.date).toLowerCase().includes(boardFilter.toLowerCase())),
+      )
+      .map((n) => ({
+        id: n.id,
+        type: 'habit' as NoteType,
+        primary: n.text || '(no text)',
+        secondary: n.date ? formatDatePretty(n.date) : undefined,
+        tags: n.tags,
+      }))
+
+    return [...topicCards, ...dailyCards, ...habitCards]
+  }, [topicNotes, dailyNotes, habits, showInbox, boardFilter])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit'
     ? activeTab.type
@@ -691,7 +644,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          </Stack>
        </Stack>
 
-       {/* ── 3-column list ────────────────────────────────── */}
+       {/* ── Inbox banner ─────────────────────────────────── */}
        {showInbox && (
          <Stack
            direction="row"
@@ -705,61 +658,53 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            </Typography>
          </Stack>
        )}
-       <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
-         {/* Topic Notes */}
-         <NoteColumn
-           title="Topic Notes"
-           icon={<NoteAddIcon sx={{ fontSize: 14 }} />}
-           objectType="topic-note"
-           items={filteredTopics.map((n) => ({
-             id: n.id,
-             primary: n.title || '(untitled)',
-              secondary: n.preview || (n.date ? formatDatePretty(n.date) : undefined),
-             tags: n.tags,
-           }))}
-            loading={loading}
-            filter={topicFilter}
-            onFilterChange={setTopicFilter}
-            selectedId={activeNoteType === 'topic-note' ? activeNoteId : null}
-            onSelect={(id, options) => void handleSelectItem(id, 'topic-note', options)}
-          />
+       {/* ── Board filter ─────────────────────────────────── */}
+       <Box sx={{ mb: 1.5, flexShrink: 0 }}>
+         <TextField
+           size="small"
+           fullWidth
+           placeholder="Filter all notes…"
+           value={boardFilter}
+           onChange={(e) => setBoardFilter(e.target.value)}
+           variant="outlined"
+           sx={{
+             '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
+             '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
+           }}
+         />
+       </Box>
 
-         {/* Daily Notes */}
-         <NoteColumn
-           title="Daily Notes"
-           icon={<CalendarTodayIcon sx={{ fontSize: 14 }} />}
-           objectType="daily-note"
-           items={filteredDailies.map((n) => ({
-             id: n.id,
-              primary: formatDatePretty(n.date),
-             secondary: n.preview || undefined,
-             tags: n.tags,
-           }))}
-            loading={loading}
-            filter={dailyFilter}
-            onFilterChange={setDailyFilter}
-            selectedId={activeNoteType === 'daily-note' ? activeNoteId : null}
-            onSelect={(id, options) => void handleSelectItem(id, 'daily-note', options)}
-          />
-
-         {/* Habits */}
-         <NoteColumn
-           title="Habits"
-           icon={<RepeatIcon sx={{ fontSize: 14 }} />}
-           objectType="habit"
-           items={filteredHabits.map((n) => ({
-             id: n.id,
-             primary: n.text || '(no text)',
-              secondary: n.date ? formatDatePretty(n.date) : undefined,
-             tags: n.tags,
-           }))}
-            loading={loading}
-            filter={habitFilter}
-            onFilterChange={setHabitFilter}
-            selectedId={activeNoteType === 'habit' ? activeNoteId : null}
-            onSelect={(id, options) => void handleSelectItem(id, 'habit', options)}
-          />
-        </Stack>
+       {/* ── Unified masonry card board ────────────────────── */}
+       {loading ? (
+         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4, flexShrink: 0 }}>
+           <CircularProgress size={24} />
+         </Box>
+       ) : allCards.length === 0 ? (
+         <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block', flexShrink: 0 }}>
+           {boardFilter || showInbox ? 'No matches' : 'Nothing here yet'}
+         </Typography>
+       ) : (
+         <Box
+           sx={{
+             columns: '260px',
+             columnGap: 1.5,
+             overflow: 'auto',
+             flex: 1,
+             minHeight: 0,
+             '& > *': { mb: 1.5 },
+           }}
+         >
+           {allCards.map((card) => (
+             <NoteCard
+               key={`${card.type}:${card.id}`}
+               card={card}
+               selectedId={activeNoteId}
+               selectedType={activeNoteType}
+               onSelect={handleSelectItem}
+             />
+           ))}
+         </Box>
+       )}
 
        {/* ── Create Modal Dialog ── */}
        <Dialog
