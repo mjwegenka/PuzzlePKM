@@ -36,14 +36,14 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Calendar View** – Navigate daily notes by date
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
-- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation
+- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-49`](./IMPLEMENTATION_DECISIONS.md))
 - **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy `dropboxPath` still resolves for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
-- **Sidebar Navigation** – Quick access to all views
-- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally
+- **Sidebar Navigation** – Quick access to all views with Collections-based layout (see [`DEC-50`](./IMPLEMENTATION_DECISIONS.md))
+- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally (see [`DEC-48`](./IMPLEMENTATION_DECISIONS.md))
 
-See [DESKTOP_UI_GUIDE.md](./DESKTOP_UI_GUIDE.md) for detailed UI architecture and layout specifications.
+See [HEPTABASE_INTERFACE_CHANGE_PLAN.md](./HEPTABASE_INTERFACE_CHANGE_PLAN.md) for the current desktop UI design and implementation roadmap.
 
 ## Development Setup
 
@@ -214,7 +214,7 @@ npm run issues:queue
 npm run issues:queue:apply
 ```
 
-For full details on automated issue sequencing and Copilot PR merging, see [`SEQUENCING.md`](./SEQUENCING.md).
+For full details on automated issue sequencing and Copilot PR merging, see [`archive/SEQUENCING_v1.md`](./archive/SEQUENCING_v1.md).
 
 ## SQLite scale benchmark
 

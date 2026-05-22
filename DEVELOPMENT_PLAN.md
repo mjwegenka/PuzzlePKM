@@ -105,7 +105,7 @@ A write-only iPhone app (`ios/`) lets users capture daily notes and habits on th
 ## Desktop UI Contract Plan (Tauri Desktop Shell)
 Status: **Planned**
 
-Desktop version in this repo means the `>=768px` shell behavior defined in `UI_Design_Contract.json`, hosted in a Tauri wrapper.
+Desktop version in this repo means the responsive shell behavior defined in `HEPTABASE_INTERFACE_CHANGE_PLAN.md`, hosted in a Tauri wrapper.
 
 ### Stage 10: Token + Theme Foundation
 - Map contract tokens into a single source (`src/theme.ts` + CSS variables): color, typography, radius, shadow, focus, motion, layout.
