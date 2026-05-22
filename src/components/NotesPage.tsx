@@ -23,7 +23,6 @@ import {
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
-import AddIcon from '@mui/icons-material/Add'
 import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
@@ -629,19 +628,27 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          {/* Search input */}
          <TextField
            size="small"
-           placeholder="Find a card…"
+          placeholder="Find a card..."
            value={boardFilter}
            onChange={(e) => setBoardFilter(e.target.value)}
            variant="outlined"
            sx={{
-             width: 200,
+            width: 220,
              flexShrink: 0,
-             '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
-             '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
+            '& .MuiOutlinedInput-root': {
+              minHeight: 30,
+              fontSize: '12px',
+              bgcolor: 'surface.sunken',
+              color: 'text.secondary',
+              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'accent.selected' },
+            },
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+            '& .MuiOutlinedInput-input::placeholder': { color: 'text.disabled', opacity: 1 },
            }}
            slotProps={{
              input: {
-               startAdornment: <SearchIcon sx={{ fontSize: 15, color: '#4a6a8a', mr: 0.5, flexShrink: 0 }} />,
+               startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5, flexShrink: 0 }} />,
              },
            }}
          />
@@ -650,18 +657,20 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          <Button
            variant="outlined"
            size="small"
-           startIcon={<AddIcon sx={{ fontSize: 14 }} />}
            onClick={handleNewNote}
            sx={{
              flexShrink: 0,
              fontSize: '12px',
-             py: '3px',
-             borderColor: '#1c3558',
-             color: '#7dbad6',
-             '&:hover': { borderColor: '#2a4a6a', bgcolor: 'rgba(26,138,181,0.08)' },
+             minHeight: 30,
+             px: 1,
+             py: 0.25,
+             borderColor: 'border.subtle',
+             color: 'text.secondary',
+             bgcolor: 'surface.sunken',
+             '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
            }}
          >
-           Card
+           +Card
          </Button>
 
          {/* Filter chip placeholders */}
