@@ -47,6 +47,13 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'scripture': 'Scripture',
 }
 
+const CARD_BACKGROUND = '#0e2038'
+const CARD_HOVER_BACKGROUND = '#122845'
+const CARD_BORDER = '#1c3558'
+const CARD_HOVER_BORDER = '#26466f'
+const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
+const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
+
 function TypeIcon({ type }: { type: ObjectType }) {
   const sx = { fontSize: 11 }
   if (type === 'topic-note') return <NoteAddIcon sx={sx} />
@@ -77,23 +84,23 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       onClick={onClick}
       title={title}
       sx={{
-        bgcolor: '#0e2038',
-        border: `1px solid ${isSelected ? token.accent : '#1c3558'}`,
+        bgcolor: CARD_BACKGROUND,
+        border: `1px solid ${isSelected ? token.accent : CARD_BORDER}`,
         boxShadow: isSelected
           ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
           : 'none',
         borderRadius: '10px',
         p: 2,
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
+        transition: CARD_TRANSITION,
         breakInside: 'avoid',
         '&:hover': onClick
           ? {
-              bgcolor: token.bg,
-              borderColor: isSelected ? token.accent : token.border,
+              bgcolor: CARD_HOVER_BACKGROUND,
+              borderColor: isSelected ? token.accent : CARD_HOVER_BORDER,
               boxShadow: isSelected
-                ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
-                : 'none',
+                ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}, ${CARD_HOVER_SHADOW}`
+                : CARD_HOVER_SHADOW,
             }
           : {},
       }}
@@ -111,11 +118,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <TypeIcon type={card.type} />
           <Typography
             component="span"
+            variant="metadata-caption"
             sx={{
-              fontSize: '11px',
-              fontWeight: 500,
               color: token.text,
-              letterSpacing: '0.3px',
               textTransform: 'uppercase',
             }}
           >
@@ -127,7 +132,8 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         {card.metadata && (
           <Typography
             component="span"
-            sx={{ fontSize: '11px', color: '#4a6a8a', letterSpacing: '0.2px' }}
+            variant="metadata-caption"
+            sx={{ color: '#4a6a8a' }}
           >
             · {card.metadata}
           </Typography>
@@ -153,11 +159,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
       {/* 2. Title / date — large, prominent */}
       <Typography
+        variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
         sx={{
-          fontSize: '19px',
-          fontWeight: 600,
           color: '#e4f0fb',
-          lineHeight: 1.3,
           wordBreak: 'break-word',
           mb: card.snippet || card.mediaUrl ? 0.75 : 0,
         }}
@@ -168,10 +172,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <Typography
+          variant="snippet-body"
           sx={{
-            fontSize: '14px',
             color: '#6b8fae',
-            lineHeight: 1.5,
             wordBreak: 'break-word',
             display: '-webkit-box',
             WebkitLineClamp: 4,
