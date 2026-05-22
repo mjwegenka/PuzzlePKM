@@ -1,5 +1,8 @@
 import Foundation
 import SwiftyDropbox
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Errors
 
@@ -79,6 +82,7 @@ final class DropboxService: ObservableObject {
             scopes: ["files.content.write", "files.content.read"],
             includeGrantedScopes: false
         )
+#if canImport(UIKit)
         guard
             let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let rootVC = windowScene.windows.first?.rootViewController
@@ -91,6 +95,9 @@ final class DropboxService: ObservableObject {
             openURL: { UIApplication.shared.open($0) },
             scopeRequest: scopeRequest
         )
+#else
+        errorMessage = "Dropbox authentication requires a UIKit app environment."
+#endif
     }
 
     /// Handle the OAuth redirect URL from the app delegate / scene delegate.
@@ -106,7 +113,6 @@ final class DropboxService: ObservableObject {
         }
         didHandle = DropboxClientsManager.handleRedirectURL(
             url,
-            includeBackgroundClient: false,
             completion: oauthCompletion
         )
         return didHandle
