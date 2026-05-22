@@ -598,7 +598,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
   }
 
    return (
-     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
        {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
        <Stack
          direction="row"
@@ -692,52 +692,51 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          </IconButton>
        </Stack>
 
-       {/* ── Inbox banner ─────────────────────────────────── */}
-       {showInbox && (
-         <Stack
-           direction="row"
-           alignItems="center"
-           spacing={0.75}
-           sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'rgba(232,168,74,0.08)', borderRadius: '6px', border: '1px solid rgba(232,168,74,0.2)', flexShrink: 0 }}
-         >
-           <MoveToInboxIcon sx={{ fontSize: 14, color: '#e8a84a' }} />
-           <Typography variant="caption" sx={{ color: '#e8a84a', fontWeight: 600, fontSize: '11px' }}>
-             Inbox — showing only newly imported objects tagged Inbox
-           </Typography>
-         </Stack>
-       )}
+       <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+         {/* ── Inbox banner ─────────────────────────────────── */}
+         {showInbox && (
+           <Stack
+             direction="row"
+             alignItems="center"
+             spacing={0.75}
+             sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'rgba(232,168,74,0.08)', borderRadius: '6px', border: '1px solid rgba(232,168,74,0.2)' }}
+           >
+             <MoveToInboxIcon sx={{ fontSize: 14, color: '#e8a84a' }} />
+             <Typography variant="caption" sx={{ color: '#e8a84a', fontWeight: 600, fontSize: '11px' }}>
+               Inbox — showing only newly imported objects tagged Inbox
+             </Typography>
+           </Stack>
+         )}
 
-       {/* ── Unified masonry card board ────────────────────── */}
-       {loading ? (
-         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4, flexShrink: 0 }}>
-           <CircularProgress size={24} />
-         </Box>
-       ) : allCards.length === 0 ? (
-         <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block', flexShrink: 0 }}>
-           {boardFilter || showInbox ? 'No matches' : 'Nothing here yet'}
-         </Typography>
-       ) : (
-         <Box
-           sx={{
-             columns: '260px',
-             columnGap: 1.5,
-             overflow: 'auto',
-             flex: 1,
-             minHeight: 0,
-             '& > *': { mb: 1.5 },
-           }}
-         >
-           {allCards.map((card) => (
-             <NoteCard
-               key={`${card.type}:${card.id}`}
-               card={card}
-               selectedId={activeNoteId}
-               selectedType={activeNoteType}
-               onSelect={handleSelectItem}
-             />
-           ))}
-         </Box>
-       )}
+         {/* ── Unified masonry card board ────────────────────── */}
+         {loading ? (
+           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+             <CircularProgress size={24} />
+           </Box>
+         ) : allCards.length === 0 ? (
+           <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block' }}>
+             {boardFilter || showInbox ? 'No matches' : 'Nothing here yet'}
+           </Typography>
+         ) : (
+           <Box
+             sx={{
+               columns: '260px',
+               columnGap: 1.5,
+               '& > *': { mb: 1.5 },
+             }}
+           >
+             {allCards.map((card) => (
+               <NoteCard
+                 key={`${card.type}:${card.id}`}
+                 card={card}
+                 selectedId={activeNoteId}
+                 selectedType={activeNoteType}
+                 onSelect={handleSelectItem}
+               />
+             ))}
+           </Box>
+         )}
+       </Box>
 
        {/* ── Create Modal Dialog ── */}
        <Dialog
