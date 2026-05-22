@@ -98,6 +98,37 @@ interface BoardCard extends NoteCardData {
   type: NoteType
 }
 
+function sanitizeCardText(value: string): string {
+  return String(value)
+    // Remove block-id comments that can leak into previews.
+    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
+    // Remove generic HTML comments.
+    .replace(/<!--[^]*?-->/g, ' ')
+    // Remove HTML tags like <br>, <div>, etc.
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
+  const trimmedTitle = sanitizeCardText(title)
+  if (trimmedTitle) return trimmedTitle
+
+  // Strip block-id comments and markdown artifacts from previews before using as a fallback title.
+  const previewCandidate = sanitizeCardText(preview)
+    .replaceAll('[', ' ')
+    .replaceAll(']', ' ')
+    .replace(/[*_`#>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (previewCandidate) {
+    return previewCandidate.slice(0, 60)
+  }
+
+  if (date) return formatDatePretty(date)
+  return 'Topic Note'
+}
+
 // ── Create panel (type selector + blank editor) ───────────────────────────────
 
 interface CreatePanelProps {
@@ -448,9 +479,9 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       .map((n) => ({
         id: n.id,
         type: 'topic-note' as NoteType,
-        title: n.title || '(untitled)',
+        title: deriveTopicCardTitle(n.title, n.preview, n.date),
         metadata: n.date ? formatDatePretty(n.date) : undefined,
-        snippet: n.preview || undefined,
+        snippet: sanitizeCardText(n.preview) || undefined,
         tags: n.tags,
       }))
 
@@ -466,7 +497,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
         id: n.id,
         type: 'daily-note' as NoteType,
         title: formatDatePretty(n.date),
-        snippet: n.preview || undefined,
+        snippet: sanitizeCardText(n.preview) || undefined,
         tags: n.tags,
       }))
 
@@ -481,7 +512,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
-        title: n.text || '(no text)',
+        title: sanitizeCardText(n.text) || '(no text)',
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         tags: n.tags,
       }))
@@ -656,19 +687,20 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          ) : (
            <Box
              sx={{
-               columns: '260px',
-               columnGap: 1.5,
-               '& > *': { mb: 1.5 },
+               display: 'grid',
+               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+               gap: 1.5,
+               alignItems: 'start',
              }}
            >
              {allCards.map((card) => (
-               <NoteCard
-                 key={`${card.type}:${card.id}`}
-                 card={card}
-                 isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                 onClick={(e) => handleSelectItem(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
-                 title="Click to open • Ctrl/Cmd-click to open in new tab"
-               />
+                <NoteCard
+                  key={`${card.type}:${card.id}`}
+                  card={card}
+                  isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                  onClick={(e) => handleSelectItem(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
+                  title="Click to open • Ctrl/Cmd-click to open in new tab"
+                />
              ))}
            </Box>
          )}
@@ -680,17 +712,19 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          onClose={handleCloseEditor}
          maxWidth={false}
          fullWidth
-         PaperProps={{
-           sx: {
-             bgcolor: '#0e2038',
-             border: '1px solid #1c3558',
-             borderRadius: '8px',
-             width: 'calc(100vw - 32px)',
-             maxWidth: 'none',
-             height: 'calc(100vh - 32px)',
-             maxHeight: 'none',
-             display: 'flex',
-             flexDirection: 'column',
+         slotProps={{
+           paper: {
+             sx: {
+               bgcolor: '#0e2038',
+               border: '1px solid #1c3558',
+               borderRadius: '8px',
+               width: 'calc(100vw - 32px)',
+               maxWidth: 'none',
+               height: 'calc(100vh - 32px)',
+               maxHeight: 'none',
+               display: 'flex',
+               flexDirection: 'column',
+             },
            },
          }}
        >
@@ -702,7 +736,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
              <CloseIcon fontSize="small" />
            </MuiIconButton>
          </DialogTitle>
-         <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+         <DialogContent sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid #1c3558', borderBottom: '1px solid #1c3558' }}>
            <CreatePanel
              createType={createType}
              createKey={createKey}
@@ -725,17 +759,19 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
           onClose={handleCloseEditor}
          maxWidth={false}
          fullWidth
-         PaperProps={{
-           sx: {
-             bgcolor: '#0e2038',
-             border: '1px solid #1c3558',
-             borderRadius: '8px',
-             width: 'calc(100vw - 32px)',
-             maxWidth: 'none',
-             height: 'calc(100vh - 32px)',
-             maxHeight: 'none',
-             display: 'flex',
-             flexDirection: 'column',
+         slotProps={{
+           paper: {
+             sx: {
+               bgcolor: '#0e2038',
+               border: '1px solid #1c3558',
+               borderRadius: '8px',
+               width: 'calc(100vw - 32px)',
+               maxWidth: 'none',
+               height: 'calc(100vh - 32px)',
+               maxHeight: 'none',
+               display: 'flex',
+               flexDirection: 'column',
+             },
            },
          }}
        >
@@ -784,7 +820,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
               <CloseIcon fontSize="small" />
             </MuiIconButton>
           </DialogTitle>
-          <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <DialogContent sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid #1c3558', borderBottom: '1px solid #1c3558' }}>
              {activeTab ? (
                <EditorErrorBoundary>
                  <ObjectEditor

@@ -113,6 +113,20 @@ function relativeDropboxPath(fromDir: string, targetPath: string): string {
   return [...up, ...down].join('/') || targetSegments[targetSegments.length - 1] || targetPath;
 }
 
+function isExternalHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(value: string): void {
+  if (typeof window === 'undefined') return;
+  window.open(value, '_blank', 'noopener,noreferrer');
+}
+
 function isEffectivelyEmptyNoteContent(value: string): boolean {
   const normalized = value
     .replace(/<br\s*\/?>/gi, '')
@@ -431,25 +445,31 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   }, [onNavigateToObject]);
 
   const handleShiftClickLink = useCallback(async (href: string, options?: { forceNewTab?: boolean }) => {
-    if (!onNavigateToObject) return;
-    try {
-      const currentPath = normalizeDropboxPath(((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined)));
-      const target = await resolveObjectFromLinkPath(href, currentPath);
-
-      if (!target) {
-        setSaveError(`Could not resolve linked object: ${href}`);
-        return;
-      }
-
-      if (isDirty) {
-        setPendingNavigation({ target, options });
-        return;
-      }
-
-      await executeNavigation(target, options);
-    } catch (err) {
-      setSaveError(`Failed to open linked object: ${String(err)}`);
+    const normalizedHref = href.trim();
+    if (isExternalHttpUrl(normalizedHref)) {
+      openExternalUrl(normalizedHref);
+      return;
     }
+
+    if (!onNavigateToObject) return;
+     try {
+       const currentPath = normalizeDropboxPath(((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined)));
+       const target = await resolveObjectFromLinkPath(normalizedHref, currentPath);
+ 
+       if (!target) {
+         setSaveError(`Could not resolve linked object: ${normalizedHref}`);
+         return;
+       }
+
+       if (isDirty) {
+         setPendingNavigation({ target, options });
+         return;
+       }
+
+       await executeNavigation(target, options);
+     } catch (err) {
+       setSaveError(`Failed to open linked object: ${String(err)}`);
+     }
   }, [executeNavigation, isDirty, object?.dropboxPath, object?.syncPath, onNavigateToObject]);
 
   const handleDiscardAndNavigate = async () => {
@@ -676,7 +696,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
               blocks={isNoteType ? noteBlocks : undefined}
               onBlocksChange={isNoteType ? setNoteBlocks : undefined}
               maxLength={type === 'habit' ? 255 : undefined}
-              onShiftClickLink={onNavigateToObject ? handleShiftClickLink : undefined}
+              onShiftClickLink={handleShiftClickLink}
             />
           </Box>
         )}

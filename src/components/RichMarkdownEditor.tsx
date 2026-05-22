@@ -29,6 +29,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import CharacterCount from '@tiptap/extension-character-count'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
+import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
 import { DragHandle } from './DragHandle'
 import { searchObjects } from '../lib/cliService'
@@ -216,6 +217,15 @@ function findAnchorTarget(target: EventTarget | null): HTMLAnchorElement | null 
   return null
 }
 
+function isExternalHttpUrl(href: string): boolean {
+  try {
+    const parsed = new URL(href)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export default function RichMarkdownEditor({
   value,
   onChange,
@@ -307,21 +317,44 @@ export default function RichMarkdownEditor({
     })
   }, [onShiftClickLink])
 
-  const handleModifiedLinkClick = useCallback((event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; target: EventTarget | null; preventDefault: () => void; stopPropagation?: () => void }) => {
+   const openExternalLink = useCallback((href: string) => {
+     const now = Date.now()
+     const key = `external:${href}`
+     const lastHandled = lastHandledLinkRef.current
+     if (lastHandled && lastHandled.href === key && now - lastHandled.at < 250) return
+     lastHandledLinkRef.current = { href: key, at: now }
+     if (typeof window === 'undefined') return
+
+     // Try to use Tauri's invoke command to open URLs via desktop
+     void invoke<void>('open_url', { url: href }).catch(() => {
+       // Fallback to window.open for web environments where Tauri is not available
+       if (typeof window !== 'undefined') {
+         window.open(href, '_blank', 'noopener,noreferrer')
+       }
+     })
+   }, [])
+
+  const handleModifiedLinkClick = useCallback((event: { type: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; target: EventTarget | null; preventDefault: () => void; stopPropagation?: () => void }) => {
     const anchor = findAnchorTarget(event.target)
     if (!anchor) return
 
     const href = anchor.getAttribute('href')?.trim()
     if (!href) return
 
-    // Never allow browser-level navigation from links inside the editor.
     event.preventDefault()
     event.stopPropagation?.()
+
+    if (isExternalHttpUrl(href)) {
+      if (event.type === 'click' || event.type === 'auxclick') {
+        openExternalLink(href)
+      }
+      return
+    }
 
     const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
     if (!hasOpenModifier || !onShiftClickLink) return
     openLinkedObject(href, { forceNewTab: event.metaKey || event.ctrlKey })
-  }, [onShiftClickLink, openLinkedObject])
+  }, [onShiftClickLink, openExternalLink, openLinkedObject])
 
   const insertMentionLink = useCallback(
     async (option: MentionOption, activeEditor?: Editor | null) => {
@@ -488,9 +521,15 @@ export default function RichMarkdownEditor({
       const href = anchor?.getAttribute('href')?.trim()
       if (!anchor || !href) return
 
-      // Block native navigation paths inside the editor in all cases.
       event.preventDefault()
       event.stopPropagation()
+
+      if (isExternalHttpUrl(href)) {
+        if (event.type === 'click' || event.type === 'auxclick') {
+          openExternalLink(href)
+        }
+        return
+      }
 
       const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
       if (!hasOpenModifier || !onShiftClickLink) return
@@ -508,7 +547,7 @@ export default function RichMarkdownEditor({
       root.removeEventListener('click', interceptAnchorEvent, true)
       root.removeEventListener('auxclick', interceptAnchorEvent, true)
     }
-  }, [editor, onShiftClickLink, openLinkedObject])
+  }, [editor, onShiftClickLink, openExternalLink, openLinkedObject])
 
   const handleLinkPrompt = () => {
     if (!editor) return

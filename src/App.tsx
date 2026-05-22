@@ -82,21 +82,22 @@ export default function App() {
 
   // ── New Note: after save, jump to calendar ───────────────────────────────
   return (
-    <Box sx={{ display: 'flex', bgcolor: '#0b1828', minHeight: '100vh', color: '#e4f0fb' }}>
+    <Box sx={{ display: 'flex', bgcolor: '#0b1828', height: '100vh', overflow: 'hidden', color: '#e4f0fb' }}>
       <NavigationSidebar
         currentSection={currentSection}
         onNavigate={handleNavigate}
         onNavigateToPinned={handleNavigateToPinned}
       />
 
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
+      <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
         <Box
           sx={{
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden',
+            overflow: 'auto',
             p: 2,
+            minHeight: 0,
           }}
         >
           {/* ── CALENDAR ─────────────────────────────────────────────────── */}

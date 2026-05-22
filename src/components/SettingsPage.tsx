@@ -155,7 +155,7 @@ export default function SettingsPage() {
   const normalizedSyncRootPreview = normalizeSyncRootInput(syncRoot)
 
   return (
-    <Box sx={{ maxWidth: 680, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2.5, pb: 4 }}>
+    <Box sx={{ maxWidth: 680, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2.5, pb: 4, pr: 2 }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={1.5}>
         <SettingsIcon sx={{ color: '#1a8ab5', fontSize: 28 }} />
@@ -169,8 +169,8 @@ export default function SettingsPage() {
         </Box>
       </Stack>
 
-      {/* ── CLI Status ─────────────────────────────────────────────────────── */}
-      <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
+       {/* ── CLI Status ─────────────────────────────────────────────────────── */}
+       <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <InfoIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
           <Typography
@@ -245,8 +245,8 @@ export default function SettingsPage() {
         )}
       </Paper>
 
-      {/* ── Storage ────────────────────────────────────────────────────────── */}
-      <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
+       {/* ── Storage ────────────────────────────────────────────────────────── */}
+       <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <StorageIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
           <Typography
@@ -311,8 +311,8 @@ export default function SettingsPage() {
         )}
       </Paper>
 
-      {/* ── Sync ───────────────────────────────────────────────────────────── */}
-      <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
+       {/* ── Sync ───────────────────────────────────────────────────────────── */}
+       <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <CloudIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
           <Typography
@@ -422,8 +422,8 @@ export default function SettingsPage() {
         </Typography>
       </Paper>
 
-      {/* ── About ──────────────────────────────────────────────────────────── */}
-      <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
+       {/* ── About ──────────────────────────────────────────────────────────── */}
+       <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <InfoIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
           <Typography

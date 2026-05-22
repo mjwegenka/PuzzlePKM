@@ -57,9 +57,47 @@ fn run_dropith_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunRes
     })
 }
 
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    use std::process::Stdio;
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Failed to open URL: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(&["/C", "start", &url])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Failed to open URL: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Failed to open URL: {error}"))?;
+        Ok(())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![run_dropith_cli])
+        .invoke_handler(tauri::generate_handler![run_dropith_cli, open_url])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
