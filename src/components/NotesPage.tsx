@@ -620,52 +620,9 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
    return (
      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
        {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
-       <Stack
-         direction="row"
-         alignItems="center"
-         spacing={1}
-         sx={{ mb: 1, flexShrink: 0 }}
-       >
-         {/* Search input */}
-         <TextField
-           size="small"
-           placeholder="Find a card…"
-           value={boardFilter}
-           onChange={(e) => setBoardFilter(e.target.value)}
-           variant="outlined"
-           sx={{
-             width: 200,
-             flexShrink: 0,
-             '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
-             '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
-           }}
-           slotProps={{
-             input: {
-               startAdornment: <SearchIcon sx={{ fontSize: 15, color: '#4a6a8a', mr: 0.5, flexShrink: 0 }} />,
-             },
-           }}
-         />
-
-         {/* +Card button */}
-         <Button
-           variant="outlined"
-           size="small"
-           startIcon={<AddIcon sx={{ fontSize: 14 }} />}
-           onClick={handleNewNote}
-           sx={{
-             flexShrink: 0,
-             fontSize: '12px',
-             py: '3px',
-             borderColor: '#1c3558',
-             color: '#7dbad6',
-             '&:hover': { borderColor: '#2a4a6a', bgcolor: 'rgba(26,138,181,0.08)' },
-           }}
-         >
-           Card
-         </Button>
-
-         {/* Filter chip placeholders */}
-         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
+       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
+         {/* Filter chip row */}
+         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
            <FilterChip
              icon={<TuneIcon />}
              label="Card type"
@@ -709,22 +666,62 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            />
          </Stack>
 
-         {/* Inbox toggle */}
-         <IconButton
-           size="small"
-           onClick={() => setShowInbox((v) => !v)}
-           title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-           sx={{
-             color: showInbox ? '#e8a84a' : '#4a6a8a',
-             bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
-             border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
-             borderRadius: '6px',
-             flexShrink: 0,
-             '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
-           }}
-         >
-           <MoveToInboxIcon sx={{ fontSize: 18 }} />
-         </IconButton>
+         <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
+           {/* Search input */}
+           <TextField
+             size="small"
+             placeholder="Find a card…"
+             value={boardFilter}
+             onChange={(e) => setBoardFilter(e.target.value)}
+             variant="outlined"
+             sx={{
+               width: 200,
+               flexShrink: 0,
+               '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
+               '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
+             }}
+             slotProps={{
+               input: {
+                 startAdornment: <SearchIcon sx={{ fontSize: 15, color: '#4a6a8a', mr: 0.5, flexShrink: 0 }} />,
+               },
+             }}
+           />
+
+           {/* +Card button */}
+           <Button
+             variant="outlined"
+             size="small"
+             startIcon={<AddIcon sx={{ fontSize: 14 }} />}
+             onClick={handleNewNote}
+             sx={{
+               flexShrink: 0,
+               fontSize: '12px',
+               py: '3px',
+               borderColor: '#1c3558',
+               color: '#7dbad6',
+               '&:hover': { borderColor: '#2a4a6a', bgcolor: 'rgba(26,138,181,0.08)' },
+             }}
+           >
+             Card
+           </Button>
+
+           {/* Inbox toggle */}
+           <IconButton
+             size="small"
+             onClick={() => setShowInbox((v) => !v)}
+             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+             sx={{
+               color: showInbox ? '#e8a84a' : '#4a6a8a',
+               bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
+               border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
+               borderRadius: '6px',
+               flexShrink: 0,
+               '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+             }}
+           >
+             <MoveToInboxIcon sx={{ fontSize: 18 }} />
+           </IconButton>
+         </Stack>
        </Stack>
 
        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
