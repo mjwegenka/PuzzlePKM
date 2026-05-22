@@ -228,14 +228,6 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         },
       }}
     >
-      <Box sx={{ p: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-          PuzzlePKM
-        </Typography>
-        <Typography variant="caption" sx={{ color: '#7dbad6' }}>
-          Knowledge Management
-        </Typography>
-      </Box>
 
       <Divider sx={{ borderColor: '#1c3558' }} />
 

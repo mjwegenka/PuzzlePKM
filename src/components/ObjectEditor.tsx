@@ -183,6 +183,14 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const defaultDate =
     type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
 
+  // Keep a stable ref to the latest onDirty callback so that effects that
+  // should only re-run on data changes (not callback identity changes) can
+  // call the current version without listing onDirty as a dependency.
+  const onDirtyRef = useRef(onDirty);
+  useEffect(() => {
+    onDirtyRef.current = onDirty;
+  });
+
   const initialRef = useRef<{ title: string; author: string; date: string; content: string; tags: string[] }>({
     title: '',
     author: '',
@@ -244,8 +252,11 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     setIsDirty(false);
     setPendingNavigation(null);
     mentionTargetBlockCacheRef.current = new Map();
-    onDirty?.(false);
-  }, [object, defaultDate, type, onDirty]);
+    onDirtyRef.current?.(false);
+  // onDirty intentionally excluded – it's a callback and must not trigger a
+  // form reset when its reference changes (e.g. inline function in parent).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [object, defaultDate, type]);
 
   const resolveMentionHref = useCallback(
     async (option: MentionOption) => {
@@ -447,7 +458,11 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const handleSaveAndNavigate = async () => {
     if (!pendingNavigation) return;
     try {
-      await persistCurrentObject();
+      const saved = await persistCurrentObject();
+      // Notify the parent so it can update the tab object in its own state.
+      // Without this the tab would still hold the pre-edit object and the
+      // editor would show stale content when the user navigates back to it.
+      onSave?.(saved);
       await executeNavigation(pendingNavigation.target, pendingNavigation.options);
       setPendingNavigation(null);
     } catch {
@@ -465,8 +480,10 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       content !== baseline.content ||
       JSON.stringify(tags) !== JSON.stringify(baseline.tags);
     setIsDirty(isDirty);
-    onDirty?.(isDirty);
-  }, [title, author, date, content, tags, onDirty]);
+    onDirtyRef.current?.(isDirty);
+  // onDirty intentionally excluded – see onDirtyRef above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, author, date, content, tags]);
 
   useEffect(() => {
     if (type !== 'daily-note' || !onDateChange) return;

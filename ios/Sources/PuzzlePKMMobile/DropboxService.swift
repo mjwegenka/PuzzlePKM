@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftyDropbox
 #if canImport(UIKit)
 import UIKit
