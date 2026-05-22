@@ -511,65 +511,12 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
     return (tab.object.title as string | undefined)?.trim() || 'Topic Note'
   }
 
-   return (
-     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
-       {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
-       <Stack
-         direction="row"
-         alignItems="center"
-         spacing={1}
-         sx={{ mb: 1, flexShrink: 0 }}
-       >
-         {/* Search input */}
-         <TextField
-           size="small"
-          placeholder="Find a card..."
-           value={boardFilter}
-           onChange={(e) => setBoardFilter(e.target.value)}
-           variant="outlined"
-           sx={{
-            width: 220,
-             flexShrink: 0,
-            '& .MuiOutlinedInput-root': {
-              minHeight: 30,
-              fontSize: '12px',
-              bgcolor: 'surface.sunken',
-              color: 'text.secondary',
-              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'accent.selected' },
-            },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
-            '& .MuiOutlinedInput-input::placeholder': { color: 'text.disabled', opacity: 1 },
-           }}
-           slotProps={{
-             input: {
-               startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5, flexShrink: 0 }} />,
-             },
-           }}
-         />
-
-         {/* +Card button */}
-         <Button
-           variant="outlined"
-           size="small"
-           onClick={handleNewNote}
-           sx={{
-             flexShrink: 0,
-             fontSize: '12px',
-             minHeight: 30,
-             px: 1,
-             py: 0.25,
-             borderColor: 'border.subtle',
-             color: 'text.secondary',
-             bgcolor: 'surface.sunken',
-             '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
-           }}
-         >
-           +Card
-         </Button>
-
-         {/* Filter chip placeholders */}
-         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
+        {/* Filter chip row */}
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
            <FilterChip
              icon={<TuneIcon />}
              label="Card type"
@@ -613,23 +560,73 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            />
          </Stack>
 
-         {/* Inbox toggle */}
-         <IconButton
-           size="small"
-           onClick={() => setShowInbox((v) => !v)}
-           title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-           sx={{
-             color: showInbox ? '#e8a84a' : '#4a6a8a',
-             bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
-             border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
-             borderRadius: '6px',
-             flexShrink: 0,
-             '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
-           }}
-         >
-           <MoveToInboxIcon sx={{ fontSize: 18 }} />
-         </IconButton>
-       </Stack>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
+          {/* Search input */}
+          <TextField
+            size="small"
+            placeholder="Find a card..."
+            value={boardFilter}
+            onChange={(e) => setBoardFilter(e.target.value)}
+            variant="outlined"
+            sx={{
+              width: 220,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                minHeight: 30,
+                fontSize: '12px',
+                bgcolor: 'surface.sunken',
+                color: 'text.secondary',
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'accent.selected' },
+              },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+              '& .MuiOutlinedInput-input::placeholder': { color: 'text.disabled', opacity: 1 },
+            }}
+            slotProps={{
+              input: {
+                startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5, flexShrink: 0 }} />,
+              },
+            }}
+          />
+
+          {/* +Card button */}
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleNewNote}
+            sx={{
+              flexShrink: 0,
+              fontSize: '12px',
+              minHeight: 30,
+              px: 1,
+              py: 0.25,
+              borderColor: 'border.subtle',
+              color: 'text.secondary',
+              bgcolor: 'surface.sunken',
+              '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
+            }}
+          >
+            +Card
+          </Button>
+
+          {/* Inbox toggle */}
+          <IconButton
+            size="small"
+            onClick={() => setShowInbox((v) => !v)}
+            title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+            sx={{
+              color: showInbox ? '#e8a84a' : '#4a6a8a',
+              bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
+              border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
+              borderRadius: '6px',
+              flexShrink: 0,
+              '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+            }}
+          >
+            <MoveToInboxIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Stack>
+      </Stack>
 
        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
          {/* ── Inbox banner ─────────────────────────────────── */}
