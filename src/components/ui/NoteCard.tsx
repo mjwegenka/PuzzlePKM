@@ -118,11 +118,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <TypeIcon type={card.type} />
           <Typography
             component="span"
+            variant="metadata-caption"
             sx={{
-              fontSize: '11px',
-              fontWeight: 500,
               color: token.text,
-              letterSpacing: '0.3px',
               textTransform: 'uppercase',
             }}
           >
@@ -134,7 +132,8 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         {card.metadata && (
           <Typography
             component="span"
-            sx={{ fontSize: '11px', color: '#4a6a8a', letterSpacing: '0.2px' }}
+            variant="metadata-caption"
+            sx={{ color: '#4a6a8a' }}
           >
             · {card.metadata}
           </Typography>
@@ -160,11 +159,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
       {/* 2. Title / date — large, prominent */}
       <Typography
+        variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
         sx={{
-          fontSize: '19px',
-          fontWeight: 600,
           color: '#e4f0fb',
-          lineHeight: 1.3,
           wordBreak: 'break-word',
           mb: card.snippet || card.mediaUrl ? 0.75 : 0,
         }}
@@ -175,10 +172,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <Typography
+          variant="snippet-body"
           sx={{
-            fontSize: '14px',
             color: '#6b8fae',
-            lineHeight: 1.5,
             wordBreak: 'break-word',
             display: '-webkit-box',
             WebkitLineClamp: 4,

@@ -1,6 +1,21 @@
 import { alpha, createTheme } from '@mui/material/styles'
+import type { CSSProperties } from 'react'
 
 declare module '@mui/material/styles' {
+  interface TypographyVariants {
+    'metadata-caption': CSSProperties
+    'card-title': CSSProperties
+    'card-date': CSSProperties
+    'snippet-body': CSSProperties
+  }
+
+  interface TypographyVariantsOptions {
+    'metadata-caption'?: CSSProperties
+    'card-title'?: CSSProperties
+    'card-date'?: CSSProperties
+    'snippet-body'?: CSSProperties
+  }
+
   interface Palette {
     surface: {
       app: string
@@ -36,6 +51,15 @@ declare module '@mui/material/styles' {
   }
 }
 
+declare module '@mui/material/Typography' {
+  interface TypographyPropsVariantOverrides {
+    'metadata-caption': true
+    'card-title': true
+    'card-date': true
+    'snippet-body': true
+  }
+}
+
 export const neutralDarkTokens = {
   surface: {
     app: '#121315',
@@ -58,7 +82,33 @@ export const neutralDarkTokens = {
   },
 } as const
 
+export const cardTypographyTokens = {
+  'metadata-caption': {
+    fontSize: '11px',
+    fontWeight: 500,
+    lineHeight: 1.4,
+    letterSpacing: '0.3px',
+    color: neutralDarkTokens.text.muted,
+  },
+  'card-title': {
+    fontSize: '19px',
+    fontWeight: 600,
+    lineHeight: 1.3,
+  },
+  'card-date': {
+    fontSize: '19px',
+    fontWeight: 600,
+    lineHeight: 1.3,
+  },
+  'snippet-body': {
+    fontSize: '14px',
+    fontWeight: 400,
+    lineHeight: 1.5,
+  },
+} as const
+
 export const appTheme = createTheme({
+  typography: cardTypographyTokens,
   palette: {
     mode: 'dark',
     background: {
