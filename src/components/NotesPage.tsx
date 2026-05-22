@@ -437,6 +437,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
 
    // Unified card list
   const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
+  const hasActiveBoardFilters = activeFilterChips.cardType || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
   const allCards = useMemo((): BoardCard[] => {
     const topicCards: BoardCard[] = topicNotes
       .filter((n) =>
@@ -486,8 +487,23 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
         tags: n.tags,
       }))
 
-    return [...topicCards, ...dailyCards, ...habitCards]
-  }, [topicNotes, dailyNotes, habits, showInbox, boardFilter])
+    const currentTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
+    const selectedCardType: NoteType | null = isCreating
+      ? createType
+      : currentTab?.type === 'topic-note' || currentTab?.type === 'daily-note' || currentTab?.type === 'habit'
+        ? currentTab.type
+        : null
+    const cards = [...topicCards, ...dailyCards, ...habitCards]
+    return cards.filter((card) => {
+      if (activeFilterChips.cardType && selectedCardType && card.type !== selectedCardType) return false
+
+      const hasTags = (card.tags?.length ?? 0) > 0
+      if (activeFilterChips.tags && !activeFilterChips.untagged && !hasTags) return false
+      if (activeFilterChips.untagged && !activeFilterChips.tags && hasTags) return false
+
+      return true
+    })
+  }, [topicNotes, dailyNotes, habits, showInbox, boardFilter, activeFilterChips, openTabs, activeTabId, isCreating, createType])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit'
     ? activeTab.type
@@ -651,7 +667,7 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            </Box>
          ) : allCards.length === 0 ? (
            <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block' }}>
-             {boardFilter || showInbox ? 'No matches' : 'Nothing here yet'}
+             {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches' : 'Nothing here yet'}
            </Typography>
          ) : (
            <Box
