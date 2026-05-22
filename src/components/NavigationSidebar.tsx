@@ -234,21 +234,25 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
       <Divider sx={{ borderColor: '#1c3558' }} />
 
-      <List sx={{ flex: 1, overflow: 'auto' }}>
+      <List sx={{ flex: 1, overflow: 'auto', px: 1, py: 0.5 }}>
         {navItems.map((item) => (
           <ListItem key={item.id} disablePadding>
             <ListItemButton
               selected={currentSection === item.id}
               onClick={() => onNavigate(item.id)}
               sx={{
+                minHeight: 32,
+                px: 1,
+                py: 0.25,
+                borderRadius: '6px',
                 '&.Mui-selected': {
                   bgcolor: 'rgba(26,138,181,0.2)',
                   borderLeft: '3px solid #1a8ab5',
-                  pl: '14px',
+                  pl: '7px',
                 },
               }}
             >
-              <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}>
+              <ListItemIcon sx={{ minWidth: 30, color: 'inherit' }}>
                 {item.icon}
               </ListItemIcon>
               <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2' } }} />
@@ -282,9 +286,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               >
                 <ListItemButton
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  sx={{ gap: 0.5 }}
+                  sx={{ gap: 0.5, minHeight: 32, px: 1, py: 0.25, borderRadius: '6px' }}
                 >
-                  <ListItemIcon sx={{ minWidth: 34, color: getObjectColor(item.type).text }}>
+                  <ListItemIcon sx={{ minWidth: 28, color: getObjectColor(item.type).text }}>
                     {objectIcon(item.type)}
                   </ListItemIcon>
                   <ListItemText
@@ -383,20 +387,24 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
       <Divider sx={{ borderColor: '#1c3558' }} />
 
-      <List>
+      <List sx={{ px: 1, py: 0.5 }}>
         <ListItem disablePadding>
           <ListItemButton
             selected={currentSection === 'settings'}
             onClick={() => onNavigate('settings')}
             sx={{
+              minHeight: 32,
+              px: 1,
+              py: 0.25,
+              borderRadius: '6px',
               '&.Mui-selected': {
                 bgcolor: 'rgba(26,138,181,0.2)',
                 borderLeft: '3px solid #1a8ab5',
-                pl: '14px',
+                pl: '7px',
               },
             }}
           >
-            <ListItemIcon sx={{ minWidth: 40 }}>
+            <ListItemIcon sx={{ minWidth: 30 }}>
               <SettingsIcon />
             </ListItemIcon>
             <ListItemText primary="Settings" slotProps={{ primary: { variant: 'body2' } }} />
@@ -409,7 +417,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
 function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean; count: number }) {
   return (
-    <Box sx={{ px: 2, py: 0.75, display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', gap: 1, minHeight: 32 }}>
       <PushPinIcon sx={{ fontSize: 14, color: '#7dbad6' }} />
       <Typography variant="caption" sx={{ color: '#7dbad6', textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: '10px', flex: 1 }}>
         Pinned
