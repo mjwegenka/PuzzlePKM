@@ -370,7 +370,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       isEffectivelyEmptyNoteContent(content);
     const isHabitWithoutTags = type === 'habit' && tags.length === 0;
 
-    if (isEmptyNoteContent) {
+    const hasDailyRelations =
+      type === 'daily-note' &&
+      ((Array.isArray(object?.links) && object.links.length > 0) ||
+        (Array.isArray(object?.backlinks) && object.backlinks.length > 0));
+
+    if (isEmptyNoteContent && !hasDailyRelations) {
       setPendingDeleteReason('empty-note');
       return;
     }
@@ -666,6 +671,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                   : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
               }
               mentionEnabled={isNoteType}
+              dragHandleEnabled={isNoteType}
               resolveMentionHref={resolveMentionHref}
               blocks={isNoteType ? noteBlocks : undefined}
               onBlocksChange={isNoteType ? setNoteBlocks : undefined}

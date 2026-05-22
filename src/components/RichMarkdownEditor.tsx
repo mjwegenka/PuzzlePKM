@@ -30,6 +30,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import MentionPopup, { type MentionOption } from './MentionPopup'
+import { DragHandle } from './DragHandle'
 import { searchObjects } from '../lib/cliService'
 import type { NoteBlock } from '../shared/types'
 
@@ -41,6 +42,7 @@ interface RichMarkdownEditorProps {
   label: string
   placeholder?: string
   mentionEnabled?: boolean
+  dragHandleEnabled?: boolean
   resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
   onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
@@ -222,6 +224,7 @@ export default function RichMarkdownEditor({
   label,
   placeholder,
   mentionEnabled = false,
+  dragHandleEnabled = false,
   resolveMentionHref,
   maxLength,
   onShiftClickLink,
@@ -587,8 +590,18 @@ export default function RichMarkdownEditor({
           </ToolbarButton>
         </Stack>
 
+        {/* Content scroll area — position: relative anchors the DragHandle.
+            Left padding is widened to create a visible gutter for the handle. */}
         <Box
-          sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 1.5, py: 1.25 }}
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            position: 'relative',
+            pl: dragHandleEnabled ? '36px' : 1.5,
+            pr: 1.5,
+            py: 1.25,
+          }}
           onMouseDownCapture={(event) => {
             handleModifiedLinkClick(event)
           }}
@@ -596,6 +609,7 @@ export default function RichMarkdownEditor({
             handleModifiedLinkClick(event)
           }}
         >
+          {dragHandleEnabled && editor && <DragHandle editor={editor} />}
           <EditorContent editor={editor} />
         </Box>
       </Box>
