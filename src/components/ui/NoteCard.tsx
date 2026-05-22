@@ -47,6 +47,13 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'scripture': 'Scripture',
 }
 
+const CARD_BACKGROUND = '#0e2038'
+const CARD_HOVER_BACKGROUND = '#122845'
+const CARD_BORDER = '#1c3558'
+const CARD_HOVER_BORDER = '#26466f'
+const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
+const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
+
 function TypeIcon({ type }: { type: ObjectType }) {
   const sx = { fontSize: 11 }
   if (type === 'topic-note') return <NoteAddIcon sx={sx} />
@@ -77,23 +84,23 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       onClick={onClick}
       title={title}
       sx={{
-        bgcolor: '#0e2038',
-        border: `1px solid ${isSelected ? token.accent : '#1c3558'}`,
+        bgcolor: CARD_BACKGROUND,
+        border: `1px solid ${isSelected ? token.accent : CARD_BORDER}`,
         boxShadow: isSelected
           ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
           : 'none',
         borderRadius: '10px',
         p: 2,
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
+        transition: CARD_TRANSITION,
         breakInside: 'avoid',
         '&:hover': onClick
           ? {
-              bgcolor: token.bg,
-              borderColor: isSelected ? token.accent : token.border,
+              bgcolor: CARD_HOVER_BACKGROUND,
+              borderColor: isSelected ? token.accent : CARD_HOVER_BORDER,
               boxShadow: isSelected
-                ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
-                : 'none',
+                ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}, ${CARD_HOVER_SHADOW}`
+                : CARD_HOVER_SHADOW,
             }
           : {},
       }}
