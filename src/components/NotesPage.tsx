@@ -27,8 +27,12 @@ import AddIcon from '@mui/icons-material/Add'
 import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
+import TuneIcon from '@mui/icons-material/Tune'
+import LabelIcon from '@mui/icons-material/Label'
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
+import FilterChip from './ui/FilterChip'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
@@ -335,6 +339,13 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
 
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
+  const [activeFilterChips, setActiveFilterChips] = useState<{ cardType: boolean; tags: boolean; untagged: boolean; custom: boolean }>({
+    cardType: false,
+    tags: false,
+    untagged: false,
+    custom: false,
+  })
+  const [showCustomFilterChip, setShowCustomFilterChip] = useState(true)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -645,31 +656,46 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
          </Button>
 
          {/* Filter chip placeholders */}
-         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, overflow: 'hidden' }}>
-           <Chip
+         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
+           <FilterChip
+             icon={<TuneIcon />}
              label="Card type"
-             size="small"
-             sx={{
-               height: 24,
-               fontSize: '11px',
-               bgcolor: 'rgba(255,255,255,0.04)',
-               color: '#7dbad6',
-               border: '1px solid #1c3558',
-               borderRadius: '12px',
-               cursor: 'default',
-             }}
+             showCaret
+             selected={activeFilterChips.cardType}
+             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, cardType: !prev.cardType }))}
            />
-           <Chip
+           <FilterChip
+             icon={<LabelIcon />}
              label="Tags"
-             size="small"
-             sx={{
-               height: 24,
-               fontSize: '11px',
-               bgcolor: 'rgba(255,255,255,0.04)',
-               color: '#7dbad6',
-               border: '1px solid #1c3558',
-               borderRadius: '12px',
-               cursor: 'default',
+             showCaret
+             selected={activeFilterChips.tags}
+             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, tags: !prev.tags }))}
+           />
+           <FilterChip
+             icon={<LabelIcon />}
+             label="Untagged"
+             selected={activeFilterChips.untagged}
+             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, untagged: !prev.untagged }))}
+           />
+           {showCustomFilterChip && (
+             <FilterChip
+               icon={<TuneIcon />}
+               label="Custom"
+               selected={activeFilterChips.custom}
+               onToggle={() => setActiveFilterChips((prev) => ({ ...prev, custom: !prev.custom }))}
+               onDismiss={() => {
+                 setShowCustomFilterChip(false)
+                 setActiveFilterChips((prev) => ({ ...prev, custom: false }))
+               }}
+             />
+           )}
+           <FilterChip
+             icon={<AddCircleOutlineIcon />}
+             label="New filter"
+             showCaret
+             onToggle={() => {
+               setShowCustomFilterChip(true)
+               setActiveFilterChips((prev) => ({ ...prev, custom: true }))
              }}
            />
          </Stack>
