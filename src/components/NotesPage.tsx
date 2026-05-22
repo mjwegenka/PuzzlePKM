@@ -23,8 +23,8 @@ import {
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
-import ArticleIcon from '@mui/icons-material/Article'
 import AddIcon from '@mui/icons-material/Add'
+import SearchIcon from '@mui/icons-material/Search'
 import CloseIcon from '@mui/icons-material/Close'
 import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
 import ObjectEditor from './ObjectEditor'
@@ -599,49 +599,97 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
 
    return (
      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-       {/* ── Header ───────────────────────────────────────────────────────────── */}
+       {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
        <Stack
          direction="row"
          alignItems="center"
-         justifyContent="space-between"
-         sx={{ mb: 1.5, flexShrink: 0 }}
+         spacing={1}
+         sx={{ mb: 1, flexShrink: 0 }}
        >
-         <Stack direction="row" alignItems="center" spacing={1.5}>
-           <ArticleIcon sx={{ color: '#1a8ab5', fontSize: 26 }} />
-           <Box>
-             <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-               Notes
-             </Typography>
-             <Typography variant="caption" sx={{ color: '#7dbad6' }}>
-               Topic notes, daily notes &amp; habits
-             </Typography>
-           </Box>
-         </Stack>
-         <Stack direction="row" alignItems="center" spacing={1}>
-           <IconButton
+         {/* Search input */}
+         <TextField
+           size="small"
+           placeholder="Find a card…"
+           value={boardFilter}
+           onChange={(e) => setBoardFilter(e.target.value)}
+           variant="outlined"
+           sx={{
+             width: 200,
+             flexShrink: 0,
+             '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
+             '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
+           }}
+           slotProps={{
+             input: {
+               startAdornment: <SearchIcon sx={{ fontSize: 15, color: '#4a6a8a', mr: 0.5, flexShrink: 0 }} />,
+             },
+           }}
+         />
+
+         {/* +Card button */}
+         <Button
+           variant="outlined"
+           size="small"
+           startIcon={<AddIcon sx={{ fontSize: 14 }} />}
+           onClick={handleNewNote}
+           sx={{
+             flexShrink: 0,
+             fontSize: '12px',
+             py: '3px',
+             borderColor: '#1c3558',
+             color: '#7dbad6',
+             '&:hover': { borderColor: '#2a4a6a', bgcolor: 'rgba(26,138,181,0.08)' },
+           }}
+         >
+           Card
+         </Button>
+
+         {/* Filter chip placeholders */}
+         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, overflow: 'hidden' }}>
+           <Chip
+             label="Card type"
              size="small"
-             onClick={() => setShowInbox((v) => !v)}
-             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
              sx={{
-               color: showInbox ? '#e8a84a' : '#4a6a8a',
-               bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
-               border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
-               borderRadius: '6px',
-               '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+               height: 24,
+               fontSize: '11px',
+               bgcolor: 'rgba(255,255,255,0.04)',
+               color: '#7dbad6',
+               border: '1px solid #1c3558',
+               borderRadius: '12px',
+               cursor: 'default',
              }}
-           >
-             <MoveToInboxIcon sx={{ fontSize: 18 }} />
-           </IconButton>
-           <Button
-             variant="contained"
+           />
+           <Chip
+             label="Tags"
              size="small"
-             startIcon={<AddIcon />}
-             onClick={handleNewNote}
-             sx={{ flexShrink: 0 }}
-           >
-             New Note
-           </Button>
+             sx={{
+               height: 24,
+               fontSize: '11px',
+               bgcolor: 'rgba(255,255,255,0.04)',
+               color: '#7dbad6',
+               border: '1px solid #1c3558',
+               borderRadius: '12px',
+               cursor: 'default',
+             }}
+           />
          </Stack>
+
+         {/* Inbox toggle */}
+         <IconButton
+           size="small"
+           onClick={() => setShowInbox((v) => !v)}
+           title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+           sx={{
+             color: showInbox ? '#e8a84a' : '#4a6a8a',
+             bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
+             border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
+             borderRadius: '6px',
+             flexShrink: 0,
+             '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+           }}
+         >
+           <MoveToInboxIcon sx={{ fontSize: 18 }} />
+         </IconButton>
        </Stack>
 
        {/* ── Inbox banner ─────────────────────────────────── */}
@@ -658,21 +706,6 @@ export default function NotesPage({ onSaved, pendingSelection }: NotesPageProps)
            </Typography>
          </Stack>
        )}
-       {/* ── Board filter ─────────────────────────────────── */}
-       <Box sx={{ mb: 1.5, flexShrink: 0 }}>
-         <TextField
-           size="small"
-           fullWidth
-           placeholder="Filter all notes…"
-           value={boardFilter}
-           onChange={(e) => setBoardFilter(e.target.value)}
-           variant="outlined"
-           sx={{
-             '& .MuiOutlinedInput-root': { fontSize: '13px', bgcolor: 'rgba(0,0,0,0.2)' },
-             '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1c3558' },
-           }}
-         />
-       </Box>
 
        {/* ── Unified masonry card board ────────────────────── */}
        {loading ? (
