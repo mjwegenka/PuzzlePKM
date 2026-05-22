@@ -124,14 +124,23 @@ function NoteCard({ card, selectedId, selectedType, onSelect }: NoteCardProps) {
       onClick={(e) => onSelect(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
       title="Click to open • Ctrl/Cmd-click to open in new tab"
       sx={{
-        bgcolor: isSelected ? token.bg : '#0e2038',
-        border: `1px solid ${isSelected ? token.border : '#1c3558'}`,
+        bgcolor: '#0e2038',
+        border: `1px solid ${isSelected ? token.accent : '#1c3558'}`,
+        boxShadow: isSelected
+          ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
+          : 'none',
         borderRadius: '6px',
         p: 1.5,
         cursor: 'pointer',
-        transition: 'border-color 0.15s, background-color 0.15s',
+        transition: 'border-color 0.15s, box-shadow 0.15s, background-color 0.15s',
         breakInside: 'avoid',
-        '&:hover': { bgcolor: token.bg, borderColor: token.border },
+        '&:hover': {
+          bgcolor: token.bg,
+          borderColor: isSelected ? token.accent : token.border,
+          boxShadow: isSelected
+            ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
+            : 'none',
+        },
       }}
     >
       {/* Type icon + title */}
