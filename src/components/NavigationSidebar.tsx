@@ -225,6 +225,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           boxSizing: 'border-box',
           bgcolor: '#0e2038',
           borderRight: '1px solid #1c3558',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
         },
       }}
     >
@@ -419,4 +422,3 @@ function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean;
     </Box>
   );
 }
-
