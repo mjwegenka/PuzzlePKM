@@ -10,6 +10,8 @@ import type { ObjectType } from '../../shared/types'
 export interface NoteCardData {
   id: string
   type: ObjectType
+  /** Optional weekday label rendered above the primary title/date. */
+  weekdayLabel?: string
   /**
    * Metadata label shown in the top caption row alongside the type icon.
    * Use this for contextual info like a formatted date for topic-notes or
@@ -296,17 +298,38 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         )}
       </Stack>
 
-      {/* 2. Title / date — large, prominent */}
-      <Typography
-        variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
-        sx={{
-          color: 'text.primary',
-          wordBreak: 'break-word',
-          mb: card.snippet || card.mediaUrl ? 0.75 : 0,
-        }}
+      <Stack
+        alignItems="flex-start"
+        spacing={card.weekdayLabel ? 0.25 : 0}
+        sx={{ mb: card.snippet || card.mediaUrl ? 0.75 : 0 }}
       >
-        {card.title || '(untitled)'}
-      </Typography>
+        {card.weekdayLabel && (
+          <Typography
+            variant="metadata-caption"
+            sx={{
+              color: 'accent.metadata',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {card.weekdayLabel}
+          </Typography>
+        )}
+
+        {/* 2. Title / date — large, prominent */}
+        <Typography
+          variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
+          sx={{
+            color: 'text.primary',
+            wordBreak: 'break-word',
+            width: '100%',
+          }}
+        >
+          {card.title || '(untitled)'}
+        </Typography>
+      </Stack>
 
       {/* 3. Snippet — regular body text */}
       {card.snippet && (

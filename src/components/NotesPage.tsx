@@ -43,7 +43,7 @@ import { NoteCard } from './ui/NoteCard'
 import type { NoteCardData } from './ui/NoteCard'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
-import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
+import { formatDatePretty, formatWeekdayShort, getTodayDate } from '../lib/dateUtils'
 import { getObjectColor } from '../lib/objectColors'
 
 function normalizePathForLookup(path?: string): string {
@@ -567,6 +567,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'topic-note' as NoteType,
         title: deriveTopicCardTitle(n.title, n.preview, n.date),
+        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
@@ -579,6 +580,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'daily-note' as NoteType,
         title: formatDatePretty(n.date),
+        weekdayLabel: formatWeekdayShort(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
         sortTimestamp: toSortTimestamp(n.date),
@@ -590,6 +592,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'habit' as NoteType,
         title: sanitizeCardText(n.text) || '(no text)',
+        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         tags: n.tags,
         sortTimestamp: toSortTimestamp(n.date),
