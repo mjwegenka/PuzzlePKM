@@ -48,6 +48,129 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
 
 const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
 const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
+const MARKDOWN_LINK_REGEX = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g
+
+function isMediaHref(value: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|mp4|mov|webm|m4v|mp3|wav|ogg)$/i.test(value)
+}
+
+function getSafeHref(rawHref: string): string | null {
+  const href = rawHref.trim()
+  if (!href) return null
+  if (href.startsWith('/') || href.startsWith('./') || href.startsWith('../')) return href
+  try {
+    const parsed = new URL(href)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:') return href
+  } catch {
+    return null
+  }
+  return null
+}
+
+function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[] {
+  if (!text) return []
+  const nodes: React.ReactNode[] = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(MARKDOWN_LINK_REGEX)) {
+    const start = match.index ?? 0
+    if (start > lastIndex) {
+      nodes.push(<React.Fragment key={`${keyPrefix}-text-${lastIndex}`}>{text.slice(lastIndex, start)}</React.Fragment>)
+    }
+
+    const [fullMatch, imageAlt, imageHref, linkLabel, linkHref, inlineCode, boldA, boldB, italicA, italicB] = match
+    if (imageHref) {
+      const safeHref = getSafeHref(imageHref)
+      const label = imageAlt || imageHref
+      if (safeHref) {
+        nodes.push(
+          <Box
+            key={`${keyPrefix}-media-${start}`}
+            component="a"
+            href={safeHref}
+            target="_blank"
+            rel="noreferrer"
+            sx={{ color: '#7dbad6', textDecoration: 'underline', fontStyle: 'italic' }}
+          >
+            media: {label}
+          </Box>,
+        )
+      } else {
+        nodes.push(<React.Fragment key={`${keyPrefix}-media-text-${start}`}>media: {label}</React.Fragment>)
+      }
+    } else if (linkHref && linkLabel) {
+      const safeHref = getSafeHref(linkHref)
+      const isMedia = isMediaHref(linkHref)
+      if (safeHref) {
+        nodes.push(
+          <Box
+            key={`${keyPrefix}-link-${start}`}
+            component="a"
+            href={safeHref}
+            target="_blank"
+            rel="noreferrer"
+            sx={{ color: '#7dbad6', textDecoration: 'underline', fontStyle: isMedia ? 'italic' : 'normal' }}
+          >
+            {isMedia ? `media: ${linkLabel}` : linkLabel}
+          </Box>,
+        )
+      } else {
+        nodes.push(<React.Fragment key={`${keyPrefix}-link-text-${start}`}>{linkLabel}</React.Fragment>)
+      }
+    } else if (inlineCode) {
+      nodes.push(
+        <Box
+          key={`${keyPrefix}-code-${start}`}
+          component="code"
+          sx={{ px: 0.5, borderRadius: 0.5, bgcolor: 'rgba(125,186,214,0.14)', color: '#c8e4f5', fontFamily: 'monospace' }}
+        >
+          {inlineCode}
+        </Box>,
+      )
+    } else if (boldA || boldB) {
+      nodes.push(<strong key={`${keyPrefix}-bold-${start}`}>{boldA || boldB}</strong>)
+    } else if (italicA || italicB) {
+      nodes.push(<em key={`${keyPrefix}-italic-${start}`}>{italicA || italicB}</em>)
+    } else {
+      nodes.push(<React.Fragment key={`${keyPrefix}-raw-${start}`}>{fullMatch}</React.Fragment>)
+    }
+
+    lastIndex = start + fullMatch.length
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(<React.Fragment key={`${keyPrefix}-text-end`}>{text.slice(lastIndex)}</React.Fragment>)
+  }
+
+  return nodes
+}
+
+function MarkdownSnippet({ text }: { text: string }) {
+  const lines = text.split('\n')
+
+  return (
+    <Box sx={{ display: 'grid', gap: 0.25 }}>
+      {lines.map((line, index) => {
+        const trimmed = line.trim()
+        const bulletMatch = /^\s*[-*+]\s+(.*)$/.exec(line)
+        const orderedMatch = /^\s*(\d+)[.)]\s+(.*)$/.exec(line)
+        const content = bulletMatch?.[1] ?? orderedMatch?.[2] ?? line
+
+        if (!trimmed) return <Box key={`line-${index}`} sx={{ minHeight: '1em' }} />
+
+        return (
+          <Box key={`line-${index}`} sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+            {bulletMatch && <Box component="span" sx={{ color: '#7dbad6', minWidth: '0.75em' }}>•</Box>}
+            {orderedMatch && <Box component="span" sx={{ color: '#7dbad6', minWidth: '1.35em' }}>{orderedMatch[1]}.</Box>}
+            <Box component="span" sx={{ minWidth: 0 }}>
+              {renderMarkdownInline(content, `line-${index}`)}
+            </Box>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
 
 function TypeIcon({ type }: { type: ObjectType }) {
   const sx = { fontSize: 11 }
@@ -179,20 +302,19 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
-        <Typography
-          variant="snippet-body"
+        <Box
           sx={{
             color: 'text.secondary',
             wordBreak: 'break-word',
-            display: '-webkit-box',
-            WebkitLineClamp: 4,
-            WebkitBoxOrient: 'vertical',
+            display: 'block',
             overflow: 'hidden',
+            maxHeight: '5.6em',
+            lineHeight: 1.4,
             mb: card.mediaUrl ? 1 : 0,
           }}
         >
-          {card.snippet}
-        </Typography>
+          <MarkdownSnippet text={card.snippet} />
+        </Box>
       )}
 
       {/* 4. Media thumbnail — at the bottom if present */}

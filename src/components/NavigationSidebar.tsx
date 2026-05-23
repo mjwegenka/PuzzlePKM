@@ -14,6 +14,7 @@ import {
   CircularProgress,
   Collapse,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import FolderIcon from '@mui/icons-material/Folder';
 import TagIcon from '@mui/icons-material/Label';
@@ -31,7 +32,7 @@ import RepeatIcon from '@mui/icons-material/Repeat';
 import { useSyncStatus } from '../lib/syncContext';
 import { formatDatePretty } from '../lib/dateUtils';
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../lib/cliService';
-import { getObjectColor } from '../lib/objectColors';
+import { neutralDarkTokens } from '../theme';
 
 interface NavigationItem {
   id: string;
@@ -64,6 +65,18 @@ const navItems: NavigationItem[] = [
   { id: 'tags', label: 'Tags', icon: <TagIcon /> },
   { id: 'graph', label: 'Graph', icon: <HubIcon /> },
 ];
+
+const sidebarColors = {
+  background: neutralDarkTokens.surface.sunken,
+  border: neutralDarkTokens.border.subtle,
+  text: neutralDarkTokens.text.primary,
+  textMuted: neutralDarkTokens.text.secondary,
+  icon: neutralDarkTokens.text.secondary,
+  iconMuted: neutralDarkTokens.text.muted,
+  hover: alpha('#ffffff', 0.04),
+  selected: alpha('#ffffff', 0.08),
+  selectedBorder: neutralDarkTokens.border.strong,
+};
 
 function formatLastSynced(date: Date | null): string {
   if (!date) return 'Never synced';
@@ -223,8 +236,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         '& .MuiDrawer-paper': {
           width: 240,
           boxSizing: 'border-box',
-          bgcolor: '#0e2038',
-          borderRight: '1px solid #1c3558',
+          bgcolor: sidebarColors.background,
+          borderRight: `1px solid ${sidebarColors.border}`,
+          color: sidebarColors.text,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -232,7 +246,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
       }}
     >
 
-      <Divider sx={{ borderColor: '#1c3558' }} />
+      <Divider sx={{ borderColor: sidebarColors.border }} />
 
       <List sx={{ flex: 1, overflow: 'auto', px: 1, py: 0.5 }}>
         {navItems.map((item) => (
@@ -245,14 +259,16 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 px: 1,
                 py: 0.25,
                 borderRadius: '6px',
+                color: sidebarColors.textMuted,
+                '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                 '&.Mui-selected': {
-                  bgcolor: 'rgba(26,138,181,0.2)',
-                  borderLeft: '3px solid #1a8ab5',
-                  pl: '7px',
+                  bgcolor: sidebarColors.selected,
+                  color: sidebarColors.text,
+                  border: `1px solid ${sidebarColors.selectedBorder}`,
                 },
               }}
             >
-              <ListItemIcon sx={{ minWidth: 30, color: 'inherit' }}>
+              <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
                 {item.icon}
               </ListItemIcon>
               <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2' } }} />
@@ -260,7 +276,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </ListItem>
         ))}
         <Collapse in timeout="auto" unmountOnExit={false}>
-          <Divider sx={{ borderColor: '#1c3558', my: 0.5 }} />
+          <Divider sx={{ borderColor: sidebarColors.border, my: 0.5 }} />
           <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
           {pinnedItems.map((item) => {
             const itemKey = makePinnedKey(item);
@@ -286,9 +302,17 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               >
                 <ListItemButton
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  sx={{ gap: 0.5, minHeight: 32, px: 1, py: 0.25, borderRadius: '6px' }}
+                  sx={{
+                    gap: 0.5,
+                    minHeight: 32,
+                    px: 1,
+                    py: 0.25,
+                    borderRadius: '6px',
+                    color: sidebarColors.textMuted,
+                    '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
+                  }}
                 >
-                  <ListItemIcon sx={{ minWidth: 28, color: getObjectColor(item.type).text }}>
+                  <ListItemIcon sx={{ minWidth: 28, color: sidebarColors.iconMuted }}>
                     {objectIcon(item.type)}
                   </ListItemIcon>
                   <ListItemText
@@ -314,7 +338,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         movePinned(idx, idx - 1);
                       }}
-                      sx={{ color: '#7dbad6' }}
+                      sx={{ color: sidebarColors.icon }}
                     >
                       <ArrowUpwardIcon sx={{ fontSize: 13 }} />
                     </IconButton>
@@ -326,7 +350,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         movePinned(idx, idx + 1);
                       }}
-                      sx={{ color: '#7dbad6' }}
+                      sx={{ color: sidebarColors.icon }}
                     >
                       <ArrowDownwardIcon sx={{ fontSize: 13 }} />
                     </IconButton>
@@ -337,7 +361,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         void handleUnpin(item);
                       }}
-                      sx={{ color: '#7dbad6' }}
+                      sx={{ color: sidebarColors.icon }}
                     >
                       <CloseIcon sx={{ fontSize: 14 }} />
                     </IconButton>
@@ -349,7 +373,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         </Collapse>
       </List>
 
-      <Divider sx={{ borderColor: '#1c3558' }} />
+      <Divider sx={{ borderColor: sidebarColors.border }} />
 
       {/* ── Sync status + button ── */}
       <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -359,10 +383,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               size="small"
               onClick={triggerSync}
               disabled={syncing}
-              sx={{ color: syncError ? '#f87171' : '#7dbad6', '&:hover': { color: '#e4f0fb' } }}
+              sx={{ color: syncError ? '#f87171' : sidebarColors.icon, '&:hover': { color: sidebarColors.text } }}
             >
               {syncing
-                ? <CircularProgress size={18} sx={{ color: '#7dbad6' }} />
+                ? <CircularProgress size={18} sx={{ color: sidebarColors.icon }} />
                 : <SyncIcon fontSize="small" />}
             </IconButton>
           </span>
@@ -372,7 +396,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             variant="caption"
             sx={{
               display: 'block',
-              color: syncError ? '#f87171' : '#7dbad6',
+              color: syncError ? '#f87171' : sidebarColors.textMuted,
               fontSize: '10px',
               lineHeight: 1.3,
               whiteSpace: 'nowrap',
@@ -385,7 +409,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         </Box>
       </Box>
 
-      <Divider sx={{ borderColor: '#1c3558' }} />
+      <Divider sx={{ borderColor: sidebarColors.border }} />
 
       <List sx={{ px: 1, py: 0.5 }}>
         <ListItem disablePadding>
@@ -397,14 +421,16 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               px: 1,
               py: 0.25,
               borderRadius: '6px',
+              color: sidebarColors.textMuted,
+              '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
               '&.Mui-selected': {
-                bgcolor: 'rgba(26,138,181,0.2)',
-                borderLeft: '3px solid #1a8ab5',
-                pl: '7px',
+                bgcolor: sidebarColors.selected,
+                color: sidebarColors.text,
+                border: `1px solid ${sidebarColors.selectedBorder}`,
               },
             }}
           >
-            <ListItemIcon sx={{ minWidth: 30 }}>
+            <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
               <SettingsIcon />
             </ListItemIcon>
             <ListItemText primary="Settings" slotProps={{ primary: { variant: 'body2' } }} />
@@ -418,12 +444,12 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean; count: number }) {
   return (
     <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', gap: 1, minHeight: 32 }}>
-      <PushPinIcon sx={{ fontSize: 14, color: '#7dbad6' }} />
-      <Typography variant="caption" sx={{ color: '#7dbad6', textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: '10px', flex: 1 }}>
+      <PushPinIcon sx={{ fontSize: 14, color: sidebarColors.iconMuted }} />
+      <Typography variant="caption" sx={{ color: sidebarColors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: '10px', flex: 1 }}>
         Pinned
       </Typography>
-      {loadingPinned ? <CircularProgress size={11} sx={{ color: '#7dbad6' }} /> : (
-        <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '10px' }}>
+      {loadingPinned ? <CircularProgress size={11} sx={{ color: sidebarColors.iconMuted }} /> : (
+        <Typography variant="caption" sx={{ color: sidebarColors.iconMuted, fontSize: '10px' }}>
           {count}
         </Typography>
       )}
