@@ -18,6 +18,13 @@ import {
   Tabs,
   Tab,
   IconButton as MuiIconButton,
+  Menu,
+  MenuItem,
+  Tooltip,
+  ListItemIcon,
+  ListItemText,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
@@ -162,9 +169,20 @@ interface CreatePanelProps {
   onDirty?: (isDirty: boolean) => void
   onNavigateToObject?: (target: ResolvedObjectRef) => void | Promise<void>
   onCreateDateChange?: (date: string) => void | Promise<void>
+  showHeader?: boolean
 }
 
-function CreatePanel({ createType, createKey, onTypeChange, onSave, onClose, onDirty, onNavigateToObject, onCreateDateChange }: CreatePanelProps) {
+function CreatePanel({
+  createType,
+  createKey,
+  onTypeChange,
+  onSave,
+  onClose,
+  onDirty,
+  onNavigateToObject,
+  onCreateDateChange,
+  showHeader = true,
+}: CreatePanelProps) {
   const blankObject = useMemo(() => (
     createType === 'daily-note'
       ? { date: getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
@@ -186,31 +204,33 @@ function CreatePanel({ createType, createKey, onTypeChange, onSave, onClose, onD
       }}
     >
       {/* Panel header */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ px: 2, pt: 1.5, pb: 1, flexShrink: 0 }}
-      >
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 700,
-            color: '#7dbad6',
-            textTransform: 'uppercase',
-            letterSpacing: '0.07em',
-            fontSize: '10px',
-          }}
+      {showHeader ? (
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{ px: 2, pt: 1.5, pb: 1, flexShrink: 0 }}
         >
-          New Note
-        </Typography>
-        <IconButton size="small" onClick={onClose} sx={{ color: '#7dbad6', p: 0.25 }}>
-          <CloseIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      </Stack>
+          <Typography
+            variant="caption"
+            sx={{
+              fontWeight: 700,
+              color: '#7dbad6',
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
+              fontSize: '10px',
+            }}
+          >
+            New Note
+          </Typography>
+          <IconButton size="small" onClick={onClose} sx={{ color: '#7dbad6', p: 0.25 }}>
+            <CloseIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Stack>
+      ) : null}
 
       {/* Type selector */}
-      <Box sx={{ px: 2, pb: 1.5, flexShrink: 0 }}>
+      <Box sx={{ px: 2, pt: showHeader ? 0 : 2, pb: 1.5, flexShrink: 0 }}>
         <ToggleButtonGroup
           value={createType}
           exclusive
@@ -275,6 +295,8 @@ function CreatePanel({ createType, createKey, onTypeChange, onSave, onClose, onD
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }: NotesPageProps) {
+  const theme = useTheme()
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
   const [habits, setHabits] = useState<HabitItem[]>([])
@@ -289,6 +311,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [createType, setCreateType] = useState<NoteType>('topic-note')
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
+  const [createMenuAnchorEl, setCreateMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
 
   // Inbox filter
@@ -418,12 +441,14 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     }
   }, [openObjectInTab])
 
-  const handleNewNote = () => {
+  const handleStartCreate = useCallback((type: NoteType) => {
     setActiveTabId(null)
+    setCreateType(type)
     setIsCreating(true)
     setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
-  }
+    setCreateMenuAnchorEl(null)
+  }, [])
 
   const handleCreateDateChange = useCallback(async (date: string) => {
     if (!isCreating || createType !== 'daily-note') return
@@ -666,24 +691,65 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
           />
 
           {/* +Card button */}
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={handleNewNote}
-            sx={{
-              flexShrink: 0,
-              fontSize: '12px',
-              minHeight: 30,
-              px: 1,
-              py: 0.25,
-              borderColor: 'border.subtle',
-              color: 'text.secondary',
-              bgcolor: 'surface.sunken',
-              '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
-            }}
+          <Tooltip title="Create a new card">
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={(event) => setCreateMenuAnchorEl(event.currentTarget)}
+              aria-haspopup="menu"
+              aria-expanded={createMenuAnchorEl ? 'true' : undefined}
+              aria-controls={createMenuAnchorEl ? 'create-card-menu' : undefined}
+              aria-label="Create a new card"
+              startIcon={<AddCircleOutlineIcon sx={{ fontSize: 16 }} />}
+              sx={{
+                flexShrink: 0,
+                fontSize: '12px',
+                minHeight: 30,
+                minWidth: { xs: 0, sm: 'auto' },
+                px: { xs: 0.75, sm: 1 },
+                py: 0.25,
+                borderColor: 'border.subtle',
+                color: 'text.secondary',
+                bgcolor: 'surface.sunken',
+                '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
+                '& .MuiButton-startIcon': {
+                  mr: { xs: 0, sm: 0.5 },
+                  ml: 0,
+                },
+              }}
+            >
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                +Card
+              </Box>
+            </Button>
+          </Tooltip>
+
+          <Menu
+            id="create-card-menu"
+            anchorEl={createMenuAnchorEl}
+            open={Boolean(createMenuAnchorEl)}
+            onClose={() => setCreateMenuAnchorEl(null)}
+            MenuListProps={{ 'aria-label': 'Create card type' }}
           >
-            +Card
-          </Button>
+            <MenuItem onClick={() => handleStartCreate('topic-note')}>
+              <ListItemIcon>
+                <NoteAddIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Topic Note" secondary="Create a titled note" />
+            </MenuItem>
+            <MenuItem onClick={() => handleStartCreate('daily-note')}>
+              <ListItemIcon>
+                <CalendarTodayIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Daily Note" secondary="Create or open a dated journal entry" />
+            </MenuItem>
+            <MenuItem onClick={() => handleStartCreate('habit')}>
+              <ListItemIcon>
+                <RepeatIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Habit" secondary="Create a dated habit card" />
+            </MenuItem>
+          </Menu>
 
           {/* Inbox toggle */}
           <IconButton
@@ -704,7 +770,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         </Stack>
       </Stack>
 
-      <Stack direction={isCreating || activeTab ? 'row' : 'column'} spacing={1.5} sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}>
+      <Stack direction={activeTab ? 'row' : 'column'} spacing={1.5} sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}>
        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', width: '100%', minWidth: 0 }}>
          {/* ── Inbox banner ─────────────────────────────────── */}
          {showInbox && (
@@ -754,110 +820,126 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
          )}
        </Box>
 
-      {(isCreating || activeTab) && (
+      {activeTab && (
         <Paper sx={{ width: 560, minWidth: 420, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          {isCreating ? (
-            <>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid #1c3558' }}>
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                  Create New Note
-                </Typography>
-                <MuiIconButton size="small" onClick={handleCloseEditor}>
-                  <CloseIcon fontSize="small" />
-                </MuiIconButton>
-              </Stack>
-              <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                <CreatePanel
-                  createType={createType}
-                  createKey={createKey}
-                  onTypeChange={(t) => {
-                    setCreateType(t)
-                    setCreateKey((k) => k + 1)
-                  }}
-                  onSave={handleSaveNew}
-                  onClose={handleCloseEditor}
-                  onDirty={setCreateHasUnsavedChanges}
-                  onNavigateToObject={handleNavigateToObject}
-                  onCreateDateChange={handleCreateDateChange}
-                />
-              </Box>
-            </>
-          ) : (
-            <>
-              <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid #1c3558' }}>
-                <Tabs
-                  value={activeTab?.tabId ?? false}
-                  onChange={(_, value: string) => setActiveTabId(value)}
-                  variant="scrollable"
-                  scrollButtons="auto"
-                  sx={{
-                    minHeight: 36,
-                    flex: 1,
-                    '& .MuiTabs-indicator': { bgcolor: getObjectColor(activeTab?.type ?? 'daily-note').accent },
-                    '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
-                  }}
-                >
-                  {openTabs.map((tab) => {
-                    const tabToken = getObjectColor(tab.type)
-                    return (
-                      <Tab
-                        key={tab.tabId}
-                        value={tab.tabId}
-                        label={(
-                          <Stack direction="row" alignItems="center" spacing={0.5}>
-                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
-                            <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {getTabLabel(tab)}
-                            </Typography>
-                            {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
-                            <MuiIconButton
-                              size="small"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                handleRequestCloseTab(tab.tabId)
-                              }}
-                              sx={{ p: 0.15, color: '#7dbad6' }}
-                            >
-                              <CloseIcon sx={{ fontSize: 12 }} />
-                            </MuiIconButton>
-                          </Stack>
-                        )}
-                      />
-                    )
-                  })}
-                </Tabs>
-                <MuiIconButton size="small" onClick={handleCloseEditor}>
-                  <CloseIcon fontSize="small" />
-                </MuiIconButton>
-              </Stack>
-              <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                {activeTab ? (
-                  <EditorErrorBoundary>
-                    <ObjectEditor
-                      key={activeTab.tabId}
-                      object={activeTab.object}
-                      type={activeTab.type}
-                      onSave={handleSaveEdit}
-                      onCancel={handleCloseEditor}
-                      onDirty={(isDirty) => {
-                        if (!activeTabId) return
-                        setOpenTabs((prev) => prev.map((tab) => (
-                          tab.tabId === activeTabId ? { ...tab, isDirty } : tab
-                        )))
-                      }}
-                      onNavigateToObject={handleNavigateToObject}
-                    />
-                  </EditorErrorBoundary>
-                ) : null}
-              </Box>
-            </>
-          )}
-        </Paper>
+         <>
+           <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid #1c3558' }}>
+             <Tabs
+               value={activeTab?.tabId ?? false}
+               onChange={(_, value: string) => setActiveTabId(value)}
+               variant="scrollable"
+               scrollButtons="auto"
+               sx={{
+                 minHeight: 36,
+                 flex: 1,
+                 '& .MuiTabs-indicator': { bgcolor: getObjectColor(activeTab?.type ?? 'daily-note').accent },
+                 '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
+               }}
+             >
+               {openTabs.map((tab) => {
+                 const tabToken = getObjectColor(tab.type)
+                 return (
+                   <Tab
+                     key={tab.tabId}
+                     value={tab.tabId}
+                     label={(
+                       <Stack direction="row" alignItems="center" spacing={0.5}>
+                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
+                         <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                           {getTabLabel(tab)}
+                         </Typography>
+                         {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
+                         <MuiIconButton
+                           size="small"
+                           onClick={(event) => {
+                             event.stopPropagation()
+                             handleRequestCloseTab(tab.tabId)
+                           }}
+                           sx={{ p: 0.15, color: '#7dbad6' }}
+                         >
+                           <CloseIcon sx={{ fontSize: 12 }} />
+                         </MuiIconButton>
+                       </Stack>
+                     )}
+                   />
+                 )
+               })}
+             </Tabs>
+             <MuiIconButton size="small" onClick={handleCloseEditor}>
+               <CloseIcon fontSize="small" />
+             </MuiIconButton>
+           </Stack>
+           <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+             {activeTab ? (
+               <EditorErrorBoundary>
+                 <ObjectEditor
+                   key={activeTab.tabId}
+                   object={activeTab.object}
+                   type={activeTab.type}
+                   onSave={handleSaveEdit}
+                   onCancel={handleCloseEditor}
+                   onDirty={(isDirty) => {
+                     if (!activeTabId) return
+                     setOpenTabs((prev) => prev.map((tab) => (
+                       tab.tabId === activeTabId ? { ...tab, isDirty } : tab
+                     )))
+                   }}
+                   onNavigateToObject={handleNavigateToObject}
+                 />
+               </EditorErrorBoundary>
+             ) : null}
+           </Box>
+         </>
+       </Paper>
       )}
       </Stack>
 
-        {/* Confirmation Dialog for unsaved changes */}
-        <Dialog
+      <Dialog
+       open={isCreating}
+       onClose={handleCloseEditor}
+       fullWidth
+       maxWidth="lg"
+       fullScreen={isSmallScreen}
+       aria-labelledby="create-card-dialog-title"
+       PaperProps={{
+         sx: {
+           height: isSmallScreen ? '100%' : 'min(720px, calc(100vh - 64px))',
+           maxHeight: isSmallScreen ? '100%' : 'calc(100vh - 32px)',
+           bgcolor: '#09111b',
+         },
+       }}
+      >
+       <DialogTitle id="create-card-dialog-title" sx={{ pr: 6 }}>
+         Create New Note
+       </DialogTitle>
+       <MuiIconButton
+         size="small"
+         aria-label="Close create note dialog"
+         onClick={handleCloseEditor}
+         sx={{ position: 'absolute', right: 12, top: 12, color: '#7dbad6' }}
+       >
+         <CloseIcon fontSize="small" />
+       </MuiIconButton>
+       <DialogContent sx={{ p: { xs: 1, sm: 1.5 }, display: 'flex', minHeight: 0 }}>
+         <CreatePanel
+           createType={createType}
+           createKey={createKey}
+           onTypeChange={(t) => {
+             setCreateType(t)
+             setCreateKey((k) => k + 1)
+           }}
+           onSave={handleSaveNew}
+           onClose={handleCloseEditor}
+           onDirty={setCreateHasUnsavedChanges}
+           onNavigateToObject={handleNavigateToObject}
+           onCreateDateChange={handleCreateDateChange}
+           showHeader={false}
+         />
+       </DialogContent>
+      </Dialog>
+
+       {/* Confirmation Dialog for unsaved changes */}
+       <Dialog
           open={!!confirmCloseTabId}
           onClose={() => setConfirmCloseTabId(null)}
         >
