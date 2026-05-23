@@ -4,6 +4,7 @@ import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
 import type { ObjectType } from '../../shared/types'
+import { cardSpacingTokens } from '../../theme'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -189,7 +190,7 @@ function TypeIcon({ type }: { type: ObjectType }) {
  *
  * Content order: metadata → title → snippet → media
  *
- * - Metadata row  : type icon + type label + optional metadata string + tags (caption style, 11 px)
+ * - Metadata row  : type icon + type label + optional metadata string + tags (caption style, 12 px)
  * - Title row     : primary text/date (prominent, 19 px)
  * - Snippet row   : body preview text (~14 px)
  * - Media row     : image thumbnail (bottom, if mediaUrl is provided)
@@ -213,7 +214,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}`
           : 'none',
         borderRadius: '10px',
-        p: 2,
+        p: cardSpacingTokens.cardPadding,
         cursor: onClick ? 'pointer' : 'default',
         transition: CARD_TRANSITION,
         breakInside: 'avoid',
@@ -238,16 +239,16 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         alignItems="center"
         flexWrap="wrap"
         gap={0.5}
-        sx={{ mb: 0.75 }}
+        sx={{ mb: 0.75, color: 'text.disabled' }}
       >
         {/* Type badge */}
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary', flexShrink: 0 }}>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'inherit', flexShrink: 0 }}>
           <TypeIcon type={card.type} />
           <Typography
             component="span"
             variant="metadata-caption"
             sx={{
-              color: 'text.secondary',
+              color: 'inherit',
               textTransform: 'uppercase',
             }}
           >
@@ -260,7 +261,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <Typography
             component="span"
             variant="metadata-caption"
-            sx={{ color: 'accent.metadata' }}
+            sx={{ color: 'inherit' }}
           >
             · {card.metadata}
           </Typography>
@@ -334,15 +335,15 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <Box
-          sx={{
+          sx={(theme) => ({
+            ...theme.typography['snippet-body'],
             color: 'text.secondary',
             wordBreak: 'break-word',
             display: 'block',
             overflow: 'hidden',
             maxHeight: '5.6em',
-            lineHeight: 1.4,
             mb: card.mediaUrl ? 1 : 0,
-          }}
+          })}
         >
           <MarkdownSnippet text={card.snippet} />
         </Box>

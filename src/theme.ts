@@ -84,7 +84,7 @@ export const neutralDarkTokens = {
 
 export const cardTypographyTokens = {
   'metadata-caption': {
-    fontSize: '11px',
+    fontSize: '12px',
     fontWeight: 500,
     lineHeight: 1.4,
     letterSpacing: '0.3px',
@@ -92,12 +92,12 @@ export const cardTypographyTokens = {
   },
   'card-title': {
     fontSize: '19px',
-    fontWeight: 600,
+    fontWeight: 700,
     lineHeight: 1.3,
   },
   'card-date': {
     fontSize: '19px',
-    fontWeight: 600,
+    fontWeight: 700,
     lineHeight: 1.3,
   },
   'snippet-body': {
@@ -105,6 +105,15 @@ export const cardTypographyTokens = {
     fontWeight: 400,
     lineHeight: 1.5,
   },
+} as const
+
+export const cardSpacingTokens = {
+  cardPadding: 2, // 16px
+  cardVerticalGutter: 1.5, // 12px
+  sidebarRowMinHeight: 32,
+  sidebarRowPaddingX: 1, // 8px
+  sidebarRowPaddingY: 0.5, // 4px
+  toolbarRowMinHeight: 42,
 } as const
 
 export const appTheme = createTheme({
