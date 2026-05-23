@@ -4,12 +4,15 @@ import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
 import type { ObjectType } from '../../shared/types'
+import { cardSpacingTokens } from '../../theme'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface NoteCardData {
   id: string
   type: ObjectType
+  /** Optional weekday label rendered above the primary title/date. */
+  weekdayLabel?: string
   /**
    * Metadata label shown in the top caption row alongside the type icon.
    * Use this for contextual info like a formatted date for topic-notes or
@@ -30,7 +33,7 @@ export interface NoteCardProps {
   card: NoteCardData
   isSelected?: boolean
   /** Called when the card is clicked. */
-  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void
   /** Accessible title / tooltip for the card root element. */
   title?: string
 }
@@ -187,7 +190,7 @@ function TypeIcon({ type }: { type: ObjectType }) {
  *
  * Content order: metadata → title → snippet → media
  *
- * - Metadata row  : type icon + type label + optional metadata string + tags (caption style, 11 px)
+ * - Metadata row  : type icon + type label + optional metadata string + tags (caption style, 12 px)
  * - Title row     : primary text/date (prominent, 19 px)
  * - Snippet row   : body preview text (~14 px)
  * - Media row     : image thumbnail (bottom, if mediaUrl is provided)
@@ -195,9 +198,13 @@ function TypeIcon({ type }: { type: ObjectType }) {
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
   const tags = card.tags ?? []
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
+  const interactiveProps = onClick
+    ? ({ component: 'button', type: 'button' } as const)
+    : ({ component: 'div' } as const)
 
   return (
     <Paper
+      {...interactiveProps}
       onClick={onClick}
       title={title}
       sx={(theme) => ({
@@ -207,10 +214,14 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}`
           : 'none',
         borderRadius: '10px',
-        p: 2,
+        p: cardSpacingTokens.cardPadding,
         cursor: onClick ? 'pointer' : 'default',
         transition: CARD_TRANSITION,
         breakInside: 'avoid',
+        textAlign: onClick ? 'left' : undefined,
+        width: '100%',
+        font: onClick ? 'inherit' : undefined,
+        appearance: onClick ? 'none' : undefined,
         '&:hover': onClick
           ? {
               bgcolor: theme.palette.surface.sunken,
@@ -228,16 +239,16 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         alignItems="center"
         flexWrap="wrap"
         gap={0.5}
-        sx={{ mb: 0.75 }}
+        sx={{ mb: 0.75, color: 'text.disabled' }}
       >
         {/* Type badge */}
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary', flexShrink: 0 }}>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'inherit', flexShrink: 0 }}>
           <TypeIcon type={card.type} />
           <Typography
             component="span"
             variant="metadata-caption"
             sx={{
-              color: 'text.secondary',
+              color: 'inherit',
               textTransform: 'uppercase',
             }}
           >
@@ -250,7 +261,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <Typography
             component="span"
             variant="metadata-caption"
-            sx={{ color: 'accent.metadata' }}
+            sx={{ color: 'inherit' }}
           >
             · {card.metadata}
           </Typography>
@@ -288,30 +299,51 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         )}
       </Stack>
 
-      {/* 2. Title / date — large, prominent */}
-      <Typography
-        variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
-        sx={{
-          color: 'text.primary',
-          wordBreak: 'break-word',
-          mb: card.snippet || card.mediaUrl ? 0.75 : 0,
-        }}
+      <Stack
+        alignItems="flex-start"
+        spacing={card.weekdayLabel ? 0.25 : 0}
+        sx={{ mb: card.snippet || card.mediaUrl ? 0.75 : 0 }}
       >
-        {card.title || '(untitled)'}
-      </Typography>
+        {card.weekdayLabel && (
+          <Typography
+            variant="metadata-caption"
+            sx={{
+              color: 'accent.metadata',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {card.weekdayLabel}
+          </Typography>
+        )}
+
+        {/* 2. Title / date — large, prominent */}
+        <Typography
+          variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
+          sx={{
+            color: 'text.primary',
+            wordBreak: 'break-word',
+            width: '100%',
+          }}
+        >
+          {card.title || '(untitled)'}
+        </Typography>
+      </Stack>
 
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <Box
-          sx={{
+          sx={(theme) => ({
+            ...theme.typography['snippet-body'],
             color: 'text.secondary',
             wordBreak: 'break-word',
             display: 'block',
             overflow: 'hidden',
             maxHeight: '5.6em',
-            lineHeight: 1.4,
             mb: card.mediaUrl ? 1 : 0,
-          }}
+          })}
         >
           <MarkdownSnippet text={card.snippet} />
         </Box>

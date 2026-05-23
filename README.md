@@ -1,5 +1,9 @@
 # PuzzlePKM
 
+<p align="center">
+  <img src="./public/icons/icon-128.png" alt="PuzzlePKM icon" width="96" height="96" />
+</p>
+
 A local-first knowledge management app with folder-based sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
 
 ## Features

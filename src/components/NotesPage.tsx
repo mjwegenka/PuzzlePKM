@@ -35,6 +35,7 @@ import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
 import TuneIcon from '@mui/icons-material/Tune'
 import LabelIcon from '@mui/icons-material/Label'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
+import SwapVertIcon from '@mui/icons-material/SwapVert'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import FilterChip from './ui/FilterChip'
@@ -42,8 +43,9 @@ import { NoteCard } from './ui/NoteCard'
 import type { NoteCardData } from './ui/NoteCard'
 import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
-import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
+import { formatDatePretty, formatWeekdayShort, getTodayDate } from '../lib/dateUtils'
 import { getObjectColor } from '../lib/objectColors'
+import { cardSpacingTokens } from '../theme'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -114,6 +116,15 @@ interface OpenEditorTab {
 /** Internal board card shape — maps 1:1 to NoteCardData for rendering. */
 interface BoardCard extends NoteCardData {
   type: EditorObjectType
+  sortTimestamp: number
+}
+
+type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
+const BOARD_SORT_LABELS: Record<BoardSort, string> = {
+  recent: 'Newest',
+  oldest: 'Oldest',
+  'title-asc': 'Title A–Z',
+  'title-desc': 'Title Z–A',
 }
 
 function sanitizeCardText(value: string): string {
@@ -172,6 +183,14 @@ function deriveTopicCardTitle(title: string, preview: string, date?: string): st
 
   if (date) return formatDatePretty(date)
   return 'Topic Note'
+}
+
+function toSortTimestamp(...values: Array<string | undefined>): number {
+  for (const value of values) {
+    const timestamp = Date.parse(String(value ?? ''))
+    if (!Number.isNaN(timestamp)) return timestamp
+  }
+  return 0
 }
 
 // ── Create panel (type selector + blank editor) ───────────────────────────────
@@ -338,6 +357,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
+  const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [activeFilterChips, setActiveFilterChips] = useState<{ cardType: boolean; tags: boolean; untagged: boolean; custom: boolean }>({
     cardType: false,
     tags: false,
@@ -551,9 +571,11 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'topic-note' as NoteType,
         title: deriveTopicCardTitle(n.title, n.preview, n.date),
+        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
       }))
 
     const dailyCards: BoardCard[] = dailyNotes
@@ -562,8 +584,10 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'daily-note' as NoteType,
         title: formatDatePretty(n.date),
+        weekdayLabel: formatWeekdayShort(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.date),
       }))
 
     const habitCards: BoardCard[] = habits
@@ -572,8 +596,10 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'habit' as NoteType,
         title: sanitizeCardText(n.text) || '(no text)',
+        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.date),
       }))
 
     const fileCards: BoardCard[] = files
@@ -587,6 +613,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
           : (f.author ? `by ${f.author}` : 'Reference'),
         snippet: f.syncPath || undefined,
         tags: f.tags,
+        sortTimestamp: toSortTimestamp(f.startDate),
       }))
 
     const currentTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
@@ -595,8 +622,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       : currentTab?.type === 'topic-note' || currentTab?.type === 'daily-note' || currentTab?.type === 'habit' || currentTab?.type === 'project' || currentTab?.type === 'ref-material'
         ? currentTab.type
         : null
-    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards]
-    return cards.filter((card) => {
+    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards].filter((card) => {
       if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
       if (activeFilterChips.cardType && selectedCardType && card.type !== selectedCardType) return false
 
@@ -607,7 +633,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
       return true
     })
-  }, [topicNotes, dailyNotes, habits, files, showInbox, boardFilter, activeFilterChips, openTabs, activeTabId, isCreating, createType])
+
+    const compareByTitle = (a: BoardCard, b: BoardCard) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+    if (boardSort === 'title-asc') return cards.sort(compareByTitle)
+    if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
+    if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
+    return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
+  }, [topicNotes, dailyNotes, habits, files, showInbox, boardFilter, boardSort, activeFilterChips, openTabs, activeTabId, isCreating, createType])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material'
     ? activeTab.type
@@ -641,6 +673,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         sx={{
           mb: 1,
           flexShrink: 0,
+          minHeight: cardSpacingTokens.toolbarRowMinHeight,
           px: 1,
           py: 0.75,
           borderRadius: '10px',
@@ -706,7 +739,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               width: 220,
               flexShrink: 0,
               '& .MuiOutlinedInput-root': {
-                minHeight: 30,
+                minHeight: 32,
                 fontSize: '12px',
                 bgcolor: 'surface.sunken',
                 color: 'text.secondary',
@@ -723,6 +756,42 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             }}
           />
 
+          <TextField
+            select
+            size="small"
+            value={boardSort}
+            onChange={(event) => setBoardSort(event.target.value as BoardSort)}
+            aria-label="Sort cards"
+            sx={{
+              width: 146,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                minHeight: 30,
+                fontSize: '12px',
+                bgcolor: 'surface.sunken',
+                color: 'text.secondary',
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+              },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+            }}
+            slotProps={{
+              select: {
+                renderValue: (value) => (
+                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <SwapVertIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                    <Box component="span">{BOARD_SORT_LABELS[String(value) as BoardSort] ?? String(value)}</Box>
+                  </Stack>
+                ),
+              },
+            }}
+          >
+            <MenuItem value="recent">{BOARD_SORT_LABELS.recent}</MenuItem>
+            <MenuItem value="oldest">{BOARD_SORT_LABELS.oldest}</MenuItem>
+            <MenuItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</MenuItem>
+            <MenuItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</MenuItem>
+          </TextField>
+
           {/* +Card button */}
           <Tooltip title="Create a new card">
             <Button
@@ -737,7 +806,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               sx={{
                 flexShrink: 0,
                 fontSize: '12px',
-                minHeight: 30,
+                minHeight: 32,
                 minWidth: { xs: 0, sm: 'auto' },
                 px: { xs: 0.75, sm: 1 },
                 py: 0.25,
@@ -835,7 +904,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              sx={{
                display: 'grid',
                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-               gap: 1.5,
+               gap: cardSpacingTokens.cardVerticalGutter,
                alignItems: 'start',
                 width: '100%',
                 minWidth: 0,
@@ -857,17 +926,35 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       {activeTab && (
         <Paper sx={{ width: 560, minWidth: 420, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
          <>
-           <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
+           <Stack direction="row" alignItems="flex-end" gap={0.75} sx={{ px: 0.75, pt: 0.5, pb: 0, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
                variant="scrollable"
                scrollButtons="auto"
                sx={{
-                 minHeight: 36,
+                 minHeight: 0,
                  flex: 1,
-                 '& .MuiTabs-indicator': { bgcolor: getObjectColor(activeTab?.type ?? 'daily-note').accent },
-                 '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
+                 '& .MuiTabs-indicator': { display: 'none' },
+                 '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
+                 '& .MuiTabs-scroller': { overflow: 'visible !important' },
+                 '& .MuiTabScrollButton-root': { width: 24, color: '#7dbad6' },
+                 '& .MuiTab-root': {
+                   minHeight: 0,
+                   textTransform: 'none',
+                   minWidth: 0,
+                   px: 0.75,
+                   py: 0,
+                   borderRadius: '10px 10px 0 0',
+                   border: '1px solid rgba(255,255,255,0.08)',
+                   borderBottomColor: 'rgba(255,255,255,0.04)',
+                   backgroundColor: 'rgba(255,255,255,0.02)',
+                   color: '#9fb4c7',
+                   transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
+                   '&:hover': {
+                     backgroundColor: 'rgba(255,255,255,0.05)',
+                   },
+                 },
                }}
              >
                {openTabs.map((tab) => {
@@ -876,22 +963,37 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                    <Tab
                      key={tab.tabId}
                      value={tab.tabId}
+                     disableRipple
+                     sx={{
+                       '&.Mui-selected': {
+                         color: tabToken.text,
+                         backgroundColor: '#0e2038',
+                         borderColor: tabToken.border,
+                         borderBottomColor: '#0e2038',
+                         boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
+                       },
+                     }}
                      label={(
-                       <Stack direction="row" alignItems="center" spacing={0.5}>
-                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
-                         <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                       <Stack direction="row" alignItems="center" spacing={0.45} sx={{ minHeight: 28 }}>
+                         <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
+                         <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1 }}>
                            {getTabLabel(tab)}
                          </Typography>
-                         {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
+                         {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
                          <MuiIconButton
                            size="small"
                            onClick={(event) => {
                              event.stopPropagation()
                              handleRequestCloseTab(tab.tabId)
                            }}
-                           sx={{ p: 0.15, color: 'text.secondary' }}
+                           sx={{
+                             p: 0.1,
+                             color: 'text.secondary',
+                             opacity: 0.8,
+                             '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+                           }}
                          >
-                           <CloseIcon sx={{ fontSize: 12 }} />
+                           <CloseIcon sx={{ fontSize: 11 }} />
                          </MuiIconButton>
                        </Stack>
                      )}
@@ -899,7 +1001,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                  )
                })}
              </Tabs>
-             <MuiIconButton size="small" onClick={handleCloseEditor}>
+             <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ mb: 0.35 }}>
                <CloseIcon fontSize="small" />
              </MuiIconButton>
            </Stack>

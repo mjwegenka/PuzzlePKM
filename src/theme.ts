@@ -84,7 +84,7 @@ export const neutralDarkTokens = {
 
 export const cardTypographyTokens = {
   'metadata-caption': {
-    fontSize: '11px',
+    fontSize: '12px',
     fontWeight: 500,
     lineHeight: 1.4,
     letterSpacing: '0.3px',
@@ -92,12 +92,12 @@ export const cardTypographyTokens = {
   },
   'card-title': {
     fontSize: '19px',
-    fontWeight: 600,
+    fontWeight: 700,
     lineHeight: 1.3,
   },
   'card-date': {
     fontSize: '19px',
-    fontWeight: 600,
+    fontWeight: 700,
     lineHeight: 1.3,
   },
   'snippet-body': {
@@ -105,6 +105,15 @@ export const cardTypographyTokens = {
     fontWeight: 400,
     lineHeight: 1.5,
   },
+} as const
+
+export const cardSpacingTokens = {
+  cardPadding: 2, // 16px
+  cardVerticalGutter: 1.5, // 12px
+  sidebarRowMinHeight: 32,
+  sidebarRowPaddingX: 1, // 8px
+  sidebarRowPaddingY: 0.5, // 4px
+  toolbarRowMinHeight: 42,
 } as const
 
 export const appTheme = createTheme({
@@ -156,6 +165,10 @@ export const appTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
+        ':root': {
+          '--focus-ring-color': theme.palette.accent.selected,
+          '--focus-ring-shadow': alpha(theme.palette.accent.selected, 0.34),
+        },
         body: {
           backgroundColor: theme.palette.surface.app,
           color: theme.palette.text.primary,
@@ -163,6 +176,16 @@ export const appTheme = createTheme({
         a: {
           color: theme.palette.accent.link,
         },
+        'button, [href], input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])': {
+          transition: 'outline-color 120ms ease, box-shadow 120ms ease',
+        },
+        'button:focus-visible, [href]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible, [tabindex]:not([tabindex="-1"]):focus-visible':
+          {
+            outline: '2px solid var(--focus-ring-color)',
+            outlineOffset: '2px',
+            boxShadow: '0 0 0 4px var(--focus-ring-shadow)',
+            borderRadius: '8px',
+          },
         '::selection': {
           backgroundColor: alpha(theme.palette.accent.selected, 0.32),
         },

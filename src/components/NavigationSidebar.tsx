@@ -32,7 +32,7 @@ import RepeatIcon from '@mui/icons-material/Repeat';
 import { useSyncStatus } from '../lib/syncContext';
 import { formatDatePretty } from '../lib/dateUtils';
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../lib/cliService';
-import { neutralDarkTokens } from '../theme';
+import { cardSpacingTokens, neutralDarkTokens } from '../theme';
 
 interface NavigationItem {
   id: string;
@@ -255,9 +255,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               selected={currentSection === item.id}
               onClick={() => onNavigate(item.id)}
               sx={{
-                minHeight: 32,
-                px: 1,
-                py: 0.25,
+                minHeight: cardSpacingTokens.sidebarRowMinHeight,
+                px: cardSpacingTokens.sidebarRowPaddingX,
+                py: cardSpacingTokens.sidebarRowPaddingY,
                 borderRadius: '6px',
                 color: sidebarColors.textMuted,
                 transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
@@ -305,9 +305,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
                   sx={{
                     gap: 0.5,
-                    minHeight: 32,
-                    px: 1,
-                    py: 0.25,
+                    minHeight: cardSpacingTokens.sidebarRowMinHeight,
+                    px: cardSpacingTokens.sidebarRowPaddingX,
+                    py: cardSpacingTokens.sidebarRowPaddingY,
                     borderRadius: '6px',
                     color: sidebarColors.textMuted,
                     transition: 'background-color 120ms ease, color 120ms ease',
@@ -419,9 +419,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             selected={currentSection === 'settings'}
             onClick={() => onNavigate('settings')}
             sx={{
-              minHeight: 32,
-              px: 1,
-              py: 0.25,
+              minHeight: cardSpacingTokens.sidebarRowMinHeight,
+              px: cardSpacingTokens.sidebarRowPaddingX,
+              py: cardSpacingTokens.sidebarRowPaddingY,
               borderRadius: '6px',
               color: sidebarColors.textMuted,
               transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
@@ -446,7 +446,16 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
 function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean; count: number }) {
   return (
-    <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', gap: 1, minHeight: 32 }}>
+    <Box
+      sx={{
+        px: cardSpacingTokens.sidebarRowPaddingX,
+        py: cardSpacingTokens.sidebarRowPaddingY,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        minHeight: cardSpacingTokens.sidebarRowMinHeight,
+      }}
+    >
       <PushPinIcon sx={{ fontSize: 14, color: sidebarColors.iconMuted }} />
       <Typography variant="caption" sx={{ color: sidebarColors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: '10px', flex: 1 }}>
         Pinned
