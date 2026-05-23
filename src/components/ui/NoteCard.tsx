@@ -30,7 +30,7 @@ export interface NoteCardProps {
   card: NoteCardData
   isSelected?: boolean
   /** Called when the card is clicked. */
-  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void
   /** Accessible title / tooltip for the card root element. */
   title?: string
 }
@@ -195,9 +195,13 @@ function TypeIcon({ type }: { type: ObjectType }) {
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
   const tags = card.tags ?? []
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
+  const interactiveProps = onClick
+    ? ({ component: 'button', type: 'button' } as const)
+    : ({ component: 'div' } as const)
 
   return (
     <Paper
+      {...interactiveProps}
       onClick={onClick}
       title={title}
       sx={(theme) => ({
@@ -211,6 +215,10 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         cursor: onClick ? 'pointer' : 'default',
         transition: CARD_TRANSITION,
         breakInside: 'avoid',
+        textAlign: onClick ? 'left' : undefined,
+        width: '100%',
+        font: onClick ? 'inherit' : undefined,
+        appearance: onClick ? 'none' : undefined,
         '&:hover': onClick
           ? {
               bgcolor: theme.palette.surface.sunken,
