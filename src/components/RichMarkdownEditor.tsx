@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Button,
   Box,
   IconButton,
+  Menu,
+  MenuItem,
   Stack,
   Tooltip,
   Typography,
@@ -16,10 +19,12 @@ import CodeIcon from '@mui/icons-material/Code'
 import ChecklistIcon from '@mui/icons-material/Checklist'
 import TitleIcon from '@mui/icons-material/Title'
 import LinkIcon from '@mui/icons-material/Link'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
 import type { AnyExtension } from '@tiptap/core'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import Blockquote from '@tiptap/extension-blockquote'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
@@ -31,7 +36,6 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
-import { DragHandle } from './DragHandle'
 import { searchObjects } from '../lib/cliService'
 import type { NoteBlock } from '../shared/types'
 
@@ -43,10 +47,24 @@ interface RichMarkdownEditorProps {
   label: string
   placeholder?: string
   mentionEnabled?: boolean
-  dragHandleEnabled?: boolean
   resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
   onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
+}
+
+type AdmonitionType = 'note' | 'tip' | 'important' | 'warn' | 'caution'
+
+const ADMONITION_OPTIONS: Array<{ value: AdmonitionType; label: string }> = [
+  { value: 'note', label: 'Note' },
+  { value: 'tip', label: 'Tip' },
+  { value: 'important', label: 'Important' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'caution', label: 'Caution' },
+]
+
+function capitalize(value: string): string {
+  if (!value) return value
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 marked.setOptions({
@@ -64,7 +82,160 @@ const turndown = new TurndownService({
 
 turndown.addRule('tightLineBreaks', {
   filter: ['br'],
-  replacement: () => '<br>\n',
+  replacement: () => '  \n',
+})
+
+const ADMONITION_MARKER_RE = /^\[!([A-Za-z0-9_-]+)]([+-])?(?:\s+(.*))?$/
+
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replace(/`/g, '&#96;')
+}
+
+function normalizeBlockquoteContent(content: string): string {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/<br\s*\/?>\n?/gi, '\n')
+}
+
+function normalizeBlockquoteMarkdown(content: string): string {
+  return normalizeBlockquoteContent(content)
+    .replace(/^\n+|\n+$/g, '')
+    .replace(/^/gm, '> ')
+}
+
+function normalizeAdmonitionMarker(line: string): string {
+  return line
+    .replaceAll('\\[', '[')
+    .replaceAll('\\]', ']')
+    .trim()
+}
+
+function parseAdmonitionMarker(line: string): { type: string; title: string } | null {
+  const match = ADMONITION_MARKER_RE.exec(normalizeAdmonitionMarker(line))
+  if (!match) return null
+  return {
+    type: match[1].toLowerCase(),
+    title: (match[3] ?? '').trim(),
+  }
+}
+
+function serializeAdmonitionBlockquote(content: string): string | null {
+  const normalized = normalizeBlockquoteContent(content)
+  const lines = normalized.split('\n').map((line) => line.trimEnd())
+  const firstNonEmptyIndex = lines.findIndex((line) => line.trim().length > 0)
+  if (firstNonEmptyIndex < 0) return null
+
+  const marker = parseAdmonitionMarker(lines[firstNonEmptyIndex])
+  if (!marker) return null
+
+  const outputLines = lines.map((line, index) =>
+    index === firstNonEmptyIndex ? `[!${marker.type.toUpperCase()}]${marker.title ? ` ${marker.title}` : ''}` : line,
+  )
+  return normalizeBlockquoteMarkdown(outputLines.join('\n'))
+}
+
+function isQuoteLine(line: string): boolean {
+  return /^\s*>/.test(line)
+}
+
+function stripQuotePrefix(line: string): string {
+  return line.replace(/^\s*>\s?/, '')
+}
+
+function transformAdmonitionMarkdownToHtml(markdown: string): string {
+  const lines = String(markdown ?? '').replace(/\r\n/g, '\n').split('\n')
+  const segments: string[] = []
+  const buffer: string[] = []
+  let foundAdmonition = false
+
+  const flushBuffer = () => {
+    const chunk = buffer.join('\n').trimEnd()
+    if (chunk) segments.push(chunk)
+    buffer.length = 0
+  }
+
+  for (let i = 0; i < lines.length; ) {
+    const line = lines[i] ?? ''
+    if (isQuoteLine(line)) {
+      const quoteLines: string[] = []
+      let j = i
+      while (j < lines.length) {
+        const candidate = lines[j] ?? ''
+        if (candidate.trim().length === 0 || isQuoteLine(candidate)) {
+          quoteLines.push(candidate)
+          j += 1
+          continue
+        }
+        break
+      }
+
+      const innerLines = quoteLines.map(stripQuotePrefix)
+      const firstNonEmptyIndex = innerLines.findIndex((innerLine) => innerLine.trim().length > 0)
+      const marker = firstNonEmptyIndex >= 0 ? parseAdmonitionMarker(innerLines[firstNonEmptyIndex] ?? '') : null
+      if (marker) {
+        foundAdmonition = true
+        flushBuffer()
+
+        const bodyMarkdown = innerLines
+          .slice(firstNonEmptyIndex + 1)
+          .join('\n')
+          .replace(/^\n+|\n+$/g, '')
+        const bodyHtml = bodyMarkdown.trim() ? marked.parse(bodyMarkdown) as string : '<p></p>'
+        const labelText = marker.title ? `${marker.type.toUpperCase()} ${marker.title}` : marker.type.toUpperCase()
+
+        segments.push([
+          `<blockquote data-admonition-type="${escapeAttribute(marker.type)}" data-admonition-label="${escapeAttribute(labelText)}">`,
+          bodyHtml,
+          `</blockquote>`,
+        ].join('\n'))
+        i = j
+        continue
+      }
+    }
+
+    buffer.push(line)
+    i += 1
+  }
+
+  flushBuffer()
+  if (!foundAdmonition) return String(markdown ?? '')
+  return segments.join('\n\n')
+}
+
+turndown.addRule('blockquotePreserveAdmonitions', {
+  filter: ['blockquote'],
+  replacement: (content, node) => {
+    if (!(node instanceof HTMLElement)) {
+      const admonition = serializeAdmonitionBlockquote(content)
+      return `\n\n${admonition ?? normalizeBlockquoteMarkdown(content)}\n\n`
+    }
+
+    const element = node
+
+    const admonitionType = element.getAttribute('data-admonition-type')?.trim()
+    if (!admonitionType) {
+      const admonition = serializeAdmonitionBlockquote(content)
+      return `\n\n${admonition ?? normalizeBlockquoteMarkdown(content)}\n\n`
+    }
+
+    const bodyMarkdown = turndown.turndown(element.innerHTML).trimEnd()
+    const markerLine = `[!${admonitionType.toUpperCase()}]`
+    if (!bodyMarkdown) {
+      return `\n\n> ${markerLine}\n\n`
+    }
+
+    const bodyLines = bodyMarkdown.split('\n').map((line) => (line.trim().length > 0 ? `> ${line}` : '>')).join('\n')
+    return `\n\n> ${markerLine}\n${bodyLines}\n\n`
+  },
 })
 
 function normalizeEditorHtmlForMarkdown(html: string): string {
@@ -74,7 +245,7 @@ function normalizeEditorHtmlForMarkdown(html: string): string {
 
 function markdownToHtml(markdown: string): string {
   if (!markdown.trim()) return '<p></p>'
-  return marked.parse(markdown) as string
+  return marked.parse(transformAdmonitionMarkdownToHtml(markdown)) as string
 }
 
 function htmlToMarkdown(html: string): string {
@@ -234,7 +405,6 @@ export default function RichMarkdownEditor({
   label,
   placeholder,
   mentionEnabled = false,
-  dragHandleEnabled = false,
   resolveMentionHref,
   maxLength,
   onShiftClickLink,
@@ -250,9 +420,37 @@ export default function RichMarkdownEditor({
   const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([])
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
   const [mentionPosition, setMentionPosition] = useState<{ top: number; left: number } | null>(null)
+  const [admonitionMenuAnchor, setAdmonitionMenuAnchor] = useState<HTMLElement | null>(null)
 
   const extensions = useMemo<AnyExtension[]>(() => [
-      StarterKit,
+      Blockquote.extend({
+        addAttributes() {
+          return {
+            admonitionType: {
+              default: null,
+              parseHTML: (element) => (element as HTMLElement).getAttribute('data-admonition-type'),
+              renderHTML: (attributes) => {
+                const type = String(attributes.admonitionType ?? '').trim()
+                return type ? { 'data-admonition-type': type } : {}
+              },
+            },
+            admonitionLabel: {
+              default: null,
+              parseHTML: (element) => (element as HTMLElement).getAttribute('data-admonition-label'),
+              renderHTML: (attributes) => {
+                const label = String(attributes.admonitionLabel ?? '').trim()
+                return label ? { 'data-admonition-label': label } : {}
+              },
+            },
+          }
+        },
+        renderHTML({ HTMLAttributes }) {
+          return ['blockquote', HTMLAttributes, 0]
+        },
+      }),
+      StarterKit.configure({
+        blockquote: false,
+      }),
       Link.configure({
         openOnClick: false,
         autolink: false,
@@ -565,6 +763,32 @@ export default function RichMarkdownEditor({
     ? editor.storage.characterCount?.characters?.()
     : undefined
 
+  const activeAdmonitionType = editor?.isActive('blockquote')
+    ? String(editor.getAttributes('blockquote').admonitionType ?? '').trim().toLowerCase()
+    : ''
+
+  const handleApplyAdmonitionType = useCallback((type: AdmonitionType) => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    const label = capitalize(type)
+    if (editor.isActive('blockquote')) {
+      chain.updateAttributes('blockquote', { admonitionType: type, admonitionLabel: label }).run()
+    } else {
+      chain.toggleBlockquote().updateAttributes('blockquote', { admonitionType: type, admonitionLabel: label }).run()
+    }
+    setAdmonitionMenuAnchor(null)
+  }, [editor])
+
+  const handleAdmonitionMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setAdmonitionMenuAnchor(event.currentTarget)
+  }, [])
+
+  const handleAdmonitionMenuClose = useCallback(() => {
+    setAdmonitionMenuAnchor(null)
+  }, [])
+
   return (
     <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
@@ -627,17 +851,62 @@ export default function RichMarkdownEditor({
           <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={handleLinkPrompt}>
             <LinkIcon fontSize="small" />
           </ToolbarButton>
+          <Button
+            size="small"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleAdmonitionMenuOpen}
+            endIcon={<ArrowDropDownIcon fontSize="small" />}
+            sx={{
+              minHeight: 30,
+              px: 1,
+              borderRadius: '6px',
+              border: '1px solid',
+              borderColor: activeAdmonitionType ? '#1a8ab5' : '#1c3558',
+              bgcolor: activeAdmonitionType ? 'rgba(26,138,181,0.24)' : 'transparent',
+              color: activeAdmonitionType ? '#e4f0fb' : '#7dbad6',
+              textTransform: 'none',
+              '&:hover': {
+                bgcolor: 'rgba(26,138,181,0.16)',
+                borderColor: '#1a8ab5',
+              },
+            }}
+          >
+            {activeAdmonitionType ? `Admonition: ${capitalize(activeAdmonitionType)}` : 'Admonition'}
+          </Button>
         </Stack>
 
-        {/* Content scroll area — position: relative anchors the DragHandle.
-            Left padding is widened to create a visible gutter for the handle. */}
+        <Menu
+          anchorEl={admonitionMenuAnchor}
+          open={Boolean(admonitionMenuAnchor)}
+          onClose={handleAdmonitionMenuClose}
+          slotProps={{
+            paper: {
+              sx: {
+                bgcolor: '#0e2038',
+                border: '1px solid #1c3558',
+              },
+            },
+          }}
+        >
+          {ADMONITION_OPTIONS.map((option) => (
+            <MenuItem
+              key={option.value}
+              selected={activeAdmonitionType === option.value}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleApplyAdmonitionType(option.value)}
+            >
+              {option.label}
+            </MenuItem>
+          ))}
+        </Menu>
+
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
             overflow: 'auto',
             position: 'relative',
-            pl: dragHandleEnabled ? '36px' : 1.5,
+            pl: 1.5,
             pr: 1.5,
             py: 1.25,
           }}
@@ -648,7 +917,6 @@ export default function RichMarkdownEditor({
             handleModifiedLinkClick(event)
           }}
         >
-          {dragHandleEnabled && editor && <DragHandle editor={editor} />}
           <EditorContent editor={editor} />
         </Box>
       </Box>

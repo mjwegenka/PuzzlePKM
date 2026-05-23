@@ -3,7 +3,6 @@ import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
-import { getObjectColor } from '../../lib/objectColors'
 import type { ObjectType } from '../../shared/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,10 +48,6 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'scripture': 'Scripture',
 }
 
-const CARD_BACKGROUND = '#0e2038'
-const CARD_HOVER_BACKGROUND = '#122845'
-const CARD_BORDER = '#1c3558'
-const CARD_HOVER_BORDER = '#26466f'
 const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
 const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
 const MARKDOWN_LINK_REGEX = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g
@@ -200,7 +195,6 @@ function TypeIcon({ type }: { type: ObjectType }) {
  * - Media row     : image thumbnail (bottom, if mediaUrl is provided)
  */
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
-  const token = getObjectColor(card.type)
   const tags = card.tags ?? []
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
 
@@ -208,11 +202,11 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
     <Paper
       onClick={onClick}
       title={title}
-      sx={{
-        bgcolor: CARD_BACKGROUND,
-        border: `1px solid ${isSelected ? token.accent : CARD_BORDER}`,
+      sx={(theme) => ({
+        bgcolor: theme.palette.surface.elevated,
+        border: `1px solid ${isSelected ? theme.palette.accent.selected : theme.palette.border.subtle}`,
         boxShadow: isSelected
-          ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}`
+          ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}`
           : 'none',
         borderRadius: '10px',
         p: 2,
@@ -221,14 +215,14 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         breakInside: 'avoid',
         '&:hover': onClick
           ? {
-              bgcolor: CARD_HOVER_BACKGROUND,
-              borderColor: isSelected ? token.accent : CARD_HOVER_BORDER,
+              bgcolor: theme.palette.surface.sunken,
+              borderColor: isSelected ? theme.palette.accent.selected : theme.palette.border.strong,
               boxShadow: isSelected
-                ? `0 0 0 1px ${token.accent}, 0 0 10px ${token.selectionGlow}, ${CARD_HOVER_SHADOW}`
+                ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}, ${CARD_HOVER_SHADOW}`
                 : CARD_HOVER_SHADOW,
             }
           : {},
-      }}
+      })}
     >
       {/* 1. Metadata row — type icon + label + optional metadata string + tags */}
       <Stack
@@ -239,13 +233,13 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         sx={{ mb: 0.75 }}
       >
         {/* Type badge */}
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: token.text, flexShrink: 0 }}>
+        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'text.secondary', flexShrink: 0 }}>
           <TypeIcon type={card.type} />
           <Typography
             component="span"
             variant="metadata-caption"
             sx={{
-              color: token.text,
+              color: 'text.secondary',
               textTransform: 'uppercase',
             }}
           >
@@ -258,7 +252,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <Typography
             component="span"
             variant="metadata-caption"
-            sx={{ color: '#4a6a8a' }}
+            sx={{ color: 'accent.metadata' }}
           >
             · {card.metadata}
           </Typography>
@@ -270,14 +264,28 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
             key={tag}
             label={tag}
             size="small"
-            sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
+            sx={{
+              height: 16,
+              fontSize: '9px',
+              bgcolor: 'surface.sunken',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'border.subtle',
+            }}
           />
         ))}
         {tags.length > 3 && (
           <Chip
             label={`+${tags.length - 3}`}
             size="small"
-            sx={{ height: 16, fontSize: '9px', bgcolor: token.bg, color: token.text, border: `1px solid ${token.border}` }}
+            sx={{
+              height: 16,
+              fontSize: '9px',
+              bgcolor: 'surface.sunken',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'border.subtle',
+            }}
           />
         )}
       </Stack>
@@ -306,7 +314,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         <Typography
           variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
           sx={{
-            color: '#e4f0fb',
+            color: 'text.primary',
             wordBreak: 'break-word',
             width: '100%',
           }}
@@ -319,7 +327,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {card.snippet && (
         <Box
           sx={{
-            color: '#6b8fae',
+            color: 'text.secondary',
             wordBreak: 'break-word',
             display: 'block',
             overflow: 'hidden',

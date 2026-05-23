@@ -29,13 +29,6 @@ body {
   overflow: hidden;
 }
 
-.app-drag {
-  -webkit-app-region: drag;
-}
-
-.app-no-drag {
-  -webkit-app-region: no-drag;
-}
 
 /* Layout support */
 .mention-container {
@@ -112,6 +105,58 @@ body {
   color: #b8d4e5;
   padding-left: 0.95rem;
   margin-left: 0;
+}
+
+.ProseMirror blockquote[data-admonition-type] {
+  position: relative;
+  border-left-width: 4px;
+  border-left-style: solid;
+  border-left-color: var(--admonition-accent, #1a8ab5);
+  background: var(--admonition-bg, rgba(26, 138, 181, 0.12));
+  border-radius: 12px;
+  color: #e4f0fb;
+  padding: 1.5rem 1rem 0.9rem;
+}
+
+.ProseMirror blockquote[data-admonition-type]::before {
+  content: attr(data-admonition-label);
+  display: block;
+  margin-bottom: 0.55rem;
+  color: var(--admonition-accent, #7dbad6);
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ProseMirror blockquote[data-admonition-type='note'] {
+  --admonition-accent: #1a8ab5;
+  --admonition-bg: rgba(26, 138, 181, 0.12);
+}
+
+.ProseMirror blockquote[data-admonition-type='tip'] {
+  --admonition-accent: #48b278;
+  --admonition-bg: rgba(72, 178, 120, 0.12);
+}
+
+.ProseMirror blockquote[data-admonition-type='important'] {
+  --admonition-accent: #8b5cf6;
+  --admonition-bg: rgba(139, 92, 246, 0.12);
+}
+
+.ProseMirror blockquote[data-admonition-type='warning'] {
+  --admonition-accent: #e8a84a;
+  --admonition-bg: rgba(232, 168, 74, 0.12);
+}
+
+.ProseMirror blockquote[data-admonition-type='warn'] {
+  --admonition-accent: #e8a84a;
+  --admonition-bg: rgba(232, 168, 74, 0.12);
+}
+
+.ProseMirror blockquote[data-admonition-type='caution'] {
+  --admonition-accent: #ef5350;
+  --admonition-bg: rgba(239, 83, 80, 0.12);
 }
 
 .ProseMirror pre {
