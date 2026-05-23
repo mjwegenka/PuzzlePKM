@@ -531,6 +531,26 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     if (rawDate) return rawDate;
     return String(relation.id ?? '');
   };
+  const relationToTarget = (relation: Record<string, unknown>): ResolvedObjectRef | null => {
+    const id = String(relation.id ?? '').trim();
+    const relationType = String(relation.type ?? '').trim() as ResolvedObjectRef['type'];
+    const syncPath = String(relation.syncPath ?? relation.dropboxPath ?? '').trim();
+    if (!id || !relationType) return null;
+    return {
+      id,
+      type: relationType,
+      syncPath,
+      dropboxPath: syncPath || undefined,
+    };
+  };
+  const handleRelationClick = async (
+    relation: Record<string, unknown>,
+    event: React.MouseEvent,
+  ) => {
+    const target = relationToTarget(relation);
+    if (!target || !onNavigateToObject) return;
+    await onNavigateToObject(target, { forceNewTab: event.metaKey || event.ctrlKey });
+  };
   const showTitle = type !== 'daily-note' && type !== 'habit';
   const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
   const isOptionalDate = type === 'topic-note' || type === 'project';
@@ -720,6 +740,8 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                         key={`forward-${String(relation.id)}`}
                         label={relationLabel(relation)}
                         size="small"
+                        clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                        onClick={(event) => { void handleRelationClick(relation, event); }}
                         sx={{
                           bgcolor: 'rgba(26,138,181,0.15)',
                           border: '1px solid rgba(26,138,181,0.35)',
@@ -746,6 +768,8 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                         key={`backlink-${String(relation.id)}`}
                         label={relationLabel(relation)}
                         size="small"
+                        clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                        onClick={(event) => { void handleRelationClick(relation, event); }}
                         sx={{
                           bgcolor: 'rgba(125,207,170,0.14)',
                           border: '1px solid rgba(125,207,170,0.35)',

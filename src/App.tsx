@@ -1,153 +1,322 @@
-import { useState, useCallback } from 'react'
-import { Box, Stack } from '@mui/material'
+import { useCallback, useMemo, useState } from 'react'
+import { Box, CircularProgress, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material'
+import CloseIcon from '@mui/icons-material/Close'
 import NavigationSidebar from './components/NavigationSidebar'
 import CalendarPage from './components/CalendarPage'
-import FileExplorer from './components/FileExplorer'
 import ObjectEditor from './components/ObjectEditor'
 import NotesPage from './components/NotesPage'
 import TagsPage from './components/TagsPage'
 import ScripturePage from './components/ScripturePage'
 import GraphPage from './components/GraphPage'
 import SettingsPage from './components/SettingsPage'
-import { getObject } from './lib/cliService'
+import ObjectDirectoryBrowser from './components/ObjectDirectoryBrowser'
+import { getObject, listHabitMeta } from './lib/cliService'
+import type { ResolvedObjectRef } from './lib/cliService'
+import { formatDatePretty } from './lib/dateUtils'
 
 type Section = 'calendar' | 'library' | 'files' | 'scripture' | 'tags' | 'graph' | 'settings'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
+type WorkspaceObjectType = NotesObjType | FileObjType
 type PinnedObjType = NotesObjType | FileObjType
+
+type WorkspaceTab =
+  | { id: string; kind: 'section'; title: string; section: Section }
+  | { id: string; kind: 'object'; title: string; objectType: WorkspaceObjectType; objectId: string; object: Record<string, unknown> | null; loading: boolean }
 
 interface PinnedTarget {
   id: string
   type: PinnedObjType
 }
 
-export default function App() {
-  const [currentSection, setCurrentSection] = useState<Section>('calendar')
-  const [fileSelectedId, setFileSelectedId] = useState<string | undefined>()
-  const [fileSelectedType, setFileSelectedType] = useState<FileObjType>('project')
-  const [fileObject, setFileObject] = useState<Record<string, unknown> | undefined>()
-  const [fileExplorerRefreshKey, setFileExplorerRefreshKey] = useState(0)
-  const [notesSelectionRequest, setNotesSelectionRequest] = useState<{ id: string; type: NotesObjType; nonce: number } | null>(null)
+const SECTION_LABELS: Record<Section, string> = {
+  calendar: 'Calendar',
+  library: 'Library',
+  files: 'Files',
+  scripture: 'Scripture',
+  tags: 'Tags',
+  graph: 'Graph',
+  settings: 'Settings',
+}
 
-  const handleNavigate = (section: string) => {
-    setCurrentSection(section as Section)
+function getObjectTabTitle(type: WorkspaceObjectType, object: Record<string, unknown>): string {
+  if (type === 'daily-note') {
+    const value = String(object.date ?? '').trim()
+    return value ? formatDatePretty(value) : 'Daily Note'
   }
+  if (type === 'habit') {
+    const value = String(object.text ?? '').trim()
+    return value || 'Habit'
+  }
+  if (type === 'project') {
+    const value = String(object.name ?? '').trim()
+    return value || 'Project'
+  }
+  if (type === 'ref-material') {
+    const value = String(object.name ?? '').trim()
+    return value || 'Reference Material'
+  }
+  const value = String(object.title ?? '').trim()
+  return value || 'Topic Note'
+}
 
-  const handleNavigateToPinned = useCallback(async (target: PinnedTarget) => {
-    if (target.type === 'project' || target.type === 'ref-material') {
-      setCurrentSection('files')
-      setFileSelectedId(target.id)
-      setFileSelectedType(target.type)
-      try {
-        const full = await getObject(target.type, target.id)
-        setFileObject({ ...full, type: target.type })
-      } catch (err) {
-        console.error('Failed to load pinned file object:', err)
-        setFileObject(undefined)
+export default function App() {
+  const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: 'section:calendar', kind: 'section', title: SECTION_LABELS.calendar, section: 'calendar' },
+  ])
+  const [activeTabId, setActiveTabId] = useState('section:calendar')
+  const [sidebarSection, setSidebarSection] = useState<Section>('calendar')
+
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
+    [activeTabId, tabs],
+  )
+  const showWorkspaceTabBar = tabs.length > 1
+
+  const ensureSectionTab = useCallback((section: Section): string => {
+    const existing = tabs.find((tab) => tab.kind === 'section' && tab.section === section)
+    if (existing) {
+      setActiveTabId(existing.id)
+      setSidebarSection(section)
+      return existing.id
+    }
+
+    const id = `section:${section}`
+    setTabs((prev) => [...prev, { id, kind: 'section', title: SECTION_LABELS[section], section }])
+    setActiveTabId(id)
+    setSidebarSection(section)
+    return id
+  }, [tabs])
+
+  const openObjectTab = useCallback(async (
+    target: { id: string; type: WorkspaceObjectType },
+    options?: { forceNewTab?: boolean; sourceSection?: Section },
+  ) => {
+    const forceNewTab = Boolean(options?.forceNewTab)
+
+    if (!forceNewTab) {
+      const existing = tabs.find((tab) => tab.kind === 'object' && tab.objectType === target.type && tab.objectId === target.id)
+      if (existing) {
+        setActiveTabId(existing.id)
+        if (options?.sourceSection) setSidebarSection(options.sourceSection)
+        return
       }
+    }
+
+    const tabId = `object:${target.type}:${target.id}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 6)}`
+    const loadingTab: WorkspaceTab = {
+      id: tabId,
+      kind: 'object',
+      title: `Opening ${target.type}...`,
+      objectType: target.type,
+      objectId: target.id,
+      object: null,
+      loading: true,
+    }
+
+    setTabs((prev) => [...prev, loadingTab])
+    setActiveTabId(tabId)
+    if (options?.sourceSection) setSidebarSection(options.sourceSection)
+
+    let loaded: Record<string, unknown> | null = null
+    try {
+      const full = await getObject(target.type, target.id)
+      loaded = { ...(full as unknown as Record<string, unknown>), type: target.type }
+    } catch {
+      if (target.type === 'habit') {
+        const habitsMeta = await listHabitMeta()
+        const fallback = habitsMeta.find((item) => item.id === target.id)
+        if (fallback) loaded = { ...fallback, type: 'habit' }
+      }
+    }
+
+    if (!loaded) {
+      setTabs((prev) => prev.filter((tab) => tab.id !== tabId))
       return
     }
 
-    setCurrentSection('library')
-    setNotesSelectionRequest((prev) => ({ id: target.id, type: target.type as NotesObjType, nonce: (prev?.nonce ?? 0) + 1 }))
+    const title = getObjectTabTitle(target.type, loaded)
+    setTabs((prev) => prev.map((tab) => (
+      tab.id === tabId
+        ? { ...tab, title, object: loaded, loading: false }
+        : tab
+    )))
+  }, [tabs])
+
+  const closeTab = useCallback((tabId: string) => {
+    setTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId)
+      if (index === -1) return prev
+      const next = prev.filter((tab) => tab.id !== tabId)
+      if (next.length === 0) {
+        const fallback: WorkspaceTab = { id: 'section:calendar', kind: 'section', title: SECTION_LABELS.calendar, section: 'calendar' }
+        setActiveTabId(fallback.id)
+        setSidebarSection('calendar')
+        return [fallback]
+      }
+      if (activeTabId === tabId) {
+        const replacement = next[Math.max(0, index - 1)]
+        setActiveTabId(replacement.id)
+        if (replacement.kind === 'section') setSidebarSection(replacement.section)
+      }
+      return next
+    })
+  }, [activeTabId])
+
+  const handleNavigate = (section: string) => {
+    ensureSectionTab(section as Section)
+  }
+
+  const handleNavigateToPinned = useCallback(async (target: PinnedTarget) => {
+    await openObjectTab(
+      { id: target.id, type: target.type },
+      { sourceSection: 'library' },
+    )
+  }, [openObjectTab])
+
+  const handleObjectSave = useCallback((tabId: string, type: WorkspaceObjectType, saved: Record<string, unknown>) => {
+    const nextObject = { ...saved, type }
+    const nextTitle = getObjectTabTitle(type, nextObject)
+    setTabs((prev) => prev.map((tab) => (
+      tab.id === tabId && tab.kind === 'object'
+        ? { ...tab, title: nextTitle, object: nextObject, objectId: String(saved.id ?? tab.objectId) }
+        : tab
+    )))
   }, [])
 
-  // ── Files section handlers ───────────────────────────────────────────────
-  const handleFileSelect = useCallback(async (id: string, type: FileObjType) => {
-    setFileSelectedId(id)
-    setFileSelectedType(type)
-    try {
-      const full = await getObject(type, id)
-      setFileObject({ ...full, type })
-    } catch (err) {
-      console.error('Failed to load file object:', err)
-      setFileObject(undefined)
+  const handleNavigateFromEditor = useCallback(async (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => {
+    await openObjectTab(
+      { id: target.id, type: target.type as WorkspaceObjectType },
+      { forceNewTab: options?.forceNewTab, sourceSection: sidebarSection },
+    )
+  }, [openObjectTab, sidebarSection])
+
+  const renderSection = (section: Section) => {
+    if (section === 'calendar') return <CalendarPage />
+    if (section === 'library') {
+      return (
+        <NotesPage
+          onOpenObjectTab={async (target) => {
+            await openObjectTab(
+              { id: target.id, type: target.type },
+              { forceNewTab: target.forceNewTab, sourceSection: 'library' },
+            )
+          }}
+        />
+      )
     }
-  }, [])
+    if (section === 'scripture') {
+      return (
+        <ScripturePage
+          onOpenObjectTab={async (target) => {
+            await openObjectTab(
+              { id: target.id, type: target.type },
+              { forceNewTab: target.forceNewTab, sourceSection: 'scripture' },
+            )
+          }}
+        />
+      )
+    }
+    if (section === 'tags') return <TagsPage />
+    if (section === 'graph') {
+      return (
+        <GraphPage
+          onOpenNode={async (target) => {
+            await openObjectTab(
+              { id: target.id, type: target.type },
+              { forceNewTab: true, sourceSection: 'graph' },
+            )
+          }}
+        />
+      )
+    }
+    if (section === 'settings') {
+      return (
+        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          <SettingsPage />
+        </Box>
+      )
+    }
+    return <EmptyFilesPrompt />
+  }
 
-  const handleCreateNew = useCallback((type: FileObjType) => {
-    setFileSelectedId(undefined)
-    setFileSelectedType(type)
-    setFileObject(undefined)
-  }, [])
-
-  const handleFileSave = useCallback(
-    async (saved: Record<string, unknown>) => {
-      setFileObject({ ...saved, type: fileSelectedType })
-      setFileSelectedId(saved.id as string)
-      setFileExplorerRefreshKey((k) => k + 1)
-    },
-    [fileSelectedType],
-  )
-
-  // ── New Note: after save, jump to calendar ───────────────────────────────
   return (
     <Box sx={{ display: 'flex', bgcolor: '#0b1828', height: '100vh', overflow: 'hidden', color: '#e4f0fb' }}>
       <NavigationSidebar
-        currentSection={currentSection}
+        currentSection={sidebarSection}
         onNavigate={handleNavigate}
         onNavigateToPinned={handleNavigateToPinned}
       />
 
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box
-          sx={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'auto',
-            p: 2,
-            minHeight: 0,
-          }}
-        >
-          {/* ── CALENDAR ─────────────────────────────────────────────────── */}
-          {currentSection === 'calendar' && <CalendarPage />}
-
-          {/* ── LIBRARY ──────────────────────────────────────────────────── */}
-          {currentSection === 'library' && (
-            <NotesPage pendingSelection={notesSelectionRequest} />
-          )}
-
-          {/* ── FILES (internal — reachable via pinned project/ref-material) */}
-          {currentSection === 'files' && (
-            <Stack direction="row" spacing={2} sx={{ height: '100%', minHeight: 0 }}>
-              <Box sx={{ width: 300, flexShrink: 0 }}>
-                <FileExplorer
-                  onSelect={handleFileSelect}
-                  selectedId={fileSelectedId}
-                  onCreateNew={handleCreateNew}
-                  refreshKey={fileExplorerRefreshKey}
-                />
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                {fileObject ? (
-                  <ObjectEditor
-                    object={fileObject}
-                    type={fileSelectedType}
-                    onSave={handleFileSave}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, p: 2, gap: 1 }}>
+          {showWorkspaceTabBar && (
+            <Box sx={{ border: '1px solid #1c3558', borderRadius: 1, bgcolor: '#0e2038', px: 1, py: 0.5 }}>
+              <Tabs
+                value={activeTab?.id ?? false}
+                onChange={(_, value: string) => {
+                  setActiveTabId(value)
+                  const selected = tabs.find((tab) => tab.id === value)
+                  if (selected?.kind === 'section') setSidebarSection(selected.section)
+                }}
+                variant="scrollable"
+                scrollButtons="auto"
+                sx={{
+                  minHeight: 34,
+                  '& .MuiTabs-indicator': { bgcolor: '#1a8ab5' },
+                  '& .MuiTab-root': { minHeight: 34, textTransform: 'none', minWidth: 0, px: 1 },
+                }}
+              >
+                {tabs.map((tab) => (
+                  <Tab
+                    key={tab.id}
+                    value={tab.id}
+                    label={(
+                      <Stack direction="row" alignItems="center" spacing={0.5}>
+                        <Typography variant="caption" sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {tab.title}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            closeTab(tab.id)
+                          }}
+                          sx={{ p: 0.15, color: '#7dbad6' }}
+                        >
+                          <CloseIcon sx={{ fontSize: 12 }} />
+                        </IconButton>
+                      </Stack>
+                    )}
                   />
-                ) : (
-                  <EmptyFilesPrompt />
-                )}
-              </Box>
-            </Stack>
-          )}
-
-          {/* ── SCRIPTURE ─────────────────────────────────────────────────── */}
-          {currentSection === 'scripture' && <ScripturePage />}
-
-          {/* ── TAGS ─────────────────────────────────────────────────────── */}
-          {currentSection === 'tags' && <TagsPage />}
-
-          {/* ── GRAPH ────────────────────────────────────────────────────── */}
-          {currentSection === 'graph' && <GraphPage />}
-
-          {/* ── SETTINGS ─────────────────────────────────────────────────── */}
-          {currentSection === 'settings' && (
-            <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-              <SettingsPage />
+                ))}
+              </Tabs>
             </Box>
           )}
+
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            {activeTab?.kind === 'section' ? (
+              renderSection(activeTab.section)
+            ) : activeTab?.kind === 'object' ? (
+              activeTab.loading || !activeTab.object ? (
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : (
+                <Stack spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+                  <ObjectEditor
+                    object={activeTab.object}
+                    type={activeTab.objectType}
+                    onSave={(saved) => handleObjectSave(activeTab.id, activeTab.objectType, saved)}
+                    onNavigateToObject={handleNavigateFromEditor}
+                  />
+                  {(activeTab.objectType === 'project' || activeTab.objectType === 'ref-material') && (
+                    <ObjectDirectoryBrowser object={activeTab.object} type={activeTab.objectType} />
+                  )}
+                </Stack>
+              )
+            ) : null}
+          </Box>
         </Box>
       </Box>
     </Box>

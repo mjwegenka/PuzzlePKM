@@ -7,15 +7,19 @@ import {
   Button,
   CircularProgress,
   IconButton,
+  Menu,
+  MenuItem,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  IconButton as MuiIconButton,
 } from '@mui/material'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
+import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
@@ -66,6 +70,7 @@ export default function CalendarPage() {
   const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; date: string } | null>(null)
 
   const yr = currentMonth.getFullYear()
   const mo = currentMonth.getMonth()
@@ -177,6 +182,23 @@ export default function CalendarPage() {
     }
   }, [hasUnsavedChanges])
 
+  const startCreateForDate = useCallback((date: string, type: CalObjectType) => {
+    setSelectedDate(date)
+    setSelectedType(type)
+    if (type === 'daily-note') {
+      setSelectedObject({ date, type: 'daily-note', contentMarkdown: '', tags: [], linkedObjectIds: [] })
+      return
+    }
+    if (type === 'topic-note') {
+      setSelectedObject({ title: '', date, type: 'topic-note', contentMarkdown: '', tags: [], linkedObjectIds: [] })
+      return
+    }
+    if (type === 'habit') {
+      setSelectedObject({ date, type: 'habit', text: '', tags: [] })
+      return
+    }
+  }, [])
+
   const handleConfirmClose = () => {
     setShowConfirmClose(false)
     setHasUnsavedChanges(false)
@@ -219,7 +241,7 @@ export default function CalendarPage() {
   }, [])
 
   return (
-    <>
+    <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
       <Paper
         sx={{
           flex: 1,
@@ -237,7 +259,20 @@ export default function CalendarPage() {
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
           </Typography>
-          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <Box sx={{ width: 170 }}>
+                  <MUIDatePicker
+                    label="Go to month"
+                    value={new Date(yr, mo, 1)}
+                    onChange={(next) => {
+                      if (!next) return
+                      setCurrentMonth(new Date(next.getFullYear(), next.getMonth(), 1))
+                    }}
+                    slotProps={{ textField: { size: 'small', variant: 'outlined' } }}
+                  />
+                </Box>
+              </LocalizationProvider>
             {loading && <CircularProgress size={14} sx={{ mr: 0.5 }} />}
             <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))}>
               <ChevronLeftIcon fontSize="small" />
@@ -266,7 +301,7 @@ export default function CalendarPage() {
         </Stack>
 
         {/* Day-of-week headers */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', mb: 0.5, flexShrink: 0 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '1px', mb: 0.5, flexShrink: 0 }}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
             <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: '#7dbad6', py: 0.5, fontSize: '11px' }}>
               {d}
@@ -275,7 +310,7 @@ export default function CalendarPage() {
         </Box>
 
         {/* Day cells - fixed width grid */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', flex: 1, overflow: 'auto', alignContent: 'start' }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '2px', flex: 1, overflow: 'auto', alignContent: 'start' }}>
           {cells.map((day, idx) => {
             if (!day) return <Box key={`empty-${idx}`} sx={{ minHeight: 72, bgcolor: 'transparent', borderRadius: 1 }} />
 
@@ -288,8 +323,13 @@ export default function CalendarPage() {
               <Box
                 key={date}
                 onClick={() => handleDayClick(day)}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setContextMenu({ mouseX: event.clientX + 2, mouseY: event.clientY - 6, date })
+                }}
                 sx={{
                   minHeight: 72,
+                  minWidth: 0,
                   p: '4px 6px',
                   borderRadius: 1,
                   border: '1px solid',
@@ -334,52 +374,65 @@ export default function CalendarPage() {
         </Box>
       </Paper>
 
-       {/* Modal Editor Dialog */}
-       <Dialog
-         open={!!selectedObject}
-         onClose={handleCloseModal}
-         maxWidth={false}
-         fullWidth
-         PaperProps={{
-           sx: {
-             bgcolor: '#0e2038',
-             border: '1px solid #1c3558',
-             borderRadius: '8px',
-             width: 'calc(100vw - 32px)',
-             maxWidth: 'none',
-             height: 'calc(100vh - 32px)',
-             maxHeight: 'none',
-             display: 'flex',
-             flexDirection: 'column',
-           },
-         }}
-       >
-         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1, flexShrink: 0 }}>
-           <Typography variant="h6" sx={{ fontWeight: 700 }}>
-             {selectedType === 'daily-note' ? '📓 Daily Note'
-               : selectedType === 'habit' ? '🔁 Habit'
-               : selectedType === 'project' ? '📁 Project'
-               : selectedType === 'ref-material' ? '📚 Reference Material'
-               : '📝 Topic Note'}
-           </Typography>
-           <MuiIconButton size="small" onClick={handleCloseModal} sx={{ ml: 'auto' }}>
-             <CloseIcon fontSize="small" />
-           </MuiIconButton>
-         </DialogTitle>
-         <DialogContent dividers sx={{ p: 2, bgcolor: '#0e2038', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-           {selectedObject ? (
-             <EditorErrorBoundary>
-               <ObjectEditor
-                 object={selectedObject}
-                 type={selectedType}
-                 onSave={handleSave}
-                 onDirty={setHasUnsavedChanges}
-                 onNavigateToObject={handleNavigateToObject}
-               />
-             </EditorErrorBoundary>
-           ) : null}
-         </DialogContent>
-       </Dialog>
+      {selectedObject && (
+        <Paper sx={{ width: 520, minWidth: 400, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid #1c3558' }}>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              {selectedType === 'daily-note' ? '📓 Daily Note'
+                : selectedType === 'habit' ? '🔁 Habit'
+                : selectedType === 'project' ? '📁 Project'
+                : selectedType === 'ref-material' ? '📚 Reference Material'
+                : '📝 Topic Note'}
+            </Typography>
+            <IconButton size="small" onClick={handleCloseModal}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+          <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <EditorErrorBoundary>
+              <ObjectEditor
+                object={selectedObject}
+                type={selectedType}
+                onSave={handleSave}
+                onDirty={setHasUnsavedChanges}
+                onNavigateToObject={handleNavigateToObject}
+              />
+            </EditorErrorBoundary>
+          </Box>
+        </Paper>
+      )}
+
+      <Menu
+        open={Boolean(contextMenu)}
+        onClose={() => setContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) startCreateForDate(contextMenu.date, 'daily-note')
+            setContextMenu(null)
+          }}
+        >
+          New Daily Note
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) startCreateForDate(contextMenu.date, 'topic-note')
+            setContextMenu(null)
+          }}
+        >
+          New Topic Note
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextMenu) startCreateForDate(contextMenu.date, 'habit')
+            setContextMenu(null)
+          }}
+        >
+          New Habit
+        </MenuItem>
+      </Menu>
 
        {/* Confirmation Dialog for unsaved changes */}
        <Dialog
@@ -399,6 +452,6 @@ export default function CalendarPage() {
            </Button>
          </DialogActions>
        </Dialog>
-    </>
+    </Stack>
   )
 }

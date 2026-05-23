@@ -7,6 +7,20 @@ export interface CliRunResult {
   stderr: string;
 }
 
+function stripNodeWarnings(stderr: string): string {
+  const lines = String(stderr ?? '').split('\n');
+  const filtered: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes('ExperimentalWarning: SQLite is an experimental feature')) continue;
+    if (/^\(node:\d+\)\s*ExperimentalWarning:/.test(trimmed)) continue;
+    if (trimmed.startsWith('(Use `node --trace-warnings')) continue;
+    filtered.push(line);
+  }
+  return filtered.join('\n').trim();
+}
+
 export interface MentionSearchResult {
   id: string;
   type: string;
@@ -212,7 +226,11 @@ export async function runDropithCli(args: string[]): Promise<CliRunResult> {
     };
   }
 
-  return invoke<CliRunResult>('run_dropith_cli', { args });
+  const result = await invoke<CliRunResult>('run_dropith_cli', { args });
+  return {
+    ...result,
+    stderr: stripNodeWarnings(result.stderr),
+  };
 }
 
 export async function listObjects(type: string): Promise<string> {
@@ -561,24 +579,74 @@ export async function getScriptureById(id: string): Promise<Scripture | null> {
  */
 export async function browseDirectory(
   path: string,
-): Promise<Array<{ kind: 'dir' | 'file'; name: string }>> {
-  try {
-    const result = await runDropithCli(['browse', path]);
-    if (result.exitCode !== 0) throw new Error(result.stderr || 'browse failed');
+): Promise<{ directoryPath: string; entries: Array<{ kind: 'dir' | 'file'; name: string }> }> {
+  const localPath = await resolveSyncPathToLocal(path);
+  const result = await runDropithCli(['browse', 'files', localPath]);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'browse failed');
 
-    const lines = result.stdout.split('\n').filter(Boolean);
-    // First line is the path itself, skip it
-    return lines
-      .slice(1)
-      .map((line) => {
-        const parts = line.split('\t');
-        return {
-          kind: (parts[0] === 'dir' ? 'dir' : 'file') as 'dir' | 'file',
-          name: parts[1] ?? '',
-        };
-      })
-      .filter((e) => e.name && e.name !== 'meta.yaml'); // Exclude meta.yaml
+  const lines = result.stdout.split('\n').filter(Boolean);
+  const directoryPath = lines[0] ?? localPath;
+  const entries = lines
+    .slice(1)
+    .map((line) => {
+      const parts = line.split('\t');
+      return {
+        kind: (parts[0] === 'dir' ? 'dir' : 'file') as 'dir' | 'file',
+        name: parts[1] ?? '',
+      };
+    })
+    .filter((entry) => entry.name && entry.name !== 'meta.yaml');
+
+  return { directoryPath, entries };
+}
+
+export async function openPathInDefaultApp(path: string): Promise<void> {
+  const trimmed = String(path ?? '').trim();
+  if (!trimmed) throw new Error('Path is required');
+
+  try {
+    await invoke<void>('open_url', { url: trimmed });
   } catch {
-    return [];
+    if (typeof window !== 'undefined') {
+      const href = trimmed.startsWith('file://') ? trimmed : `file://${trimmed}`;
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
   }
+}
+
+function joinPath(base: string, ...parts: string[]): string {
+  const cleanedBase = base.replace(/\/$/, '');
+  const suffix = parts
+    .map((part) => part.replace(/^\/+/, '').replace(/\/+$/, ''))
+    .filter(Boolean)
+    .join('/');
+  return suffix ? `${cleanedBase}/${suffix}` : cleanedBase;
+}
+
+async function resolveSyncPathToLocal(path: string): Promise<string> {
+  const raw = String(path ?? '').trim();
+  if (!raw) throw new Error('Browse path is required');
+
+  // Already an absolute local filesystem path.
+  if (/^(\/|[A-Za-z]:[\\/])/.test(raw) && !raw.startsWith('/Dropith')) {
+    return raw;
+  }
+
+  if (!raw.startsWith('/Dropith')) {
+    return raw;
+  }
+
+  const settings = await runDropithCli(['settings', 'show']);
+  if (settings.exitCode !== 0) {
+    throw new Error(settings.stderr || 'Could not resolve sync root folder');
+  }
+
+  const parsed = JSON.parse(settings.stdout) as {
+    sync?: { resolvedRootFolder?: string; effectiveRootFolder?: string; rootFolder?: string };
+  };
+  const root = parsed.sync?.resolvedRootFolder ?? parsed.sync?.effectiveRootFolder ?? parsed.sync?.rootFolder;
+  if (!root) throw new Error('Sync root folder is not configured');
+
+  const suffix = raw.replace(/^\/Dropith\/?/, '');
+  return joinPath(root, suffix);
 }
