@@ -212,8 +212,9 @@ function CreatePanel({
       sx={{
         flex: 1,
         minWidth: 0,
-        bgcolor: '#0e2038',
-        border: '1px solid #1c3558',
+        bgcolor: 'surface.elevated',
+        border: '1px solid',
+        borderColor: 'border.subtle',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -231,7 +232,7 @@ function CreatePanel({
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: '#7dbad6',
+              color: 'text.secondary',
               textTransform: 'uppercase',
               letterSpacing: '0.07em',
               fontSize: '10px',
@@ -239,7 +240,7 @@ function CreatePanel({
           >
             New Note
           </Typography>
-          <IconButton size="small" onClick={onClose} sx={{ color: '#7dbad6', p: 0.25 }}>
+          <IconButton size="small" onClick={onClose} sx={{ color: 'text.secondary', p: 0.25 }}>
             <CloseIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Stack>
@@ -255,22 +256,24 @@ function CreatePanel({
           fullWidth
           sx={{
             '& .MuiToggleButton-root': {
-              color: '#7dbad6',
-              borderColor: '#1c3558',
+              color: 'text.secondary',
+              borderColor: 'border.subtle',
               py: 0.5,
               fontSize: '11px',
               flex: 1,
               '&.Mui-selected': {
-                bgcolor: 'rgba(26,138,181,0.25)',
-                color: '#e4f0fb',
-                borderColor: '#1a8ab5',
+                bgcolor: 'action.selected',
+                color: 'text.primary',
+                borderColor: 'border.strong',
               },
             },
             '& .MuiToggleButtonGroup-grouped:not(:last-of-type)': {
-              borderRight: '1px solid #1c3558 !important',
+              borderRight: '1px solid',
+              borderColor: 'border.subtle',
             },
             '& .MuiToggleButtonGroup-grouped.Mui-selected:not(:last-of-type)': {
-              borderRight: '1px solid #1a8ab5 !important',
+              borderRight: '1px solid',
+              borderColor: 'border.strong',
             },
           }}
         >
@@ -289,7 +292,7 @@ function CreatePanel({
         </ToggleButtonGroup>
       </Box>
 
-      <Divider sx={{ borderColor: '#1c3558', flexShrink: 0 }} />
+      <Divider sx={{ borderColor: 'border.subtle', flexShrink: 0 }} />
 
       {/* Blank editor fills remaining space */}
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', p: 0 }}>
@@ -787,12 +790,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             onClick={() => setShowInbox((v) => !v)}
             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
             sx={{
-              color: showInbox ? '#e8a84a' : '#4a6a8a',
-              bgcolor: showInbox ? 'rgba(232,168,74,0.12)' : 'transparent',
-              border: showInbox ? '1px solid rgba(232,168,74,0.4)' : '1px solid transparent',
+              color: showInbox ? 'accent.metadata' : 'text.secondary',
+              bgcolor: showInbox ? 'action.selected' : 'transparent',
+              border: '1px solid',
+              borderColor: showInbox ? 'border.strong' : 'transparent',
               borderRadius: '6px',
               flexShrink: 0,
-              '&:hover': { bgcolor: 'rgba(232,168,74,0.18)' },
+              '&:hover': { bgcolor: showInbox ? 'action.focus' : 'action.hover' },
             }}
           >
             <MoveToInboxIcon sx={{ fontSize: 18 }} />
@@ -808,10 +812,10 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              direction="row"
              alignItems="center"
              spacing={0.75}
-             sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'rgba(232,168,74,0.08)', borderRadius: '6px', border: '1px solid rgba(232,168,74,0.2)' }}
+             sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'surface.sunken', borderRadius: '6px', border: '1px solid', borderColor: 'border.subtle' }}
            >
-             <MoveToInboxIcon sx={{ fontSize: 14, color: '#e8a84a' }} />
-             <Typography variant="caption" sx={{ color: '#e8a84a', fontWeight: 600, fontSize: '11px' }}>
+             <MoveToInboxIcon sx={{ fontSize: 14, color: 'accent.metadata' }} />
+             <Typography variant="caption" sx={{ color: 'accent.metadata', fontWeight: 600, fontSize: '11px' }}>
                Inbox — showing only newly imported objects tagged Inbox
              </Typography>
            </Stack>
@@ -823,7 +827,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              <CircularProgress size={24} />
            </Box>
          ) : allCards.length === 0 ? (
-           <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic', p: 1.5, display: 'block' }}>
+           <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', p: 1.5, display: 'block' }}>
              {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches' : 'Nothing here yet'}
            </Typography>
          ) : (
@@ -851,9 +855,9 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
        </Box>
 
       {activeTab && (
-        <Paper sx={{ width: 560, minWidth: 420, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Paper sx={{ width: 560, minWidth: 420, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
          <>
-           <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid #1c3558' }}>
+           <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
@@ -878,14 +882,14 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                          <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                            {getTabLabel(tab)}
                          </Typography>
-                         {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
+                         {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
                          <MuiIconButton
                            size="small"
                            onClick={(event) => {
                              event.stopPropagation()
                              handleRequestCloseTab(tab.tabId)
                            }}
-                           sx={{ p: 0.15, color: '#7dbad6' }}
+                           sx={{ p: 0.15, color: 'text.secondary' }}
                          >
                            <CloseIcon sx={{ fontSize: 12 }} />
                          </MuiIconButton>
@@ -935,7 +939,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
          sx: {
            height: isSmallScreen ? '100%' : 'min(720px, calc(100vh - 64px))',
            maxHeight: isSmallScreen ? '100%' : 'calc(100vh - 32px)',
-           bgcolor: '#09111b',
+           bgcolor: 'surface.app',
          },
        }}
       >
@@ -946,7 +950,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
          size="small"
          aria-label="Close create note dialog"
          onClick={handleCloseEditor}
-         sx={{ position: 'absolute', right: 12, top: 12, color: '#7dbad6' }}
+         sx={{ position: 'absolute', right: 12, top: 12, color: 'text.secondary' }}
        >
          <CloseIcon fontSize="small" />
        </MuiIconButton>

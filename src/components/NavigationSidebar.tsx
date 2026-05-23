@@ -260,6 +260,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 py: 0.25,
                 borderRadius: '6px',
                 color: sidebarColors.textMuted,
+                transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
                 '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                 '&.Mui-selected': {
                   bgcolor: sidebarColors.selected,
@@ -309,6 +310,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     py: 0.25,
                     borderRadius: '6px',
                     color: sidebarColors.textMuted,
+                    transition: 'background-color 120ms ease, color 120ms ease',
                     '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                   }}
                 >
@@ -422,6 +424,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               py: 0.25,
               borderRadius: '6px',
               color: sidebarColors.textMuted,
+              transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
               '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
               '&.Mui-selected': {
                 bgcolor: sidebarColors.selected,

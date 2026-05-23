@@ -90,7 +90,7 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
             href={safeHref}
             target="_blank"
             rel="noreferrer"
-            sx={{ color: '#7dbad6', textDecoration: 'underline', fontStyle: 'italic' }}
+            sx={{ color: 'accent.link', textDecoration: 'underline', fontStyle: 'italic' }}
           >
             media: {label}
           </Box>,
@@ -109,7 +109,7 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
             href={safeHref}
             target="_blank"
             rel="noreferrer"
-            sx={{ color: '#7dbad6', textDecoration: 'underline', fontStyle: isMedia ? 'italic' : 'normal' }}
+            sx={{ color: 'accent.link', textDecoration: 'underline', fontStyle: isMedia ? 'italic' : 'normal' }}
           >
             {isMedia ? `media: ${linkLabel}` : linkLabel}
           </Box>,
@@ -122,7 +122,7 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
         <Box
           key={`${keyPrefix}-code-${start}`}
           component="code"
-          sx={{ px: 0.5, borderRadius: 0.5, bgcolor: 'rgba(125,186,214,0.14)', color: '#c8e4f5', fontFamily: 'monospace' }}
+          sx={{ px: 0.5, borderRadius: 0.5, bgcolor: 'action.hover', color: 'accent.link', fontFamily: 'monospace' }}
         >
           {inlineCode}
         </Box>,
@@ -160,8 +160,8 @@ function MarkdownSnippet({ text }: { text: string }) {
 
         return (
           <Box key={`line-${index}`} sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
-            {bulletMatch && <Box component="span" sx={{ color: '#7dbad6', minWidth: '0.75em' }}>•</Box>}
-            {orderedMatch && <Box component="span" sx={{ color: '#7dbad6', minWidth: '1.35em' }}>{orderedMatch[1]}.</Box>}
+            {bulletMatch && <Box component="span" sx={{ color: 'accent.link', minWidth: '0.75em' }}>•</Box>}
+            {orderedMatch && <Box component="span" sx={{ color: 'accent.link', minWidth: '1.35em' }}>{orderedMatch[1]}.</Box>}
             <Box component="span" sx={{ minWidth: 0 }}>
               {renderMarkdownInline(content, `line-${index}`)}
             </Box>
