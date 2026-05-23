@@ -249,9 +249,22 @@ export default function App() {
       />
 
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, p: 2, gap: 1 }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, p: 2 }}>
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              border: showWorkspaceTabBar ? '1px solid rgba(255,255,255,0.09)' : 'none',
+              borderRadius: showWorkspaceTabBar ? 1 : 0,
+              bgcolor: showWorkspaceTabBar ? '#1a1c1f' : 'transparent',
+            }}
+          >
           {showWorkspaceTabBar && (
-            <Box sx={{ border: '1px solid rgba(255,255,255,0.09)', borderRadius: 1, bgcolor: '#1a1c1f', px: 1, py: 0.5 }}>
+            <Box sx={{ px: 1.25, bgcolor: '#17191c', borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
               <Tabs
                 value={activeTab?.id ?? false}
                 onChange={(_, value: string) => {
@@ -259,21 +272,40 @@ export default function App() {
                   const selected = tabs.find((tab) => tab.id === value)
                   if (selected?.kind === 'section') setSidebarSection(selected.section)
                 }}
+                aria-label="Workspace navigation tabs"
                 variant="scrollable"
                 scrollButtons="auto"
                 sx={{
-                  minHeight: 34,
-                  '& .MuiTabs-indicator': { bgcolor: '#4f8fed' },
-                  '& .MuiTab-root': { minHeight: 34, textTransform: 'none', minWidth: 0, px: 1 },
+                  minHeight: 48,
+                  '& .MuiTabs-indicator': { bgcolor: '#4f8fed', height: 3, borderRadius: 999 },
+                  '& .MuiTabs-flexContainer': { alignItems: 'center' },
+                  '& .MuiTabs-scroller': { overflow: 'hidden' },
+                  '& .MuiTabScrollButton-root': { width: 24, color: '#b8bec8' },
+                  '& .MuiTab-root': {
+                    minHeight: 48,
+                    textTransform: 'none',
+                    minWidth: 0,
+                    px: 1.25,
+                    py: 0,
+                    color: '#b8bec8',
+                    transition: 'color 120ms ease',
+                    '&:hover': {
+                      color: '#eceff3',
+                    },
+                    '&.Mui-selected': {
+                      color: '#eceff3',
+                    },
+                  },
                 }}
               >
                 {tabs.map((tab) => (
                   <Tab
                     key={tab.id}
                     value={tab.id}
+                    disableRipple
                     label={(
-                      <Stack direction="row" alignItems="center" spacing={0.5}>
-                        <Typography variant="caption" sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <Stack direction="row" alignItems="center" spacing={0.6} sx={{ minHeight: 24 }}>
+                        <Typography variant="body2" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, lineHeight: 1.2 }}>
                           {tab.title}
                         </Typography>
                         <IconButton
@@ -282,7 +314,12 @@ export default function App() {
                             event.stopPropagation()
                             closeTab(tab.id)
                           }}
-                          sx={{ p: 0.15, color: '#b8bec8' }}
+                          sx={{
+                            p: 0.1,
+                            color: 'inherit',
+                            opacity: 0.72,
+                            '&:hover': { opacity: 1, bgcolor: 'rgba(255,255,255,0.08)' },
+                          }}
                         >
                           <CloseIcon sx={{ fontSize: 12 }} />
                         </IconButton>
@@ -316,6 +353,7 @@ export default function App() {
                 </Stack>
               )
             ) : null}
+          </Box>
           </Box>
         </Box>
       </Box>
