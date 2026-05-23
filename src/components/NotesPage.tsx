@@ -831,7 +831,9 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             anchorEl={createMenuAnchorEl}
             open={Boolean(createMenuAnchorEl)}
             onClose={() => setCreateMenuAnchorEl(null)}
-            MenuListProps={{ 'aria-label': 'Create card type' }}
+            slotProps={{
+              list: { 'aria-label': 'Create card type' },
+            }}
           >
             <MenuItem onClick={() => handleStartCreate('topic-note')}>
               <ListItemIcon>
@@ -926,34 +928,34 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       {activeTab && (
         <Paper sx={{ width: 560, minWidth: 420, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
          <>
-           <Stack direction="row" alignItems="flex-end" gap={0.75} sx={{ px: 0.75, pt: 0.5, pb: 0, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
+           <Stack direction="row" alignItems="center" gap={0.5} sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
+                aria-label="Object editor tabs"
                variant="scrollable"
                scrollButtons="auto"
                sx={{
-                 minHeight: 0,
+                  minHeight: 40,
                  flex: 1,
-                 '& .MuiTabs-indicator': { display: 'none' },
-                 '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
-                 '& .MuiTabs-scroller': { overflow: 'visible !important' },
-                 '& .MuiTabScrollButton-root': { width: 24, color: '#7dbad6' },
+                  '& .MuiTabs-indicator': { height: 2, borderRadius: 999, bgcolor: 'accent.metadata' },
+                  '& .MuiTabs-flexContainer': { alignItems: 'center' },
+                  '& .MuiTabs-scroller': { overflow: 'hidden' },
+                  '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
                  '& .MuiTab-root': {
-                   minHeight: 0,
+                    minHeight: 40,
                    textTransform: 'none',
                    minWidth: 0,
-                   px: 0.75,
-                   py: 0,
-                   borderRadius: '10px 10px 0 0',
-                   border: '1px solid rgba(255,255,255,0.08)',
-                   borderBottomColor: 'rgba(255,255,255,0.04)',
-                   backgroundColor: 'rgba(255,255,255,0.02)',
-                   color: '#9fb4c7',
-                   transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
+                    px: 0.75,
+                    py: 0,
+                    color: 'text.secondary',
+                    transition: 'color 120ms ease',
                    '&:hover': {
-                     backgroundColor: 'rgba(255,255,255,0.05)',
+                      color: 'text.primary',
                    },
+                    '&.Mui-selected': {
+                      color: 'text.primary',
+                    },
                  },
                }}
              >
@@ -967,16 +969,15 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                      sx={{
                        '&.Mui-selected': {
                          color: tabToken.text,
-                         backgroundColor: '#0e2038',
-                         borderColor: tabToken.border,
-                         borderBottomColor: '#0e2038',
-                         boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
+                        },
+                        '&.Mui-selected .notes-editor-tab-dot': {
+                          bgcolor: tabToken.accent,
                        },
                      }}
                      label={(
-                       <Stack direction="row" alignItems="center" spacing={0.45} sx={{ minHeight: 28 }}>
-                         <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
-                         <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1 }}>
+                        <Stack direction="row" alignItems="center" spacing={0.45} sx={{ minHeight: 24 }}>
+                          <Box className="notes-editor-tab-dot" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
+                          <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1, fontWeight: 500 }}>
                            {getTabLabel(tab)}
                          </Typography>
                          {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
@@ -988,8 +989,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                            }}
                            sx={{
                              p: 0.1,
-                             color: 'text.secondary',
-                             opacity: 0.8,
+                              color: 'inherit',
+                              opacity: 0.72,
                              '&:hover': { opacity: 1, bgcolor: 'action.hover' },
                            }}
                          >
@@ -1001,7 +1002,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                  )
                })}
              </Tabs>
-             <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ mb: 0.35 }}>
+              <MuiIconButton size="small" onClick={handleCloseEditor}>
                <CloseIcon fontSize="small" />
              </MuiIconButton>
            </Stack>
@@ -1037,11 +1038,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
        maxWidth="lg"
        fullScreen={isSmallScreen}
        aria-labelledby="create-card-dialog-title"
-       PaperProps={{
-         sx: {
-           height: isSmallScreen ? '100%' : 'min(720px, calc(100vh - 64px))',
-           maxHeight: isSmallScreen ? '100%' : 'calc(100vh - 32px)',
-           bgcolor: 'surface.app',
+       slotProps={{
+         paper: {
+           sx: {
+             height: isSmallScreen ? '100%' : 'min(720px, calc(100vh - 64px))',
+             maxHeight: isSmallScreen ? '100%' : 'calc(100vh - 32px)',
+             bgcolor: 'surface.app',
+           },
          },
        }}
       >

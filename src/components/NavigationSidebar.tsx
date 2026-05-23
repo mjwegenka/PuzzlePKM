@@ -57,6 +57,10 @@ interface PinnedNavItem {
 
 const PINNED_TAG = 'pinned';
 const PINNED_ORDER_STORAGE_KEY = 'dropith:pinned-order:v1';
+const SIDEBAR_WIDTH_STORAGE_KEY = 'dropith:sidebar-width:v1';
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 360;
+const SIDEBAR_DEFAULT_WIDTH = 272;
 
 const navItems: NavigationItem[] = [
   { id: 'calendar', label: 'Calendar', icon: <CalendarTodayIcon /> },
@@ -67,14 +71,16 @@ const navItems: NavigationItem[] = [
 ];
 
 const sidebarColors = {
-  background: neutralDarkTokens.surface.sunken,
+  background: '#141619',
+  backgroundTop: '#171a1f',
   border: neutralDarkTokens.border.subtle,
+  divider: alpha('#ffffff', 0.08),
   text: neutralDarkTokens.text.primary,
   textMuted: neutralDarkTokens.text.secondary,
   icon: neutralDarkTokens.text.secondary,
   iconMuted: neutralDarkTokens.text.muted,
-  hover: alpha('#ffffff', 0.04),
-  selected: alpha('#ffffff', 0.08),
+  hover: alpha('#ffffff', 0.045),
+  selected: alpha('#ffffff', 0.10),
   selectedBorder: neutralDarkTokens.border.strong,
 };
 
@@ -100,9 +106,49 @@ function objectIcon(type: PinnedType): React.ReactNode {
 
 export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned }: NavigationSidebarProps) {
   const { syncing, lastSyncedAt, syncError, triggerSync } = useSyncStatus();
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedNavItem[]>([]);
   const [loadingPinned, setLoadingPinned] = useState(false);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    if (!Number.isFinite(parsed)) return;
+    setSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, parsed)));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsResizing(true);
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, moveEvent.clientX));
+      setSidebarWidth(next);
+    };
+
+    const handleMouseUp = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setIsResizing(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, []);
 
   const readPinnedOrder = useCallback((): string[] => {
     if (typeof window === 'undefined') return [];
@@ -231,53 +277,81 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     <Drawer
       variant="permanent"
       sx={{
-        width: 240,
+        width: sidebarWidth,
         flexShrink: 0,
+        position: 'relative',
         '& .MuiDrawer-paper': {
-          width: 240,
+          width: sidebarWidth,
           boxSizing: 'border-box',
-          bgcolor: sidebarColors.background,
+          background: `linear-gradient(180deg, ${sidebarColors.backgroundTop} 0%, ${sidebarColors.background} 100%)`,
           borderRight: `1px solid ${sidebarColors.border}`,
           color: sidebarColors.text,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          px: 1,
+          py: 1,
         },
       }}
     >
+      <Box
+        onMouseDown={handleResizeStart}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize navigation sidebar"
+        sx={{
+          position: 'absolute',
+          top: 0,
+          right: -2,
+          width: 6,
+          height: '100%',
+          cursor: 'col-resize',
+          zIndex: 2,
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            right: 2,
+            top: 0,
+            width: 1,
+            height: '100%',
+            bgcolor: isResizing ? alpha('#7dbad6', 0.95) : 'transparent',
+          },
+          '&:hover::before': {
+            bgcolor: alpha('#7dbad6', 0.6),
+          },
+        }}
+      />
 
-      <Divider sx={{ borderColor: sidebarColors.border }} />
-
-      <List sx={{ flex: 1, overflow: 'auto', px: 1, py: 0.5 }}>
+      <List sx={{ flex: 1, overflow: 'auto', px: 0.5, py: 0.5 }}>
         {navItems.map((item) => (
           <ListItem key={item.id} disablePadding>
             <ListItemButton
               selected={currentSection === item.id}
               onClick={() => onNavigate(item.id)}
               sx={{
-                minHeight: cardSpacingTokens.sidebarRowMinHeight,
-                px: cardSpacingTokens.sidebarRowPaddingX,
-                py: cardSpacingTokens.sidebarRowPaddingY,
-                borderRadius: '6px',
+                minHeight: 38,
+                px: 1,
+                py: 0.25,
+                borderRadius: '14px',
                 color: sidebarColors.textMuted,
                 transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
                 '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                 '&.Mui-selected': {
-                  bgcolor: sidebarColors.selected,
+                  background: `linear-gradient(90deg, ${sidebarColors.selected} 0%, ${alpha('#ffffff', 0.06)} 100%)`,
                   color: sidebarColors.text,
                   border: `1px solid ${sidebarColors.selectedBorder}`,
                 },
               }}
             >
               <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
-                {item.icon}
+                <Box sx={{ '& .MuiSvgIcon-root': { fontSize: 21 } }}>{item.icon}</Box>
               </ListItemIcon>
-              <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2' } }} />
+              <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2', sx: { fontSize: '13px', fontWeight: 500, lineHeight: 1.25 } } }} />
             </ListItemButton>
           </ListItem>
         ))}
         <Collapse in timeout="auto" unmountOnExit={false}>
-          <Divider sx={{ borderColor: sidebarColors.border, my: 0.5 }} />
+          <Divider sx={{ borderColor: sidebarColors.divider, my: 1 }} />
           <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
           {pinnedItems.map((item) => {
             const itemKey = makePinnedKey(item);
@@ -305,16 +379,16 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
                   sx={{
                     gap: 0.5,
-                    minHeight: cardSpacingTokens.sidebarRowMinHeight,
-                    px: cardSpacingTokens.sidebarRowPaddingX,
-                    py: cardSpacingTokens.sidebarRowPaddingY,
-                    borderRadius: '6px',
+                    minHeight: 32,
+                    px: 0.9,
+                    py: 0.25,
+                    borderRadius: '10px',
                     color: sidebarColors.textMuted,
                     transition: 'background-color 120ms ease, color 120ms ease',
                     '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                   }}
                 >
-                  <ListItemIcon sx={{ minWidth: 28, color: sidebarColors.iconMuted }}>
+                  <ListItemIcon sx={{ minWidth: 24, color: sidebarColors.iconMuted }}>
                     {objectIcon(item.type)}
                   </ListItemIcon>
                   <ListItemText
@@ -323,10 +397,11 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                       primary: {
                         variant: 'body2',
                         sx: {
-                          fontSize: '12px',
+                          fontSize: '11px',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
+                          lineHeight: 1.25,
                         },
                       },
                     }}
@@ -342,7 +417,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                       }}
                       sx={{ color: sidebarColors.icon }}
                     >
-                      <ArrowUpwardIcon sx={{ fontSize: 13 }} />
+                      <ArrowUpwardIcon sx={{ fontSize: 12 }} />
                     </IconButton>
                     <IconButton
                       size="small"
@@ -354,7 +429,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                       }}
                       sx={{ color: sidebarColors.icon }}
                     >
-                      <ArrowDownwardIcon sx={{ fontSize: 13 }} />
+                      <ArrowDownwardIcon sx={{ fontSize: 12 }} />
                     </IconButton>
                     <IconButton
                       size="small"
@@ -365,7 +440,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                       }}
                       sx={{ color: sidebarColors.icon }}
                     >
-                      <CloseIcon sx={{ fontSize: 14 }} />
+                      <CloseIcon sx={{ fontSize: 13 }} />
                     </IconButton>
                   </Box>
                 </ListItemButton>
@@ -375,10 +450,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         </Collapse>
       </List>
 
-      <Divider sx={{ borderColor: sidebarColors.border }} />
+      <Divider sx={{ borderColor: sidebarColors.divider }} />
 
       {/* ── Sync status + button ── */}
-      <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ px: 1.5, py: 1.1, display: 'flex', alignItems: 'center', gap: 1 }}>
         <Tooltip title={syncError ?? (syncing ? 'Syncing…' : formatLastSynced(lastSyncedAt))} placement="right">
           <span>
             <IconButton
@@ -389,7 +464,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             >
               {syncing
                 ? <CircularProgress size={18} sx={{ color: sidebarColors.icon }} />
-                : <SyncIcon fontSize="small" />}
+                : <SyncIcon sx={{ fontSize: 17 }} />}
             </IconButton>
           </span>
         </Tooltip>
@@ -399,7 +474,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             sx={{
               display: 'block',
               color: syncError ? '#f87171' : sidebarColors.textMuted,
-              fontSize: '10px',
+              fontSize: '9.5px',
               lineHeight: 1.3,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -411,32 +486,32 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         </Box>
       </Box>
 
-      <Divider sx={{ borderColor: sidebarColors.border }} />
+      <Divider sx={{ borderColor: sidebarColors.divider }} />
 
-      <List sx={{ px: 1, py: 0.5 }}>
+      <List sx={{ px: 0.5, py: 0.5 }}>
         <ListItem disablePadding>
           <ListItemButton
             selected={currentSection === 'settings'}
             onClick={() => onNavigate('settings')}
             sx={{
-              minHeight: cardSpacingTokens.sidebarRowMinHeight,
-              px: cardSpacingTokens.sidebarRowPaddingX,
-              py: cardSpacingTokens.sidebarRowPaddingY,
-              borderRadius: '6px',
+              minHeight: 38,
+              px: 1,
+              py: 0.25,
+              borderRadius: '14px',
               color: sidebarColors.textMuted,
               transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
               '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
               '&.Mui-selected': {
-                bgcolor: sidebarColors.selected,
+                background: `linear-gradient(90deg, ${sidebarColors.selected} 0%, ${alpha('#ffffff', 0.06)} 100%)`,
                 color: sidebarColors.text,
                 border: `1px solid ${sidebarColors.selectedBorder}`,
               },
             }}
           >
             <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
-              <SettingsIcon />
+              <SettingsIcon sx={{ fontSize: 21 }} />
             </ListItemIcon>
-            <ListItemText primary="Settings" slotProps={{ primary: { variant: 'body2' } }} />
+            <ListItemText primary="Settings" slotProps={{ primary: { variant: 'body2', sx: { fontSize: '13px', fontWeight: 500, lineHeight: 1.25 } } }} />
           </ListItemButton>
         </ListItem>
       </List>
@@ -449,19 +524,19 @@ function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean;
     <Box
       sx={{
         px: cardSpacingTokens.sidebarRowPaddingX,
-        py: cardSpacingTokens.sidebarRowPaddingY,
+        py: 0.55,
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        minHeight: cardSpacingTokens.sidebarRowMinHeight,
+        minHeight: 30,
       }}
     >
-      <PushPinIcon sx={{ fontSize: 14, color: sidebarColors.iconMuted }} />
-      <Typography variant="caption" sx={{ color: sidebarColors.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', fontSize: '10px', flex: 1 }}>
+      <PushPinIcon sx={{ fontSize: 12, color: sidebarColors.iconMuted }} />
+      <Typography variant="caption" sx={{ color: sidebarColors.textMuted, letterSpacing: '0.03em', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', flex: 1 }}>
         Pinned
       </Typography>
       {loadingPinned ? <CircularProgress size={11} sx={{ color: sidebarColors.iconMuted }} /> : (
-        <Typography variant="caption" sx={{ color: sidebarColors.iconMuted, fontSize: '10px' }}>
+        <Typography variant="caption" sx={{ color: sidebarColors.iconMuted, fontSize: '9px' }}>
           {count}
         </Typography>
       )}
