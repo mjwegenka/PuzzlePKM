@@ -121,6 +121,17 @@ function sanitizeCardText(value: string): string {
     .trim()
 }
 
+function normalizeSearchQuery(value: string): string {
+  return String(value).trim().toLowerCase()
+}
+
+function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet'>, query: string): boolean {
+  if (!query) return true
+  return [card.title, card.metadata, card.snippet].some((value) =>
+    String(value ?? '').toLowerCase().includes(query),
+  )
+}
+
 function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
   const trimmedTitle = sanitizeCardText(title)
   if (trimmedTitle) return trimmedTitle
@@ -489,13 +500,9 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
   const hasActiveBoardFilters = activeFilterChips.cardType || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
   const allCards = useMemo((): BoardCard[] => {
+    const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
     const topicCards: BoardCard[] = topicNotes
-      .filter((n) =>
-        (!showInbox || hasInboxTag(n.tags)) &&
-        (!boardFilter ||
-          n.title.toLowerCase().includes(boardFilter.toLowerCase()) ||
-          n.preview.toLowerCase().includes(boardFilter.toLowerCase())),
-      )
+      .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n) => ({
         id: n.id,
         type: 'topic-note' as NoteType,
@@ -506,13 +513,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       }))
 
     const dailyCards: BoardCard[] = dailyNotes
-      .filter((n) =>
-        (!showInbox || hasInboxTag(n.tags)) &&
-        (!boardFilter ||
-          n.date.includes(boardFilter) ||
-          formatDatePretty(n.date).toLowerCase().includes(boardFilter.toLowerCase()) ||
-          n.preview?.toLowerCase().includes(boardFilter.toLowerCase())),
-      )
+      .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n) => ({
         id: n.id,
         type: 'daily-note' as NoteType,
@@ -522,13 +523,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       }))
 
     const habitCards: BoardCard[] = habits
-      .filter((n) =>
-        (!showInbox || hasInboxTag(n.tags)) &&
-        (!boardFilter ||
-          n.text.toLowerCase().includes(boardFilter.toLowerCase()) ||
-          n.date.includes(boardFilter) ||
-          formatDatePretty(n.date).toLowerCase().includes(boardFilter.toLowerCase())),
-      )
+      .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
@@ -538,13 +533,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       }))
 
     const fileCards: BoardCard[] = files
-      .filter((f) =>
-        (!showInbox || hasInboxTag(f.tags)) &&
-        (!boardFilter ||
-          f.name.toLowerCase().includes(boardFilter.toLowerCase()) ||
-          (f.author ?? '').toLowerCase().includes(boardFilter.toLowerCase()) ||
-          (f.syncPath ?? '').toLowerCase().includes(boardFilter.toLowerCase())),
-      )
+      .filter((f) => !showInbox || hasInboxTag(f.tags))
       .map((f) => ({
         id: f.id,
         type: f.type,
@@ -564,6 +553,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         : null
     const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards]
     return cards.filter((card) => {
+      if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
       if (activeFilterChips.cardType && selectedCardType && card.type !== selectedCardType) return false
 
       const hasTags = (card.tags?.length ?? 0) > 0
