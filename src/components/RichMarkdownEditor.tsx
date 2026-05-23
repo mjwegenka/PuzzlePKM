@@ -365,12 +365,12 @@ function ToolbarButton({ title, active, onClick, children }: ToolbarButtonProps)
         size="small"
         onClick={onClick}
         sx={{
-          color: active ? '#e4f0fb' : '#7dbad6',
-          bgcolor: active ? 'rgba(26,138,181,0.24)' : 'transparent',
-          border: active ? '1px solid #1a8ab5' : '1px solid transparent',
+          color: active ? '#eceff3' : '#b8bec8',
+          bgcolor: active ? 'rgba(79,143,237,0.24)' : 'transparent',
+          border: active ? '1px solid #4f8fed' : '1px solid transparent',
           borderRadius: '6px',
           '&:hover': {
-            bgcolor: 'rgba(26,138,181,0.16)',
+            bgcolor: 'rgba(79,143,237,0.16)',
           },
         }}
       >
@@ -792,11 +792,11 @@ export default function RichMarkdownEditor({
   return (
     <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-        <Typography variant="caption" sx={{ color: '#7dbad6', fontSize: '12px', fontWeight: 500 }}>
+        <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '12px', fontWeight: 500 }}>
           {label}
         </Typography>
         {typeof currentCount === 'number' && typeof maxLength === 'number' && (
-          <Typography variant="caption" sx={{ color: currentCount > maxLength ? '#ef5350' : '#4a6a8a', fontSize: '11px' }}>
+          <Typography variant="caption" sx={{ color: currentCount > maxLength ? '#ef5350' : '#9198a3', fontSize: '11px' }}>
             {currentCount}/{maxLength}
           </Typography>
         )}
@@ -804,7 +804,7 @@ export default function RichMarkdownEditor({
 
       <Box
         sx={{
-          border: '1px solid rgba(125,186,214,0.45)',
+          border: '1px solid rgba(184,190,200,0.45)',
           borderRadius: '12px',
           bgcolor: 'rgba(11, 24, 40, 0.75)',
           flex: 1,
@@ -814,7 +814,7 @@ export default function RichMarkdownEditor({
           overflow: 'hidden',
         }}
       >
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid #1c3558', flexShrink: 0 }}>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid rgba(255,255,255,0.09)', flexShrink: 0 }}>
           <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
             <TitleIcon fontSize="small" />
           </ToolbarButton>
@@ -861,13 +861,13 @@ export default function RichMarkdownEditor({
               px: 1,
               borderRadius: '6px',
               border: '1px solid',
-              borderColor: activeAdmonitionType ? '#1a8ab5' : '#1c3558',
-              bgcolor: activeAdmonitionType ? 'rgba(26,138,181,0.24)' : 'transparent',
-              color: activeAdmonitionType ? '#e4f0fb' : '#7dbad6',
+              borderColor: activeAdmonitionType ? '#4f8fed' : 'rgba(255,255,255,0.09)',
+              bgcolor: activeAdmonitionType ? 'rgba(79,143,237,0.24)' : 'transparent',
+              color: activeAdmonitionType ? '#eceff3' : '#b8bec8',
               textTransform: 'none',
               '&:hover': {
-                bgcolor: 'rgba(26,138,181,0.16)',
-                borderColor: '#1a8ab5',
+                bgcolor: 'rgba(79,143,237,0.16)',
+                borderColor: '#4f8fed',
               },
             }}
           >
@@ -882,8 +882,8 @@ export default function RichMarkdownEditor({
           slotProps={{
             paper: {
               sx: {
-                bgcolor: '#0e2038',
-                border: '1px solid #1c3558',
+                bgcolor: '#1a1c1f',
+                border: '1px solid rgba(255,255,255,0.09)',
               },
             },
           }}

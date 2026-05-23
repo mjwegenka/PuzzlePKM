@@ -126,10 +126,10 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
   }
 
   return (
-    <Paper sx={{ flex: 1, minHeight: 0, p: 1.5, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ flex: 1, minHeight: 0, p: 1.5, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
-        <HubIcon sx={{ color: '#7dbad6', fontSize: 18 }} />
-        <Typography variant="subtitle2" sx={{ color: '#e4f0fb', fontWeight: 700 }}>Graph</Typography>
+        <HubIcon sx={{ color: '#b8bec8', fontSize: 18 }} />
+        <Typography variant="subtitle2" sx={{ color: '#eceff3', fontWeight: 700 }}>Graph</Typography>
         <TextField
           size="small"
           value={search}
@@ -138,7 +138,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
           sx={{ ml: 'auto', width: 260 }}
           slotProps={{
             input: {
-              startAdornment: <SearchIcon sx={{ fontSize: 14, color: '#4a6a8a', mr: 0.5 }} />,
+              startAdornment: <SearchIcon sx={{ fontSize: 14, color: '#9198a3', mr: 0.5 }} />,
             },
           }}
         />
@@ -152,7 +152,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
           flex: 1,
           minHeight: 0,
           position: 'relative',
-          border: hasFocus ? '1px solid #1a8ab5' : '1px solid #1c3558',
+          border: hasFocus ? '1px solid #4f8fed' : '1px solid rgba(255,255,255,0.09)',
           borderRadius: 1,
           bgcolor: 'rgba(0,0,0,0.15)',
           overflow: 'hidden',
@@ -176,7 +176,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                   y1={source.y}
                   x2={target.x}
                   y2={target.y}
-                  stroke="rgba(125,186,214,0.35)"
+                  stroke="rgba(184,190,200,0.35)"
                   strokeWidth={1}
                 />
               )
@@ -189,14 +189,14 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                     cx={node.x}
                     cy={node.y}
                     r={focused ? 12 : 9}
-                    fill={focused ? '#1a8ab5' : '#17314f'}
-                    stroke={focused ? '#7dcfaa' : '#7dbad6'}
+                    fill={focused ? '#4f8fed' : '#17191c'}
+                    stroke={focused ? '#7dcfaa' : '#b8bec8'}
                     strokeWidth={focused ? 2 : 1}
                   />
                   <text
                     x={node.x + 14}
                     y={node.y + 4}
-                    fill="#b0d4e8"
+                    fill="#b8bec8"
                     style={{ fontSize: '11px', userSelect: 'none' }}
                   >
                     {node.label.slice(0, 28)}
@@ -208,15 +208,15 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
         )}
 
         {!hasFocus && (
-          <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(8,19,33,0.65)' }}>
-            <Typography variant="body2" sx={{ color: '#7dbad6' }}>
+          <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(18,19,21,0.65)' }}>
+            <Typography variant="body2" sx={{ color: '#b8bec8' }}>
               Click to focus graph
             </Typography>
           </Box>
         )}
       </Box>
 
-      <Typography variant="caption" sx={{ color: '#4a6a8a', mt: 1 }}>
+      <Typography variant="caption" sx={{ color: '#9198a3', mt: 1 }}>
         Tip: click a node once to focus it, click it again to open in a new tab.
       </Typography>
     </Paper>

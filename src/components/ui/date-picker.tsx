@@ -43,7 +43,7 @@ export default function DatePicker({
             <button
               type="button"
               className={cn(
-                'inline-flex h-10 w-full items-center justify-between rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 shadow-sm transition-colors hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-[#0e2038]',
+                'inline-flex h-10 w-full items-center justify-between rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 shadow-sm transition-colors hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-[#1a1c1f]',
                 !value && 'text-slate-500',
               )}
             >
@@ -72,7 +72,7 @@ export default function DatePicker({
           <button
             type="button"
             onClick={() => onChange('')}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-300 transition-colors hover:bg-slate-900 hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-[#0e2038]"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-300 transition-colors hover:bg-slate-900 hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-[#1a1c1f]"
             aria-label={`Clear ${label.toLowerCase()}`}
           >
             <XIcon className="h-4 w-4" />

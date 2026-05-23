@@ -79,7 +79,7 @@ export default function CalendarView({ onDateSelect, selectedDate, noteDates = [
   };
 
   return (
-    <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Stack spacing={2} sx={{ flex: 1 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -101,7 +101,7 @@ export default function CalendarView({ onDateSelect, selectedDate, noteDates = [
         {/* Day headers */}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5, mb: 1 }}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayLabel) => (
-            <Box key={dayLabel} sx={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, color: '#7dbad6' }}>
+            <Box key={dayLabel} sx={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, color: '#b8bec8' }}>
               {dayLabel}
             </Box>
           ))}
@@ -120,12 +120,12 @@ export default function CalendarView({ onDateSelect, selectedDate, noteDates = [
                 p: 0,
                 minWidth: 'unset',
                 position: 'relative',
-                bgcolor: isToday(day) ? 'rgba(26,138,181,0.12)' : 'transparent',
-                borderColor: isToday(day) ? 'rgba(26,138,181,0.45)' : 'transparent',
-                color: !day ? 'transparent' : '#e4f0fb',
+                bgcolor: isToday(day) ? 'rgba(79,143,237,0.12)' : 'transparent',
+                borderColor: isToday(day) ? 'rgba(79,143,237,0.45)' : 'transparent',
+                color: !day ? 'transparent' : '#eceff3',
                 fontWeight: isToday(day) ? 700 : 400,
                 '&:hover': !day ? {} : {
-                  bgcolor: 'rgba(26,138,181,0.2)',
+                  bgcolor: 'rgba(79,143,237,0.2)',
                 },
                 // Note dot indicator
                 '&::after': hasNote(day) && !isSelected(day) ? {
@@ -137,7 +137,7 @@ export default function CalendarView({ onDateSelect, selectedDate, noteDates = [
                   width: '4px',
                   height: '4px',
                   borderRadius: '50%',
-                  bgcolor: '#1a8ab5',
+                  bgcolor: '#4f8fed',
                 } : {},
               }}
             >

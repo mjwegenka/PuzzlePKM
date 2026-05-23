@@ -686,7 +686,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
            <FilterChip
              icon={<TuneIcon />}
-             label="Card type"
+             label="Object type"
              showCaret
              selected={activeFilterChips.cardType}
              onToggle={() => setActiveFilterChips((prev) => ({ ...prev, cardType: !prev.cardType }))}
@@ -731,7 +731,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
           {/* Search input */}
           <TextField
             size="small"
-            placeholder="Find a card..."
+            placeholder="Find a note..."
             value={boardFilter}
             onChange={(e) => setBoardFilter(e.target.value)}
             variant="outlined"
@@ -761,7 +761,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             size="small"
             value={boardSort}
             onChange={(event) => setBoardSort(event.target.value as BoardSort)}
-            aria-label="Sort cards"
+            aria-label="Sort notes"
             sx={{
               width: 146,
               flexShrink: 0,
@@ -792,16 +792,16 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             <MenuItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</MenuItem>
           </TextField>
 
-          {/* +Card button */}
-          <Tooltip title="Create a new card">
+          {/* +New button */}
+          <Tooltip title="Create a new object">
             <Button
               variant="outlined"
               size="small"
               onClick={(event) => setCreateMenuAnchorEl(event.currentTarget)}
               aria-haspopup="menu"
               aria-expanded={createMenuAnchorEl ? 'true' : undefined}
-              aria-controls={createMenuAnchorEl ? 'create-card-menu' : undefined}
-              aria-label="Create a new card"
+              aria-controls={createMenuAnchorEl ? 'create-object-menu' : undefined}
+              aria-label="Create a new object"
               startIcon={<AddCircleOutlineIcon sx={{ fontSize: 16 }} />}
               sx={{
                 flexShrink: 0,
@@ -821,18 +821,18 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               }}
             >
               <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                +Card
+                +New
               </Box>
             </Button>
           </Tooltip>
 
           <Menu
-            id="create-card-menu"
+            id="create-object-menu"
             anchorEl={createMenuAnchorEl}
             open={Boolean(createMenuAnchorEl)}
             onClose={() => setCreateMenuAnchorEl(null)}
             slotProps={{
-              list: { 'aria-label': 'Create card type' },
+              list: { 'aria-label': 'Create object type' },
             }}
           >
             <MenuItem onClick={() => handleStartCreate('topic-note')}>
@@ -845,13 +845,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               <ListItemIcon>
                 <CalendarTodayIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Daily Note" secondary="Create or open a dated journal entry" />
+              <ListItemText primary="Daily Note" secondary="Create or open a dated daily note" />
             </MenuItem>
             <MenuItem onClick={() => handleStartCreate('habit')}>
               <ListItemIcon>
                 <RepeatIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Habit" secondary="Create a dated habit card" />
+              <ListItemText primary="Habit" secondary="Create a dated habit entry" />
             </MenuItem>
           </Menu>
 
@@ -938,10 +938,10 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                sx={{
                   minHeight: 40,
                  flex: 1,
-                  '& .MuiTabs-indicator': { height: 2, borderRadius: 999, bgcolor: 'accent.metadata' },
-                  '& .MuiTabs-flexContainer': { alignItems: 'center' },
-                  '& .MuiTabs-scroller': { overflow: 'hidden' },
-                  '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
+                 '& .MuiTabs-indicator': { display: 'none' },
+                 '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
+                 '& .MuiTabs-scroller': { overflow: 'visible !important' },
+                 '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
                  '& .MuiTab-root': {
                     minHeight: 40,
                    textTransform: 'none',
@@ -969,9 +969,14 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                      sx={{
                        '&.Mui-selected': {
                          color: tabToken.text,
-                        },
-                        '&.Mui-selected .notes-editor-tab-dot': {
-                          bgcolor: tabToken.accent,
+                         backgroundColor: '#1a1c1f',
+                         borderColor: tabToken.border,
+                         borderBottomColor: '#1a1c1f',
+                         boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
+                         bgcolor: tabToken.accent,
+                       },
+                       '&.Mui-selected .notes-editor-tab-dot': {
+                         bgcolor: tabToken.accent,
                        },
                      }}
                      label={(
@@ -1037,7 +1042,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
        fullWidth
        maxWidth="lg"
        fullScreen={isSmallScreen}
-       aria-labelledby="create-card-dialog-title"
+       aria-labelledby="create-object-dialog-title"
        slotProps={{
          paper: {
            sx: {
@@ -1048,7 +1053,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
          },
        }}
       >
-       <DialogTitle id="create-card-dialog-title" sx={{ pr: 6 }}>
+       <DialogTitle id="create-object-dialog-title" sx={{ pr: 6 }}>
          Create New Note
        </DialogTitle>
        <MuiIconButton

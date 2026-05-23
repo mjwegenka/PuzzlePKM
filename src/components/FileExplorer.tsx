@@ -85,13 +85,13 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
     .sort(compareItems);
 
   return (
-    <Paper sx={{ p: 2, bgcolor: '#0e2038', border: '1px solid #1c3558', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
         <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '15px' }}>
           Files
         </Typography>
-        <IconButton size="small" onClick={load} title="Refresh" sx={{ color: '#7dbad6' }}>
+        <IconButton size="small" onClick={load} title="Refresh" sx={{ color: '#b8bec8' }}>
           <RefreshIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </Stack>
@@ -155,7 +155,7 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
             )}
           </List>
 
-          <Divider sx={{ borderColor: '#1c3558', my: 1 }} />
+          <Divider sx={{ borderColor: 'rgba(255,255,255,0.09)', my: 1 }} />
 
           {/* Reference Materials section */}
           <SectionHeader
@@ -198,12 +198,12 @@ function SectionHeader({
     <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, py: 0.5 }}>
       <Stack direction="row" alignItems="center">
         {icon}
-        <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '10px' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: '#b8bec8', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '10px' }}>
           {label}
         </Typography>
       </Stack>
       {onAdd && (
-        <IconButton size="small" onClick={onAdd} sx={{ p: 0.25, color: '#7dbad6', '&:hover': { color: '#e4f0fb' } }}>
+        <IconButton size="small" onClick={onAdd} sx={{ p: 0.25, color: '#b8bec8', '&:hover': { color: '#eceff3' } }}>
           <AddIcon sx={{ fontSize: 14 }} />
         </IconButton>
       )}
@@ -233,8 +233,8 @@ function FileListItem({
           sx={{
             py: 0.75,
             borderRadius: '4px',
-            '&.Mui-selected': { bgcolor: 'rgba(26,138,181,0.18)' },
-            '&:hover': { bgcolor: 'rgba(26,138,181,0.1)' },
+            '&.Mui-selected': { bgcolor: 'rgba(79,143,237,0.18)' },
+            '&:hover': { bgcolor: 'rgba(79,143,237,0.1)' },
           }}
         >
           {icon}
@@ -247,12 +247,12 @@ function FileListItem({
             secondary={
               <>
                 {item.type === 'ref-material' && item.author && (
-                  <Typography variant="caption" sx={{ color: '#7dbad6', fontSize: '11px', display: 'block' }}>
+                  <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '11px', display: 'block' }}>
                     by {item.author}
                   </Typography>
                 )}
                 {item.syncPath && item.syncPath !== '(no path)' ? (
-                  <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '11px' }}>
+                  <Typography variant="caption" sx={{ color: '#9198a3', fontSize: '11px' }}>
                     {item.syncPath}
                   </Typography>
                 ) : null}
@@ -268,7 +268,7 @@ function FileListItem({
 
 function EmptyNote({ text }: { text: string }) {
   return (
-    <Typography variant="caption" sx={{ color: '#4a6a8a', display: 'block', px: 1, py: 0.5, fontStyle: 'italic' }}>
+    <Typography variant="caption" sx={{ color: '#9198a3', display: 'block', px: 1, py: 0.5, fontStyle: 'italic' }}>
       {text}
     </Typography>
   );

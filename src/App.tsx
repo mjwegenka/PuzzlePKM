@@ -241,7 +241,7 @@ export default function App() {
   }
 
   return (
-    <Box sx={{ display: 'flex', bgcolor: '#0b1828', height: '100vh', overflow: 'hidden', color: '#e4f0fb' }}>
+    <Box sx={{ display: 'flex', bgcolor: '#121315', height: '100vh', overflow: 'hidden', color: '#eceff3' }}>
       <NavigationSidebar
         currentSection={sidebarSection}
         onNavigate={handleNavigate}
@@ -258,13 +258,13 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
-              border: showWorkspaceTabBar ? '1px solid #1c3558' : 'none',
+              border: showWorkspaceTabBar ? '1px solid rgba(255,255,255,0.09)' : 'none',
               borderRadius: showWorkspaceTabBar ? 1 : 0,
-              bgcolor: showWorkspaceTabBar ? '#0e2038' : 'transparent',
+              bgcolor: showWorkspaceTabBar ? '#1a1c1f' : 'transparent',
             }}
           >
           {showWorkspaceTabBar && (
-            <Box sx={{ px: 1.25, bgcolor: '#0d1d33', borderBottom: '1px solid #1c3558' }}>
+            <Box sx={{ px: 1.25, bgcolor: '#17191c', borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
               <Tabs
                 value={activeTab?.id ?? false}
                 onChange={(_, value: string) => {
@@ -277,23 +277,23 @@ export default function App() {
                 scrollButtons="auto"
                 sx={{
                   minHeight: 48,
-                  '& .MuiTabs-indicator': { bgcolor: '#1a8ab5', height: 3, borderRadius: 999 },
+                  '& .MuiTabs-indicator': { bgcolor: '#4f8fed', height: 3, borderRadius: 999 },
                   '& .MuiTabs-flexContainer': { alignItems: 'center' },
                   '& .MuiTabs-scroller': { overflow: 'hidden' },
-                  '& .MuiTabScrollButton-root': { width: 24, color: '#7dbad6' },
+                  '& .MuiTabScrollButton-root': { width: 24, color: '#b8bec8' },
                   '& .MuiTab-root': {
                     minHeight: 48,
                     textTransform: 'none',
                     minWidth: 0,
                     px: 1.25,
                     py: 0,
-                    color: '#a9bfd2',
+                    color: '#b8bec8',
                     transition: 'color 120ms ease',
                     '&:hover': {
-                      color: '#d7e6f3',
+                      color: '#eceff3',
                     },
                     '&.Mui-selected': {
-                      color: '#d8f0ff',
+                      color: '#eceff3',
                     },
                   },
                 }}
@@ -370,11 +370,11 @@ function EmptyFilesPrompt() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '1px dashed #1c3558',
+        border: '1px dashed rgba(255,255,255,0.09)',
         borderRadius: '8px',
         p: 4,
         gap: 2,
-        color: '#4a6a8a',
+        color: '#9198a3',
       }}
     >
       <Box sx={{ fontSize: 40, opacity: 0.35 }}>🗂</Box>
