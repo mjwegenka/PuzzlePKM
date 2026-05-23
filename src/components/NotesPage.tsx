@@ -631,7 +631,21 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0 }}>
       {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{
+          mb: 1,
+          flexShrink: 0,
+          px: 1,
+          py: 0.75,
+          borderRadius: '10px',
+          bgcolor: 'surface.elevated',
+          border: '1px solid',
+          borderColor: 'border.subtle',
+        }}
+      >
         {/* Filter chip row */}
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
            <FilterChip
@@ -694,7 +708,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                 bgcolor: 'surface.sunken',
                 color: 'text.secondary',
                 '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'accent.selected' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
               },
               '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
               '& .MuiOutlinedInput-input::placeholder': { color: 'text.disabled', opacity: 1 },
@@ -725,7 +739,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                 px: { xs: 0.75, sm: 1 },
                 py: 0.25,
                 borderColor: 'border.subtle',
-                color: 'text.secondary',
+                color: 'text.primary',
                 bgcolor: 'surface.sunken',
                 '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
                 '& .MuiButton-startIcon': {
