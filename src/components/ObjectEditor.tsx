@@ -711,7 +711,6 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                   : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
               }
               mentionEnabled={isNoteType}
-              dragHandleEnabled={isNoteType}
               resolveMentionHref={resolveMentionHref}
               blocks={isNoteType ? noteBlocks : undefined}
               onBlocksChange={isNoteType ? setNoteBlocks : undefined}

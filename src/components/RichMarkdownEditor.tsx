@@ -31,7 +31,6 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
-import { DragHandle } from './DragHandle'
 import { searchObjects } from '../lib/cliService'
 import type { NoteBlock } from '../shared/types'
 
@@ -43,7 +42,6 @@ interface RichMarkdownEditorProps {
   label: string
   placeholder?: string
   mentionEnabled?: boolean
-  dragHandleEnabled?: boolean
   resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
   onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
@@ -65,6 +63,47 @@ const turndown = new TurndownService({
 turndown.addRule('tightLineBreaks', {
   filter: ['br'],
   replacement: () => '<br>\n',
+})
+
+const ADMONITION_MARKER_RE = /^\[![A-Za-z0-9_-]+\](?:[+-])?(?:\s+.*)?$/
+
+function normalizeBlockquoteContent(content: string): string {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/<br\s*\/?>\n?/gi, '\n')
+}
+
+function normalizeBlockquoteMarkdown(content: string): string {
+  return normalizeBlockquoteContent(content)
+    .replace(/^\n+|\n+$/g, '')
+    .replace(/^/gm, '> ')
+}
+
+function normalizeAdmonitionMarker(line: string): string {
+  return line.replace(/\\(\[|\])/g, '$1').trim()
+}
+
+function serializeAdmonitionBlockquote(content: string): string | null {
+  const normalized = normalizeBlockquoteContent(content)
+  const lines = normalized.split('\n').map((line) => line.trimEnd())
+  const firstNonEmptyIndex = lines.findIndex((line) => line.trim().length > 0)
+  if (firstNonEmptyIndex < 0) return null
+
+  const marker = normalizeAdmonitionMarker(lines[firstNonEmptyIndex])
+  if (!ADMONITION_MARKER_RE.test(marker)) return null
+
+  const outputLines = lines.map((line, index) =>
+    index === firstNonEmptyIndex ? marker : line,
+  )
+  return normalizeBlockquoteMarkdown(outputLines.join('\n'))
+}
+
+turndown.addRule('blockquotePreserveAdmonitions', {
+  filter: ['blockquote'],
+  replacement: (content) => {
+    const admonition = serializeAdmonitionBlockquote(content)
+    return `\n\n${admonition ?? normalizeBlockquoteMarkdown(content)}\n\n`
+  },
 })
 
 function normalizeEditorHtmlForMarkdown(html: string): string {
@@ -234,7 +273,6 @@ export default function RichMarkdownEditor({
   label,
   placeholder,
   mentionEnabled = false,
-  dragHandleEnabled = false,
   resolveMentionHref,
   maxLength,
   onShiftClickLink,
@@ -629,15 +667,13 @@ export default function RichMarkdownEditor({
           </ToolbarButton>
         </Stack>
 
-        {/* Content scroll area — position: relative anchors the DragHandle.
-            Left padding is widened to create a visible gutter for the handle. */}
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
             overflow: 'auto',
             position: 'relative',
-            pl: dragHandleEnabled ? '36px' : 1.5,
+            pl: 1.5,
             pr: 1.5,
             py: 1.25,
           }}
@@ -648,7 +684,6 @@ export default function RichMarkdownEditor({
             handleModifiedLinkClick(event)
           }}
         >
-          {dragHandleEnabled && editor && <DragHandle editor={editor} />}
           <EditorContent editor={editor} />
         </Box>
       </Box>
