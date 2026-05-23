@@ -853,17 +853,35 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       {activeTab && (
         <Paper sx={{ width: 560, minWidth: 420, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
          <>
-           <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1, py: 0.75, borderBottom: '1px solid #1c3558' }}>
+           <Stack direction="row" alignItems="flex-end" gap={0.75} sx={{ px: 0.75, pt: 0.5, pb: 0, borderBottom: '1px solid #1c3558' }}>
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
                variant="scrollable"
                scrollButtons="auto"
                sx={{
-                 minHeight: 36,
+                 minHeight: 0,
                  flex: 1,
-                 '& .MuiTabs-indicator': { bgcolor: getObjectColor(activeTab?.type ?? 'daily-note').accent },
-                 '& .MuiTab-root': { minHeight: 36, textTransform: 'none', minWidth: 0, px: 1 },
+                 '& .MuiTabs-indicator': { display: 'none' },
+                 '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
+                 '& .MuiTabs-scroller': { overflow: 'visible !important' },
+                 '& .MuiTabScrollButton-root': { width: 24, color: '#7dbad6' },
+                 '& .MuiTab-root': {
+                   minHeight: 0,
+                   textTransform: 'none',
+                   minWidth: 0,
+                   px: 0.75,
+                   py: 0,
+                   borderRadius: '10px 10px 0 0',
+                   border: '1px solid rgba(255,255,255,0.08)',
+                   borderBottomColor: 'rgba(255,255,255,0.04)',
+                   backgroundColor: 'rgba(255,255,255,0.02)',
+                   color: '#9fb4c7',
+                   transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
+                   '&:hover': {
+                     backgroundColor: 'rgba(255,255,255,0.05)',
+                   },
+                 },
                }}
              >
                {openTabs.map((tab) => {
@@ -872,22 +890,37 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                    <Tab
                      key={tab.tabId}
                      value={tab.tabId}
+                     disableRipple
+                     sx={{
+                       '&.Mui-selected': {
+                         color: tabToken.text,
+                         backgroundColor: '#0e2038',
+                         borderColor: tabToken.border,
+                         borderBottomColor: '#0e2038',
+                         boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
+                       },
+                     }}
                      label={(
-                       <Stack direction="row" alignItems="center" spacing={0.5}>
-                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
-                         <Typography variant="caption" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                       <Stack direction="row" alignItems="center" spacing={0.45} sx={{ minHeight: 28 }}>
+                         <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
+                         <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1 }}>
                            {getTabLabel(tab)}
                          </Typography>
-                         {tab.isDirty ? <Box sx={{ width: 6, height: 6, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
+                         {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: '#e8a84a' }} /> : null}
                          <MuiIconButton
                            size="small"
                            onClick={(event) => {
                              event.stopPropagation()
                              handleRequestCloseTab(tab.tabId)
                            }}
-                           sx={{ p: 0.15, color: '#7dbad6' }}
+                           sx={{
+                             p: 0.1,
+                             color: 'inherit',
+                             opacity: 0.8,
+                             '&:hover': { opacity: 1, bgcolor: 'rgba(255,255,255,0.08)' },
+                           }}
                          >
-                           <CloseIcon sx={{ fontSize: 12 }} />
+                           <CloseIcon sx={{ fontSize: 11 }} />
                          </MuiIconButton>
                        </Stack>
                      )}
@@ -895,7 +928,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                  )
                })}
              </Tabs>
-             <MuiIconButton size="small" onClick={handleCloseEditor}>
+             <MuiIconButton size="small" onClick={handleCloseEditor} sx={{ mb: 0.35 }}>
                <CloseIcon fontSize="small" />
              </MuiIconButton>
            </Stack>
