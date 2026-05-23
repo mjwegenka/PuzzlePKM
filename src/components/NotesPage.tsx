@@ -44,6 +44,7 @@ import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, getO
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils'
 import { getObjectColor } from '../lib/objectColors'
+import { cardSpacingTokens } from '../theme'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -638,6 +639,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         sx={{
           mb: 1,
           flexShrink: 0,
+          minHeight: cardSpacingTokens.toolbarRowMinHeight,
           px: 1,
           py: 0.75,
           borderRadius: '10px',
@@ -703,7 +705,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               width: 220,
               flexShrink: 0,
               '& .MuiOutlinedInput-root': {
-                minHeight: 30,
+                minHeight: 32,
                 fontSize: '12px',
                 bgcolor: 'surface.sunken',
                 color: 'text.secondary',
@@ -734,7 +736,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               sx={{
                 flexShrink: 0,
                 fontSize: '12px',
-                minHeight: 30,
+                minHeight: 32,
                 minWidth: { xs: 0, sm: 'auto' },
                 px: { xs: 0.75, sm: 1 },
                 py: 0.25,
@@ -831,7 +833,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              sx={{
                display: 'grid',
                gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-               gap: 1.5,
+               gap: cardSpacingTokens.cardVerticalGutter,
                alignItems: 'start',
                 width: '100%',
                 minWidth: 0,
