@@ -559,13 +559,13 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const tagsEditor = (
     <>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: '#b8bec8', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
           Tags
         </Typography>
         <IconButton
           size="small"
           onClick={() => setShowTagDialog(true)}
-          sx={{ p: 0.4, color: '#7dbad6', '&:hover': { color: '#e4f0fb' } }}
+          sx={{ p: 0.4, color: '#b8bec8', '&:hover': { color: '#eceff3' } }}
         >
           <AddIcon sx={{ fontSize: 16 }} />
         </IconButton>
@@ -573,7 +573,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
         {tags.length === 0 && (
-          <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+          <Typography variant="caption" sx={{ color: '#9198a3', fontStyle: 'italic' }}>
             No tags — click + to add
           </Typography>
         )}
@@ -584,11 +584,11 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
             onDelete={() => handleRemoveTag(tag)}
             size="small"
             sx={{
-              bgcolor: 'rgba(26,138,181,0.15)',
-              border: '1px solid rgba(26,138,181,0.35)',
-              color: '#b0d4e8',
+              bgcolor: 'rgba(79,143,237,0.15)',
+              border: '1px solid rgba(79,143,237,0.35)',
+              color: '#b8bec8',
               height: 22,
-              '& .MuiChip-deleteIcon': { fontSize: 14, color: '#7dbad6' },
+              '& .MuiChip-deleteIcon': { fontSize: 14, color: '#b8bec8' },
             }}
           />
         ))}
@@ -600,8 +600,8 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     <Paper
       sx={{
         p: 3,
-        bgcolor: '#0e2038',
-        border: '1px solid #1c3558',
+        bgcolor: '#1a1c1f',
+        border: '1px solid rgba(255,255,255,0.09)',
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
@@ -613,7 +613,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         {/* ── TOP: Title and Date (always first) ── */}
         <Box sx={{ mb: 2, flexShrink: 0 }}>
           {type === 'daily-note' && (
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#e4f0fb', mb: 1 }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#eceff3', mb: 1 }}>
               {date ? `Daily Note — ${formatDatePretty(date)}` : 'Daily Note'}
             </Typography>
           )}
@@ -716,16 +716,16 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         )}
 
         {/* ── BOTTOM: Relationships + Tags ── */}
-        <Box sx={{ borderTop: '1px solid #1c3558', pt: 2, flexShrink: 0, minHeight: 0 }}>
+        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.09)', pt: 2, flexShrink: 0, minHeight: 0 }}>
           {isNoteType && (
             <Stack spacing={1.5} sx={{ mb: 2 }}>
               <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#b8bec8', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
                   Links
                 </Typography>
                 <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                   {forwardLinks.length === 0 ? (
-                    <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+                    <Typography variant="caption" sx={{ color: '#9198a3', fontStyle: 'italic' }}>
                       No links
                     </Typography>
                   ) : (
@@ -737,9 +737,9 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                         clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
                         onClick={(event) => { void handleRelationClick(relation, event); }}
                         sx={{
-                          bgcolor: 'rgba(26,138,181,0.15)',
-                          border: '1px solid rgba(26,138,181,0.35)',
-                          color: '#b0d4e8',
+                          bgcolor: 'rgba(79,143,237,0.15)',
+                          border: '1px solid rgba(79,143,237,0.35)',
+                          color: '#b8bec8',
                           height: 22,
                         }}
                       />
@@ -748,12 +748,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
                 </Stack>
               </Box>
               <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: '#7dbad6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#b8bec8', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
                   Backlinks
                 </Typography>
                 <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                   {backlinkLinks.length === 0 ? (
-                    <Typography variant="caption" sx={{ color: '#4a6a8a', fontStyle: 'italic' }}>
+                    <Typography variant="caption" sx={{ color: '#9198a3', fontStyle: 'italic' }}>
                       No backlinks
                     </Typography>
                   ) : (
@@ -847,7 +847,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       >
         <DialogTitle>Unsaved Changes</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ color: '#b0d4e8' }}>
+          <Typography variant="body2" sx={{ color: '#b8bec8' }}>
             You have unsaved changes. Save before opening the linked object?
           </Typography>
         </DialogContent>
@@ -872,7 +872,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       >
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ color: '#b0d4e8' }}>
+          <Typography variant="body2" sx={{ color: '#b8bec8' }}>
             {pendingDeleteReason === 'empty-note'
               ? 'This note has empty content. Delete it instead of saving?'
               : 'This habit has no tags. Delete it instead of saving?'}

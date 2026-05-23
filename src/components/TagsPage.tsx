@@ -149,8 +149,8 @@ export default function TagsPage() {
         <Paper
           sx={{
             p: 2,
-            bgcolor: '#0e2038',
-            border: '1px solid #1c3558',
+            bgcolor: '#1a1c1f',
+            border: '1px solid rgba(255,255,255,0.09)',
             display: 'flex',
             flexDirection: 'column',
             gap: 1.5,
@@ -158,12 +158,12 @@ export default function TagsPage() {
         >
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Stack direction="row" spacing={1} alignItems="center">
-              <LabelIcon sx={{ fontSize: 16, color: '#1a8ab5' }} />
+              <LabelIcon sx={{ fontSize: 16, color: '#4f8fed' }} />
               <Typography
                 variant="caption"
                 sx={{
                   fontWeight: 700,
-                  color: '#7dbad6',
+                  color: '#b8bec8',
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
                   fontSize: '10px',
@@ -204,7 +204,7 @@ export default function TagsPage() {
           {/* Chips */}
           <Box sx={{ maxHeight: 220, overflow: 'auto' }}>
             {tagCounts.size === 0 && !loading && (
-              <Typography variant="caption" sx={{ color: '#4a6a8a' }}>
+              <Typography variant="caption" sx={{ color: '#9198a3' }}>
                 No tags found across your notes.
               </Typography>
             )}
@@ -216,8 +216,8 @@ export default function TagsPage() {
                   onClick={() => setSelectedTag(null)}
                   sx={{
                     bgcolor: 'rgba(255,255,255,0.06)',
-                    border: '1px solid #1c3558',
-                    color: '#7dbad6',
+                    border: '1px solid rgba(255,255,255,0.09)',
+                    color: '#b8bec8',
                     height: 22,
                     fontSize: '11px',
                     cursor: 'pointer',
@@ -233,10 +233,10 @@ export default function TagsPage() {
                   sx={{
                     bgcolor:
                       selectedTag === tag
-                        ? 'rgba(26,138,181,0.35)'
-                        : 'rgba(26,138,181,0.10)',
-                    border: `1px solid ${selectedTag === tag ? '#1a8ab5' : 'rgba(26,138,181,0.28)'}`,
-                    color: '#b0d4e8',
+                        ? 'rgba(79,143,237,0.35)'
+                        : 'rgba(79,143,237,0.10)',
+                    border: `1px solid ${selectedTag === tag ? '#4f8fed' : 'rgba(79,143,237,0.28)'}`,
+                    color: '#b8bec8',
                     height: 22,
                     fontSize: '11px',
                     cursor: 'pointer',
@@ -248,7 +248,7 @@ export default function TagsPage() {
           </Box>
 
           {/* Stats */}
-          <Typography variant="caption" sx={{ color: '#4a6a8a', pt: 0.5 }}>
+          <Typography variant="caption" sx={{ color: '#9198a3', pt: 0.5 }}>
             {totalTagged} of {items.length} objects have tags
           </Typography>
         </Paper>
@@ -258,20 +258,20 @@ export default function TagsPage() {
           sx={{
             flex: 1,
             p: 0,
-            bgcolor: '#0e2038',
-            border: '1px solid #1c3558',
+            bgcolor: '#1a1c1f',
+            border: '1px solid rgba(255,255,255,0.09)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
             minHeight: 0,
           }}
         >
-          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid #1c3558', flexShrink: 0 }}>
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.09)', flexShrink: 0 }}>
             <Typography
               variant="caption"
               sx={{
                 fontWeight: 700,
-                color: selectedTag ? '#b0d4e8' : '#7dbad6',
+                color: selectedTag ? '#b8bec8' : '#b8bec8',
                 textTransform: 'uppercase',
                 letterSpacing: '0.08em',
                 fontSize: '10px',
@@ -284,7 +284,7 @@ export default function TagsPage() {
             {filteredItems.length === 0 ? (
               <Typography
                 variant="caption"
-                sx={{ color: '#4a6a8a', display: 'block', textAlign: 'center', py: 3 }}
+                sx={{ color: '#9198a3', display: 'block', textAlign: 'center', py: 3 }}
               >
                 {selectedTag ? `No objects tagged #${selectedTag}` : 'No objects'}
               </Typography>
@@ -298,7 +298,7 @@ export default function TagsPage() {
                       sx={{
                         py: 0.85,
                         px: 1.5,
-                        '&.Mui-selected': { bgcolor: 'rgba(26,138,181,0.15)' },
+                        '&.Mui-selected': { bgcolor: 'rgba(79,143,237,0.15)' },
                       }}
                     >
                       <ListItemText
@@ -322,7 +322,7 @@ export default function TagsPage() {
                                {item.type === 'daily-note' ? '📓 Daily Note' : item.type === 'habit' ? '🔁 Habit' : '📝 Topic Note'}
                              </Typography>
                               {item.date && (
-                                <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '10px' }}>
+                                <Typography variant="caption" sx={{ color: '#9198a3', fontSize: '10px' }}>
                                   {formatDatePretty(item.date)}
                                 </Typography>
                               )}
@@ -342,7 +342,7 @@ export default function TagsPage() {
                               </Typography>
                             ))}
                             {item.tags.length > 2 && (
-                              <Typography variant="caption" sx={{ color: '#4a6a8a', fontSize: '10px' }}>
+                              <Typography variant="caption" sx={{ color: '#9198a3', fontSize: '10px' }}>
                                 +{item.tags.length - 2}
                               </Typography>
                             )}
@@ -351,7 +351,7 @@ export default function TagsPage() {
                       />
                     </ListItemButton>
                   </ListItem>
-                  {idx < filteredItems.length - 1 && <Divider sx={{ borderColor: '#1c3558' }} />}
+                  {idx < filteredItems.length - 1 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.09)' }} />}
                 </Box>
               ))
             )}
@@ -378,14 +378,14 @@ export default function TagsPage() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px dashed #1c3558',
+              border: '1px dashed rgba(255,255,255,0.09)',
               borderRadius: '8px',
               p: 4,
               gap: 2,
             }}
           >
-            <LabelIcon sx={{ fontSize: 44, opacity: 0.25, color: '#1a8ab5' }} />
-            <Typography variant="body2" sx={{ color: '#4a6a8a', textAlign: 'center' }}>
+            <LabelIcon sx={{ fontSize: 44, opacity: 0.25, color: '#4f8fed' }} />
+            <Typography variant="body2" sx={{ color: '#9198a3', textAlign: 'center' }}>
               {selectedTag
                 ? `Select an object tagged #${selectedTag} to edit it`
                 : 'Select a tag to filter, then click an object to edit'}

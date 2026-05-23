@@ -247,8 +247,8 @@ export default function CalendarPage() {
           flex: 1,
           minWidth: 0,
           p: 2,
-          bgcolor: '#0e2038',
-          border: '1px solid #1c3558',
+          bgcolor: '#1a1c1f',
+          border: '1px solid rgba(255,255,255,0.09)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -303,7 +303,7 @@ export default function CalendarPage() {
         {/* Day-of-week headers */}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '1px', mb: 0.5, flexShrink: 0 }}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: '#7dbad6', py: 0.5, fontSize: '11px' }}>
+            <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: '#b8bec8', py: 0.5, fontSize: '11px' }}>
               {d}
             </Typography>
           ))}
@@ -333,17 +333,17 @@ export default function CalendarPage() {
                   p: '4px 6px',
                   borderRadius: 1,
                   border: '1px solid',
-                  borderColor: selected ? '#1a8ab5' : '#1c3558',
-                  bgcolor: today ? 'rgba(26,138,181,0.09)' : selected ? 'rgba(26,138,181,0.05)' : 'rgba(255,255,255,0.01)',
+                  borderColor: selected ? '#4f8fed' : 'rgba(255,255,255,0.09)',
+                  bgcolor: today ? 'rgba(79,143,237,0.09)' : selected ? 'rgba(79,143,237,0.05)' : 'rgba(255,255,255,0.01)',
                   cursor: 'pointer',
                   transition: 'background 0.12s',
-                  '&:hover': { bgcolor: 'rgba(26,138,181,0.13)' },
+                  '&:hover': { bgcolor: 'rgba(79,143,237,0.13)' },
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px',
                 }}
               >
-                <Typography variant="caption" sx={{ fontWeight: today ? 800 : 400, color: today ? '#1a8ab5' : '#e4f0fb', fontSize: '12px', lineHeight: 1.3 }}>
+                <Typography variant="caption" sx={{ fontWeight: today ? 800 : 400, color: today ? '#4f8fed' : '#eceff3', fontSize: '12px', lineHeight: 1.3 }}>
                   {day}
                 </Typography>
                 {dayEvts.slice(0, 3).map((evt) => {
@@ -364,7 +364,7 @@ export default function CalendarPage() {
                   )
                 })}
                 {dayEvts.length > 3 && (
-                  <Typography variant="caption" sx={{ color: '#7dbad6', fontSize: '10px' }}>
+                  <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '10px' }}>
                     +{dayEvts.length - 3} more
                   </Typography>
                 )}
@@ -375,8 +375,8 @@ export default function CalendarPage() {
       </Paper>
 
       {selectedObject && (
-        <Paper sx={{ width: 520, minWidth: 400, bgcolor: '#0e2038', border: '1px solid #1c3558', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid #1c3558' }}>
+        <Paper sx={{ width: 520, minWidth: 400, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               {selectedType === 'daily-note' ? '📓 Daily Note'
                 : selectedType === 'habit' ? '🔁 Habit'

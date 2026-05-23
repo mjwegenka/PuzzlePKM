@@ -115,11 +115,11 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 2,
-          color: '#4a6a8a',
+          color: '#9198a3',
         }}
       >
         <AutoStoriesIcon sx={{ fontSize: 56, opacity: 0.35 }} />
-        <Typography variant="h6" sx={{ fontWeight: 600, color: '#7dbad6' }}>
+        <Typography variant="h6" sx={{ fontWeight: 600, color: '#b8bec8' }}>
           Scripture
         </Typography>
         <Typography variant="body2" sx={{ textAlign: 'center', maxWidth: 380 }}>
@@ -205,7 +205,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
                     onClick={(event) => { void handleOpenLinkedNote(event, note) }}
                     sx={{
                       bgcolor: 'rgba(14,32,56,0.55)',
-                      border: '1px solid rgba(125,186,214,0.35)',
+                      border: '1px solid rgba(184,190,200,0.35)',
                       color: '#d7e7f6',
                       cursor: 'pointer',
                     }}
@@ -256,7 +256,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
                     onClick={(event) => { void handleOpenLinkedNote(event, note) }}
                     sx={{
                       bgcolor: 'rgba(14,32,56,0.55)',
-                      border: '1px solid rgba(125,186,214,0.35)',
+                      border: '1px solid rgba(184,190,200,0.35)',
                       color: '#d7e7f6',
                       cursor: 'pointer',
                     }}

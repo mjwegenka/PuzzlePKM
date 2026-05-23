@@ -241,7 +241,7 @@ export default function App() {
   }
 
   return (
-    <Box sx={{ display: 'flex', bgcolor: '#0b1828', height: '100vh', overflow: 'hidden', color: '#e4f0fb' }}>
+    <Box sx={{ display: 'flex', bgcolor: '#121315', height: '100vh', overflow: 'hidden', color: '#eceff3' }}>
       <NavigationSidebar
         currentSection={sidebarSection}
         onNavigate={handleNavigate}
@@ -251,7 +251,7 @@ export default function App() {
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, p: 2, gap: 1 }}>
           {showWorkspaceTabBar && (
-            <Box sx={{ border: '1px solid #1c3558', borderRadius: 1, bgcolor: '#0e2038', px: 1, py: 0.5 }}>
+            <Box sx={{ border: '1px solid rgba(255,255,255,0.09)', borderRadius: 1, bgcolor: '#1a1c1f', px: 1, py: 0.5 }}>
               <Tabs
                 value={activeTab?.id ?? false}
                 onChange={(_, value: string) => {
@@ -263,7 +263,7 @@ export default function App() {
                 scrollButtons="auto"
                 sx={{
                   minHeight: 34,
-                  '& .MuiTabs-indicator': { bgcolor: '#1a8ab5' },
+                  '& .MuiTabs-indicator': { bgcolor: '#4f8fed' },
                   '& .MuiTab-root': { minHeight: 34, textTransform: 'none', minWidth: 0, px: 1 },
                 }}
               >
@@ -282,7 +282,7 @@ export default function App() {
                             event.stopPropagation()
                             closeTab(tab.id)
                           }}
-                          sx={{ p: 0.15, color: '#7dbad6' }}
+                          sx={{ p: 0.15, color: '#b8bec8' }}
                         >
                           <CloseIcon sx={{ fontSize: 12 }} />
                         </IconButton>
@@ -332,11 +332,11 @@ function EmptyFilesPrompt() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '1px dashed #1c3558',
+        border: '1px dashed rgba(255,255,255,0.09)',
         borderRadius: '8px',
         p: 4,
         gap: 2,
-        color: '#4a6a8a',
+        color: '#9198a3',
       }}
     >
       <Box sx={{ fontSize: 40, opacity: 0.35 }}>🗂</Box>

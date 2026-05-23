@@ -22,7 +22,7 @@ type ColorableType = Exclude<ObjectType, 'tag'>
 
 /** One canonical color mapping per object type. */
 export const objectColors: Record<ColorableType, ObjectColorToken> = {
-  'daily-note':   { text: '#7dbad6', bg: 'rgba(26,138,181,0.18)',  border: 'rgba(26,138,181,0.45)',  accent: '#1a8ab5', selectionGlow: 'rgba(26,138,181,0.40)'  },
+  'daily-note':   { text: '#b8bec8', bg: 'rgba(79,143,237,0.18)',  border: 'rgba(79,143,237,0.45)',  accent: '#4f8fed', selectionGlow: 'rgba(79,143,237,0.40)'  },
   'topic-note':   { text: '#7dcfaa', bg: 'rgba(72,178,120,0.18)',  border: 'rgba(72,178,120,0.45)',  accent: '#48b278', selectionGlow: 'rgba(72,178,120,0.40)'  },
   'habit':        { text: '#e8a84a', bg: 'rgba(200,131,42,0.18)',  border: 'rgba(200,131,42,0.45)',  accent: '#c8832a', selectionGlow: 'rgba(200,131,42,0.40)'  },
   'project':      { text: '#c49be8', bg: 'rgba(156,109,212,0.18)', border: 'rgba(156,109,212,0.45)', accent: '#9c6dd4', selectionGlow: 'rgba(156,109,212,0.40)' },
