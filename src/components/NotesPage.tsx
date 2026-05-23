@@ -128,6 +128,22 @@ function sanitizeCardText(value: string): string {
     .trim()
 }
 
+function sanitizeCardPreview(value: string): string {
+  return String(value)
+    // Remove block-id comments that can leak into previews.
+    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
+    // Remove generic HTML comments.
+    .replace(/<!--[^]*?-->/g, ' ')
+    // Preserve source line structure where possible.
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|ul|ol|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function normalizeSearchQuery(value: string): string {
   return String(value).trim().toLowerCase()
 }
@@ -533,7 +549,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         type: 'topic-note' as NoteType,
         title: deriveTopicCardTitle(n.title, n.preview, n.date),
         metadata: n.date ? formatDatePretty(n.date) : undefined,
-        snippet: sanitizeCardText(n.preview) || undefined,
+        snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
       }))
 
@@ -543,7 +559,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         id: n.id,
         type: 'daily-note' as NoteType,
         title: formatDatePretty(n.date),
-        snippet: sanitizeCardText(n.preview) || undefined,
+        snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
       }))
 
