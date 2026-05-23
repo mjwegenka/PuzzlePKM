@@ -156,6 +156,10 @@ export const appTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
+        ':root': {
+          '--focus-ring-color': theme.palette.accent.selected,
+          '--focus-ring-shadow': alpha(theme.palette.accent.selected, 0.34),
+        },
         body: {
           backgroundColor: theme.palette.surface.app,
           color: theme.palette.text.primary,
@@ -163,6 +167,16 @@ export const appTheme = createTheme({
         a: {
           color: theme.palette.accent.link,
         },
+        'button, [href], input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])': {
+          transition: 'outline-color 120ms ease, box-shadow 120ms ease',
+        },
+        'button:focus-visible, [href]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible, [tabindex]:not([tabindex="-1"]):focus-visible':
+          {
+            outline: '2px solid var(--focus-ring-color)',
+            outlineOffset: '2px',
+            boxShadow: '0 0 0 4px var(--focus-ring-shadow)',
+            borderRadius: '8px',
+          },
         '::selection': {
           backgroundColor: alpha(theme.palette.accent.selected, 0.32),
         },
