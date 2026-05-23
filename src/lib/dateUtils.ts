@@ -24,6 +24,14 @@ export function formatDatePretty(dateStr?: string | null): string {
   return format(date, 'MMMM d, yyyy')
 }
 
+export function formatWeekdayShort(dateStr?: string | null): string {
+  const value = (dateStr ?? '').trim()
+  if (!value) return ''
+  const date = parseISO(value)
+  if (!isValid(date)) return ''
+  return format(date, 'EEE')
+}
+
 
 export function formatRelative(isoString: string): string {
   return formatDistanceToNow(parseISO(isoString), { addSuffix: true })

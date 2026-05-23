@@ -11,6 +11,8 @@ import type { ObjectType } from '../../shared/types'
 export interface NoteCardData {
   id: string
   type: ObjectType
+  /** Optional weekday label rendered above the primary title/date. */
+  weekdayLabel?: string
   /**
    * Metadata label shown in the top caption row alongside the type icon.
    * Use this for contextual info like a formatted date for topic-notes or
@@ -156,6 +158,22 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           />
         )}
       </Stack>
+
+      {card.weekdayLabel && (
+        <Typography
+          variant="metadata-caption"
+          sx={{
+            color: 'accent.metadata',
+            fontSize: '10px',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            mb: 0.25,
+          }}
+        >
+          {card.weekdayLabel}
+        </Typography>
+      )}
 
       {/* 2. Title / date — large, prominent */}
       <Typography
