@@ -159,33 +159,38 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         )}
       </Stack>
 
-      {card.weekdayLabel && (
+      <Stack
+        alignItems="flex-start"
+        spacing={card.weekdayLabel ? 0.25 : 0}
+        sx={{ mb: card.snippet || card.mediaUrl ? 0.75 : 0 }}
+      >
+        {card.weekdayLabel && (
+          <Typography
+            variant="metadata-caption"
+            sx={{
+              color: 'accent.metadata',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {card.weekdayLabel}
+          </Typography>
+        )}
+
+        {/* 2. Title / date — large, prominent */}
         <Typography
-          variant="metadata-caption"
+          variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
           sx={{
-            color: 'accent.metadata',
-            fontSize: '10px',
-            fontWeight: 700,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            mb: 0.25,
+            color: '#e4f0fb',
+            wordBreak: 'break-word',
+            width: '100%',
           }}
         >
-          {card.weekdayLabel}
+          {card.title || '(untitled)'}
         </Typography>
-      )}
-
-      {/* 2. Title / date — large, prominent */}
-      <Typography
-        variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
-        sx={{
-          color: '#e4f0fb',
-          wordBreak: 'break-word',
-          mb: card.snippet || card.mediaUrl ? 0.75 : 0,
-        }}
-      >
-        {card.title || '(untitled)'}
-      </Typography>
+      </Stack>
 
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
