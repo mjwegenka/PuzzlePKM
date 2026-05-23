@@ -35,6 +35,7 @@ import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
 import TuneIcon from '@mui/icons-material/Tune'
 import LabelIcon from '@mui/icons-material/Label'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
+import SwapVertIcon from '@mui/icons-material/SwapVert'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import FilterChip from './ui/FilterChip'
@@ -114,6 +115,15 @@ interface OpenEditorTab {
 /** Internal board card shape — maps 1:1 to NoteCardData for rendering. */
 interface BoardCard extends NoteCardData {
   type: EditorObjectType
+  sortTimestamp: number
+}
+
+type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
+const BOARD_SORT_LABELS: Record<BoardSort, string> = {
+  recent: 'Newest',
+  oldest: 'Oldest',
+  'title-asc': 'Title A–Z',
+  'title-desc': 'Title Z–A',
 }
 
 function sanitizeCardText(value: string): string {
@@ -172,6 +182,14 @@ function deriveTopicCardTitle(title: string, preview: string, date?: string): st
 
   if (date) return formatDatePretty(date)
   return 'Topic Note'
+}
+
+function toSortTimestamp(...values: Array<string | undefined>): number {
+  for (const value of values) {
+    const timestamp = Date.parse(String(value ?? ''))
+    if (!Number.isNaN(timestamp)) return timestamp
+  }
+  return 0
 }
 
 // ── Create panel (type selector + blank editor) ───────────────────────────────
@@ -335,6 +353,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
+  const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [activeFilterChips, setActiveFilterChips] = useState<{ cardType: boolean; tags: boolean; untagged: boolean; custom: boolean }>({
     cardType: false,
     tags: false,
@@ -551,6 +570,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
       }))
 
     const dailyCards: BoardCard[] = dailyNotes
@@ -561,6 +581,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         title: formatDatePretty(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.date),
       }))
 
     const habitCards: BoardCard[] = habits
@@ -571,6 +592,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         title: sanitizeCardText(n.text) || '(no text)',
         metadata: n.date ? formatDatePretty(n.date) : undefined,
         tags: n.tags,
+        sortTimestamp: toSortTimestamp(n.date),
       }))
 
     const fileCards: BoardCard[] = files
@@ -584,6 +606,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
           : (f.author ? `by ${f.author}` : 'Reference'),
         snippet: f.syncPath || undefined,
         tags: f.tags,
+        sortTimestamp: toSortTimestamp(f.startDate),
       }))
 
     const currentTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
@@ -592,8 +615,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       : currentTab?.type === 'topic-note' || currentTab?.type === 'daily-note' || currentTab?.type === 'habit' || currentTab?.type === 'project' || currentTab?.type === 'ref-material'
         ? currentTab.type
         : null
-    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards]
-    return cards.filter((card) => {
+    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards].filter((card) => {
       if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
       if (activeFilterChips.cardType && selectedCardType && card.type !== selectedCardType) return false
 
@@ -604,7 +626,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
       return true
     })
-  }, [topicNotes, dailyNotes, habits, files, showInbox, boardFilter, activeFilterChips, openTabs, activeTabId, isCreating, createType])
+
+    const compareByTitle = (a: BoardCard, b: BoardCard) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+    if (boardSort === 'title-asc') return cards.sort(compareByTitle)
+    if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
+    if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
+    return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
+  }, [topicNotes, dailyNotes, habits, files, showInbox, boardFilter, boardSort, activeFilterChips, openTabs, activeTabId, isCreating, createType])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material'
     ? activeTab.type
@@ -719,6 +747,42 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               },
             }}
           />
+
+          <TextField
+            select
+            size="small"
+            value={boardSort}
+            onChange={(event) => setBoardSort(event.target.value as BoardSort)}
+            aria-label="Sort cards"
+            sx={{
+              width: 146,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                minHeight: 30,
+                fontSize: '12px',
+                bgcolor: 'surface.sunken',
+                color: 'text.secondary',
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+              },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+            }}
+            slotProps={{
+              select: {
+                renderValue: (value) => (
+                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <SwapVertIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                    <Box component="span">{BOARD_SORT_LABELS[String(value) as BoardSort] ?? String(value)}</Box>
+                  </Stack>
+                ),
+              },
+            }}
+          >
+            <MenuItem value="recent">{BOARD_SORT_LABELS.recent}</MenuItem>
+            <MenuItem value="oldest">{BOARD_SORT_LABELS.oldest}</MenuItem>
+            <MenuItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</MenuItem>
+            <MenuItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</MenuItem>
+          </TextField>
 
           {/* +Card button */}
           <Tooltip title="Create a new card">

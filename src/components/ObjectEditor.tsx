@@ -267,9 +267,6 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     setPendingNavigation(null);
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
-  // onDirty intentionally excluded – it's a callback and must not trigger a
-  // form reset when its reference changes (e.g. inline function in parent).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object, defaultDate, type]);
 
   const resolveMentionHref = useCallback(
@@ -506,8 +503,6 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       JSON.stringify(tags) !== JSON.stringify(baseline.tags);
     setIsDirty(isDirty);
     onDirtyRef.current?.(isDirty);
-  // onDirty intentionally excluded – see onDirtyRef above.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, author, date, content, tags]);
 
   useEffect(() => {
