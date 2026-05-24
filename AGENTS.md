@@ -2,7 +2,7 @@
 
 ## Repo State
 - This repository is CLI-first with a Tauri desktop wrapper.
-- Core product logic lives in `cli.mjs`; desktop UI shell code lives in `src/` and `src-tauri/`.
+- Core CLI entrypoint lives in `cli.mjs`; command/domain implementation lives in `cli/`; desktop UI shell code lives in `src/` and `src-tauri/`.
 - Vite config is in `vite.config.ts`; desktop wrapper config is in `src-tauri/tauri.conf.json`.
 
 ## Canonical Ownership (avoid drift)
@@ -46,6 +46,7 @@ If information must change, update the canonical file above instead of duplicati
 - Typecheck + bundle: `npm run build`
 - Build desktop wrapper: `npm run tauri:build`
 - Lint: `npm run lint`
+- Run CLI smoke coverage: `npm run test:smoke`
 - Run full build alias: `npm run build:all`
 - Run SQLite benchmark harness: `npm run benchmark:sqlite`
 - Preview next issue queue labels (dry run): `npm run issues:queue`
