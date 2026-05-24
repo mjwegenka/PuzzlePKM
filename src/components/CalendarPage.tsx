@@ -37,6 +37,11 @@ function normalizePathForLookup(path?: string): string {
 
 type CalObjectType = 'daily-note' | 'topic-note' | 'habit' | 'project' | 'ref-material'
 
+const CAL_OBJECT_TYPES = new Set<string>(['daily-note', 'topic-note', 'habit', 'project', 'ref-material'])
+function isCalObjectType(t: string): t is CalObjectType {
+  return CAL_OBJECT_TYPES.has(t)
+}
+
 interface CalEvent {
   id: string
   date: string
@@ -225,6 +230,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
     try {
       const full = await getObject(target.type, target.id)
       if (full && typeof full === 'object') {
+        if (!isCalObjectType(target.type)) return
         setSelectedType(target.type)
         setSelectedObject({ ...full, type: target.type })
         setHasUnsavedChanges(false)
