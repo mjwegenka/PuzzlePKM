@@ -35,8 +35,8 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
-import { searchObjects } from '../lib/cliService'
-import type { NoteBlock } from '../shared/types'
+import { searchObjects } from '../../lib/cliService'
+import type { NoteBlock } from '../../shared/types'
 
 interface RichMarkdownEditorProps {
   value: string

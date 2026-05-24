@@ -23,7 +23,7 @@ import ArticleIcon from '@mui/icons-material/Article';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
-import { listFileMeta } from '../lib/cliService';
+import { listFileMeta } from '../../lib/cliService';
 
 interface FileItem {
   id: string;

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Box, Paper, List, ListItem, ListItemButton, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { getObjectColor } from '../lib/objectColors';
+import { getObjectColor } from '../../lib/objectColors';
 
 export interface MentionOption {
   id: string;

@@ -22,13 +22,13 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format, isValid, parseISO } from 'date-fns';
-import type { MentionOption } from './MentionPopup';
-import RichMarkdownEditor from './RichMarkdownEditor';
+import type { MentionOption } from '../common/MentionPopup'
+import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
-import { formatDatePretty, getTodayDate } from '../lib/dateUtils';
-import { useSyncStatus } from '../lib/syncContext';
-import type { NoteBlock } from '../shared/types';
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../../lib/cliService'
+import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
+import { useSyncStatus } from '../../lib/syncContext'
+import type { NoteBlock } from '../../shared/types'
 
 interface ObjectEditorProps {
   object?: Record<string, unknown>;

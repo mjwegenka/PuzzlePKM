@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
-import type { ResolvedObjectRef } from '../lib/cliService'
-import { formatDatePretty } from '../lib/dateUtils'
+import type { ResolvedObjectRef } from '../../lib/cliService'
+import { formatDatePretty } from '../../lib/dateUtils'
 
 interface ObjectMetaDetailPanelProps {
   object?: Record<string, unknown>
