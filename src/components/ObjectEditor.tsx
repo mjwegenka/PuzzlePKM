@@ -867,17 +867,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
                 />
               )}
-              {type === 'ref-material' && (
-                <TextField
-                  fullWidth
-                  label="Author (optional)"
-                  value={author}
-                  onChange={(e) => setAuthor(e.target.value)}
-                  variant="standard"
-                  placeholder="Author name…"
-                  sx={{ mb: 1.5 }}
-                />
-              )}
 
               {isHabit && (
                 <Box sx={{ mb: 1.5 }}>
@@ -891,7 +880,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     <Stack direction="row" spacing={1} alignItems="flex-start">
                       <Box sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}>
                         <MUIDatePicker
-                          label={type === 'project' ? 'Start Date' : 'Date'}
+                          label="Date"
                           value={selectedDate}
                           format="MMMM d, yyyy"
                           onChange={(nextValue) => {

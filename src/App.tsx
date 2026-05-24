@@ -387,7 +387,7 @@ export default function App() {
                   onSave={(saved) => handleObjectSave(activeTab.id, activeTab.objectType, saved)}
                   onNavigateToObject={handleNavigateFromEditor}
                 />
-              ) : null
+              )
             ) : null}
           </Box>
           </Box>
