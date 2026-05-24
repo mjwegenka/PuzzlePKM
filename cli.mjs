@@ -215,35 +215,46 @@ const schema = `
 
  // DEC-20: Ensure schema is migrated for new sync_path columns (DEC-21)
  function ensureSchemaMigrations(db) {
+    const ensureSyncPathColumn = (tableName) => {
+      const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+      const hasSyncPath = columns.some((c) => c.name === 'sync_path');
+      const hasLegacyPath = columns.some((c) => c.name === 'dropbox_path');
+      if (hasSyncPath) return;
+      if (hasLegacyPath) {
+        try {
+          db.prepare(`ALTER TABLE ${tableName} RENAME COLUMN dropbox_path TO sync_path`).run();
+          return;
+        } catch {
+          // Fall back when column rename is not available.
+        }
+      }
+      db.prepare(`ALTER TABLE ${tableName} ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''`).run();
+      if (hasLegacyPath) {
+        db.prepare(`UPDATE ${tableName} SET sync_path = TRIM(COALESCE(dropbox_path, '')) WHERE TRIM(COALESCE(sync_path, '')) = ''`).run();
+      }
+    };
+
    try {
-     // Add sync_path column to topic_notes if it doesn't exist
+      // Ensure topic_notes has required legacy columns and sync_path.
      const topicColumnsCheck = db.prepare("PRAGMA table_info(topic_notes)").all();
      if (!topicColumnsCheck.some(c => c.name === 'date')) {
        db.prepare("ALTER TABLE topic_notes ADD COLUMN date TEXT NOT NULL DEFAULT ''").run();
      }
-     if (!topicColumnsCheck.some(c => c.name === 'sync_path')) {
-       db.prepare("ALTER TABLE topic_notes ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
-     }
+      ensureSyncPathColumn('topic_notes');
    } catch (e) {
      // Column may already exist or table doesn't exist yet
    }
 
    try {
-     // Add sync_path column to daily_notes if it doesn't exist
-     const dailyColumnsCheck = db.prepare("PRAGMA table_info(daily_notes)").all();
-     if (!dailyColumnsCheck.some(c => c.name === 'sync_path')) {
-       db.prepare("ALTER TABLE daily_notes ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
-     }
+      ensureSyncPathColumn('daily_notes');
    } catch (e) {
      // Column may already exist or table doesn't exist yet
    }
 
     try {
-      // Add sync_path column to habits if it doesn't exist
+      // Ensure habits has sync_path and required status migration.
+      ensureSyncPathColumn('habits');
       const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
-      if (!habitsColumnsCheck.some(c => c.name === 'sync_path')) {
-        db.prepare("ALTER TABLE habits ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
-      }
       if (!habitsColumnsCheck.some(c => c.name === 'status')) {
         db.prepare(`ALTER TABLE habits ADD COLUMN status TEXT NOT NULL DEFAULT '${HABIT_STATUS_ACCOMPLISHED}'`).run();
       }
@@ -260,6 +271,13 @@ const schema = `
     }
 
     try {
+        ensureSyncPathColumn('projects');
+      } catch (e) {
+        // Column may already exist or table doesn't exist yet
+      }
+
+      try {
+        ensureSyncPathColumn('ref_materials');
       const refMaterialColumnsCheck = db.prepare("PRAGMA table_info(ref_materials)").all();
       if (!refMaterialColumnsCheck.some(c => c.name === 'author')) {
         db.prepare('ALTER TABLE ref_materials ADD COLUMN author TEXT').run();
@@ -4118,13 +4136,11 @@ async function runSync() {
   const rootFolder = getSyncRootFolder();
   return withDbAsync(async (db) => {
     await ensureSyncFolders(rootFolder);
-    const [dailyResult, topicResult, projectResult, refMaterialResult, habitResult] = await Promise.all([
-      reconcileDailyNotesDb(db, token, rootFolder),
-      reconcileTopicNotesDb(db, token, rootFolder),
-      reconcileProjectsDb(db, token, rootFolder),
-      reconcileRefMaterialsDb(db, token, rootFolder),
-      reconcileHabitsDb(db, token, rootFolder),
-    ]);
+    const dailyResult = await reconcileDailyNotesDb(db, token, rootFolder);
+    const topicResult = await reconcileTopicNotesDb(db, token, rootFolder);
+    const projectResult = await reconcileProjectsDb(db, token, rootFolder);
+    const refMaterialResult = await reconcileRefMaterialsDb(db, token, rootFolder);
+    const habitResult = await reconcileHabitsDb(db, token, rootFolder);
     // DEC-55: Process the mobile inbox sequentially after the main sync so that
     // newly imported desktop notes are already present before appending mobile content.
     const [mobileNoteResult, mobileHabitResult] = await Promise.all([
