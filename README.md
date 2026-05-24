@@ -141,6 +141,8 @@ puzzlepkm create project
 puzzlepkm update habit <id>
 puzzlepkm delete tag <id>
 puzzlepkm browse all
+puzzlepkm migrate-links --dry-run
+puzzlepkm migrate-links --apply
 
 # Batch import Markdown notes from a directory
 puzzlepkm import daily-note ./daily-notes

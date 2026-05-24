@@ -1514,6 +1514,85 @@ function rewriteMarkdownLinkHrefs(contentMarkdown, resolveHref) {
   });
 }
 
+function resolveLegacyPathHrefToObject(refs, href, sourceSyncPath) {
+  const decodedHref = decodeUriComponentSafe(String(href ?? '').trim());
+  if (!decodedHref || decodedHref.startsWith('#')) return { status: 'skipped', reason: 'fragment-only' };
+  if (/^(mailto|tel):/i.test(decodedHref)) return { status: 'skipped', reason: 'unsupported-scheme' };
+  if (/^https?:\/\//i.test(decodedHref)) return { status: 'skipped', reason: 'external-url' };
+
+  const withoutQuery = decodedHref.replace(/\?.*$/, '');
+  const hashIndex = withoutQuery.indexOf('#');
+  const pathPart = (hashIndex >= 0 ? withoutQuery.slice(0, hashIndex) : withoutQuery).trim();
+  const fragment = (hashIndex >= 0 ? withoutQuery.slice(hashIndex + 1) : '').trim();
+  if (!pathPart) return { status: 'skipped', reason: 'empty-href' };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(pathPart)) return { status: 'skipped', reason: 'unsupported-scheme' };
+
+  const rootRelative = ROOT_RELATIVE_APP_PATTERN.test(pathPart) ? `/${pathPart}` : pathPart;
+  const looksLegacyPath = pathPart.includes('/') || pathPart.includes('\\') || rootRelative.startsWith('.') || /\.md$/i.test(pathPart);
+  if (!looksLegacyPath) return { status: 'skipped', reason: 'not-legacy-path' };
+
+  const normalizedTargetPath = rootRelative.startsWith('/')
+    ? normalizeSyncPath(rootRelative)
+    : sourceSyncPath
+      ? resolveRelativeSyncPath(sourceSyncPath, rootRelative)
+      : '';
+
+  const exactMatches = normalizedTargetPath
+    ? refs.filter((item) => normalizeSyncPathForLookup(item.syncPath) === normalizeSyncPathForLookup(normalizedTargetPath))
+    : [];
+  const exactUniqueMatches = Array.from(new Map(exactMatches.map((item) => [item.id, item])).values());
+  if (exactUniqueMatches.length === 1) {
+    return { status: 'resolved', target: exactUniqueMatches[0], fragment };
+  }
+  if (exactUniqueMatches.length > 1) {
+    return {
+      status: 'ambiguous',
+      reason: 'multiple-exact-path-matches',
+      candidateIds: exactUniqueMatches.map((item) => item.id).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  const targetRelative = normalizeRelativePathSegments(rootRelative);
+  if (!targetRelative) return { status: 'unresolved', reason: 'path-not-resolved' };
+
+  const suffixMatches = refs.filter((item) => {
+    const candidate = normalizeSyncPathForLookup(item.syncPath);
+    return candidate.endsWith(`/${targetRelative}`) || candidate.endsWith(targetRelative);
+  });
+  const suffixUniqueMatches = Array.from(new Map(suffixMatches.map((item) => [item.id, item])).values());
+  if (suffixUniqueMatches.length === 1) {
+    return { status: 'resolved', target: suffixUniqueMatches[0], fragment };
+  }
+  if (suffixUniqueMatches.length > 1) {
+    return {
+      status: 'ambiguous',
+      reason: 'multiple-suffix-matches',
+      candidateIds: suffixUniqueMatches.map((item) => item.id).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  const targetBaseName = splitPathSegments(targetRelative).at(-1) ?? '';
+  if (!targetBaseName) return { status: 'unresolved', reason: 'path-not-resolved' };
+
+  const baseNameMatches = refs.filter((item) => {
+    const candidateParts = splitPathSegments(normalizeSyncPathForLookup(item.syncPath));
+    return candidateParts.at(-1) === targetBaseName;
+  });
+  const baseNameUniqueMatches = Array.from(new Map(baseNameMatches.map((item) => [item.id, item])).values());
+  if (baseNameUniqueMatches.length === 1) {
+    return { status: 'resolved', target: baseNameUniqueMatches[0], fragment };
+  }
+  if (baseNameUniqueMatches.length > 1) {
+    return {
+      status: 'ambiguous',
+      reason: 'multiple-basename-matches',
+      candidateIds: baseNameUniqueMatches.map((item) => item.id).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  return { status: 'unresolved', reason: 'no-matching-object' };
+}
+
 function resolveNoteLinkTarget(refs, href, sourceSyncPath) {
   const decodedHref = decodeUriComponentSafe(String(href ?? '').trim());
   if (!decodedHref || decodedHref.startsWith('#')) return null;
@@ -3589,6 +3668,140 @@ async function runSync() {
   });
 }
 
+function runLegacyLinkMigration(options = {}) {
+  const apply = Boolean(options.apply);
+  const mode = apply ? 'apply' : 'dry-run';
+
+  return withDb((db) => {
+    const refs = listLinkableObjectRefs(db).filter((item) => normalizeSyncPath(item.syncPath));
+    const objectExistsCache = new Map();
+    const hasExistingObject = (id) => {
+      if (!id) return false;
+      if (objectExistsCache.has(id)) return objectExistsCache.get(id);
+      const exists = Boolean(lookupObjectSummary(db, id, ''));
+      objectExistsCache.set(id, exists);
+      return exists;
+    };
+
+    const notes = [
+      ...listTopicNotesForSync(db).map((note) => ({
+        noteType: 'topic-note',
+        noteId: note.id,
+        sourceSyncPath: note.syncPath || '',
+        contentMarkdown: note.contentMarkdown ?? '',
+      })),
+      ...listDailyNotesForSync(db).map((note) => ({
+        noteType: 'daily-note',
+        noteId: note.id,
+        sourceSyncPath: note.syncPath || '',
+        contentMarkdown: note.contentMarkdown ?? '',
+      })),
+    ].sort((a, b) => a.noteType.localeCompare(b.noteType) || a.noteId.localeCompare(b.noteId));
+
+    const report = {
+      mode,
+      summary: {
+        notesScanned: notes.length,
+        notesChanged: 0,
+        linksProcessed: 0,
+        converted: 0,
+        skipped: 0,
+        unresolved: 0,
+      },
+      converted: [],
+      skipped: [],
+      unresolved: [],
+    };
+
+    for (const note of notes) {
+      const linkRegex = new RegExp(MARKDOWN_LINK_REGEX.source, 'g');
+      let noteChanged = false;
+      const rewrittenContent = String(note.contentMarkdown ?? '').replace(linkRegex, (full, label, rawHref) => {
+        const parsedHref = resolveMarkdownLinkHrefParts(rawHref);
+        if (!parsedHref) return full;
+        report.summary.linksProcessed++;
+        const originalHref = parsedHref.href;
+        const canonical = parseCanonicalInternalHref(originalHref);
+        if (canonical && hasExistingObject(canonical.targetId)) {
+          report.skipped.push({
+            noteType: note.noteType,
+            noteId: note.noteId,
+            href: originalHref,
+            reason: 'already-canonical',
+          });
+          return full;
+        }
+
+        const resolved = resolveLegacyPathHrefToObject(refs, originalHref, note.sourceSyncPath);
+        if (resolved.status === 'resolved') {
+          const rewrittenHref = resolved.fragment ? `${resolved.target.id}#${resolved.fragment}` : resolved.target.id;
+          if (rewrittenHref === originalHref) {
+            report.skipped.push({
+              noteType: note.noteType,
+              noteId: note.noteId,
+              href: originalHref,
+              reason: 'already-canonical',
+            });
+            return full;
+          }
+          noteChanged = true;
+          report.converted.push({
+            noteType: note.noteType,
+            noteId: note.noteId,
+            fromHref: originalHref,
+            toHref: rewrittenHref,
+            targetId: resolved.target.id,
+            targetType: resolved.target.type,
+          });
+          const formattedHref = parsedHref.wrapped ? `<${rewrittenHref}>` : rewrittenHref;
+          return `[${label}](${parsedHref.leading}${formattedHref}${parsedHref.trailing})`;
+        }
+
+        if (resolved.status === 'ambiguous' || resolved.status === 'unresolved') {
+          const canonicalMissingUuid = Boolean(
+            canonical
+            && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(canonical.targetId)
+            && !hasExistingObject(canonical.targetId),
+          );
+          report.unresolved.push({
+            noteType: note.noteType,
+            noteId: note.noteId,
+            href: originalHref,
+            reason: canonicalMissingUuid ? 'canonical-target-missing' : resolved.reason,
+            candidateIds: resolved.candidateIds ?? [],
+          });
+          return full;
+        }
+
+        report.skipped.push({
+          noteType: note.noteType,
+          noteId: note.noteId,
+          href: originalHref,
+          reason: resolved.reason ?? 'not-legacy-path',
+        });
+        return full;
+      });
+
+      if (!noteChanged || rewrittenContent === String(note.contentMarkdown ?? '')) {
+        continue;
+      }
+
+      report.summary.notesChanged++;
+      if (!apply) continue;
+      if (note.noteType === 'topic-note') {
+        updateTopicNoteRecord(db, note.noteId, { contentMarkdown: rewrittenContent });
+      } else {
+        updateDailyNoteRecord(db, note.noteId, { contentMarkdown: rewrittenContent });
+      }
+    }
+
+    report.summary.converted = report.converted.length;
+    report.summary.skipped = report.skipped.length;
+    report.summary.unresolved = report.unresolved.length;
+    return report;
+  });
+}
+
 async function runSyncWatch(intervalMinutes) {
   const safeIntervalMinutes = Number.isFinite(intervalMinutes) && intervalMinutes > 0
     ? intervalMinutes
@@ -3732,6 +3945,8 @@ Usage:
   ${PRIMARY_CLI_COMMAND} create [type]   Create an object with guided prompts
   ${PRIMARY_CLI_COMMAND} import [type] [dir]
                            Batch import Markdown notes from a directory
+  ${PRIMARY_CLI_COMMAND} migrate-links [--dry-run|--apply]
+                           Migrate legacy path-based note links to canonical UUID hrefs
   ${PRIMARY_CLI_COMMAND} update [type] [id-or-date]
                            Update an object with guided prompts
   ${PRIMARY_CLI_COMMAND} delete [type] [id-or-date]
@@ -3820,6 +4035,7 @@ function createCommandContext(rl) {
     prompt,
     runSync,
     runSyncWatch,
+    runLegacyLinkMigration,
   };
 }
 
