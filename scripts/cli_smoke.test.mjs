@@ -85,7 +85,7 @@ test('CLI smoke: create/get/list/update/delete and sync command paths', () => {
   }
 });
 
-test('CLI sync resolves canonical ID links to BibleGateway URLs and safe relative paths', () => {
+test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relative paths', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-link-resolver-'));
   const dbPath = join(sandboxDir, 'links.sqlite');
   const syncRoot = join(sandboxDir, 'sync-root');
@@ -117,6 +117,7 @@ test('CLI sync resolves canonical ID links to BibleGateway URLs and safe relativ
     db.prepare('UPDATE topic_notes SET sync_path = ? WHERE id = ?').run(unsafeSyncPath, unsafeTopic.id);
     db.close();
 
+    const blockFragment = 'blk-abc123def456';
     const sourceTopic = parseLastJson(
       runCli([
         'write',
@@ -124,7 +125,7 @@ test('CLI sync resolves canonical ID links to BibleGateway URLs and safe relativ
         JSON.stringify({
           title: 'Resolver Source',
           contentMarkdown: [
-            `[PathTarget](${linkedTopic.id})`,
+            `[PathTarget](${linkedTopic.id}#${blockFragment})`,
             `[ScriptureTarget](${scripture.id})`,
             `[UnsafeTarget](${unsafeTopic.id})`,
           ].join(' '),
@@ -138,8 +139,9 @@ test('CLI sync resolves canonical ID links to BibleGateway URLs and safe relativ
     const syncedTarget = parseLastJson(runCli(['get', 'topic-note', linkedTopic.id], { env }).stdout);
     const sourceFileContent = readFileSync(syncedSource.syncPath, 'utf8');
     const expectedRelativePath = relative(dirname(syncedSource.syncPath), syncedTarget.syncPath).replace(/\\/g, '/');
+    const expectedRelativePathWithFragment = `${expectedRelativePath}#${blockFragment}`;
 
-    assert.match(sourceFileContent, new RegExp(`\\[PathTarget\\]\\(${expectedRelativePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
+    assert.match(sourceFileContent, new RegExp(`\\[PathTarget\\]\\(${expectedRelativePathWithFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[ScriptureTarget\\]\\(${scripture.passageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[UnsafeTarget\\]\\(${unsafeTopic.id}\\)`));
   } finally {

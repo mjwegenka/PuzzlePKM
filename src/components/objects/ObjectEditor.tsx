@@ -47,75 +47,6 @@ function normalizeSyncPath(path?: string): string | undefined {
   return value && value !== '(no path)' ? value.replace(/\\/g, '/') : undefined;
 }
 
-function splitPath(path: string): string[] {
-  return path.split('/').filter(Boolean);
-}
-
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'untitled';
-}
-
-function pathInsideSyncRoot(path: string): string {
-  const segments = splitPath(path);
-  return segments.slice(1).join('/');
-}
-
-function dirnameInsideSyncRoot(path: string): string {
-  const insideRoot = pathInsideSyncRoot(path);
-  const segments = splitPath(insideRoot);
-  return segments.slice(0, -1).join('/');
-}
-
-function inferCurrentSourceDir(
-  type: ObjectEditorProps['type'],
-  object: Record<string, unknown> | undefined,
-  title: string,
-  date: string,
-): string | undefined {
-  const currentPath = normalizeSyncPath((object?.syncPath as string | undefined) ?? (object?.syncPath as string | undefined));
-  if (currentPath) {
-    if (type === 'project' || type === 'ref-material') {
-      return pathInsideSyncRoot(currentPath);
-    }
-    return dirnameInsideSyncRoot(currentPath);
-  }
-
-  switch (type) {
-    case 'daily-note':
-      return 'daily-notes';
-    case 'topic-note':
-      return 'topic-notes';
-    case 'habit':
-      return 'habits';
-    case 'project':
-      return title ? `projects/${slugify(title)}` : 'projects';
-    case 'ref-material':
-      return title ? `ref-materials/${slugify(title)}` : 'ref-materials';
-    default:
-      return date ? 'daily-notes' : undefined;
-  }
-}
-
-function relativeSyncPath(fromDir: string, targetPath: string): string {
-  const fromSegments = splitPath(fromDir);
-  const targetSegments = splitPath(pathInsideSyncRoot(targetPath));
-
-  if (targetSegments.length === 0) return targetPath;
-
-  let shared = 0;
-  while (
-    shared < fromSegments.length &&
-    shared < targetSegments.length &&
-    fromSegments[shared] === targetSegments[shared]
-  ) {
-    shared += 1;
-  }
-
-  const up = Array(fromSegments.length - shared).fill('..');
-  const down = targetSegments.slice(shared);
-  return [...up, ...down].join('/') || targetSegments[targetSegments.length - 1] || targetPath;
-}
-
 function isExternalHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -277,11 +208,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const resolveMentionHref = useCallback(
     async (option: MentionOption) => {
-      const targetPath = normalizeSyncPath(option.syncPath ?? option.syncPath);
-      const currentSourceDir = inferCurrentSourceDir(type, object, title, date);
-      const baseHref = targetPath && currentSourceDir
-        ? relativeSyncPath(currentSourceDir, targetPath)
-        : targetPath || option.id;
+      const baseHref = option.id.trim();
+      if (!baseHref) return '';
 
       const isNoteTarget =
         option.type === 'topic-note' || option.type === 'daily-note';
@@ -307,7 +235,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       const withoutFragment = baseHref.replace(/#.*/, '');
       return `${withoutFragment}#${blockId}`;
     },
-    [date, object, title, type],
+    [],
   );
 
   const closeTagDialog = useCallback(() => {

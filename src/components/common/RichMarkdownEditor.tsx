@@ -563,8 +563,7 @@ export default function RichMarkdownEditor({
       return
     }
 
-    const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
-    if (!hasOpenModifier || !onShiftClickLink) return
+    if ((event.type !== 'click' && event.type !== 'auxclick') || !onShiftClickLink) return
     openLinkedObject(href, { forceNewTab: event.metaKey || event.ctrlKey })
   }, [onShiftClickLink, openExternalLink, openLinkedObject])
 
@@ -743,8 +742,7 @@ export default function RichMarkdownEditor({
         return
       }
 
-      const hasOpenModifier = event.shiftKey || event.metaKey || event.ctrlKey
-      if (!hasOpenModifier || !onShiftClickLink) return
+      if ((event.type !== 'click' && event.type !== 'auxclick') || !onShiftClickLink) return
       openLinkedObject(href, { forceNewTab: event.metaKey || event.ctrlKey })
     }
 

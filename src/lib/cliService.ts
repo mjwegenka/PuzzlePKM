@@ -159,7 +159,7 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
 }
 
 /**
- * Resolve a markdown link href (absolute sync path or relative path) to a local object.
+ * Resolve a markdown link href (UUID, absolute sync path, or relative path) to a local object.
  */
 export async function resolveObjectFromLinkPath(
   href: string,
