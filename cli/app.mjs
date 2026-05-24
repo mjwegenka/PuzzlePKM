@@ -441,6 +441,41 @@ function resolveRelativeSyncPath(baseFilePath, hrefPath) {
   return `/${resolved.join('/')}`;
 }
 
+function hasTraversalPathSegments(path) {
+  const segments = splitPathSegments(path);
+  return segments.some((segment) => segment === '.' || segment === '..');
+}
+
+function isPathWithinSyncRoot(path, rootFolder) {
+  const normalizedPath = normalizeSyncPath(path);
+  const normalizedRoot = normalizeSyncPath(rootFolder);
+  if (!normalizedPath || !normalizedRoot) return false;
+  const pathSegments = splitPathSegments(normalizedPath).map((segment) => segment.toLowerCase());
+  const rootSegments = splitPathSegments(normalizedRoot).map((segment) => segment.toLowerCase());
+  if (pathSegments.length < rootSegments.length) return false;
+  for (let idx = 0; idx < rootSegments.length; idx += 1) {
+    if (pathSegments[idx] !== rootSegments[idx]) return false;
+  }
+  return true;
+}
+
+function relativeSyncPathBetween(sourceSyncPath, targetSyncPath) {
+  const sourceDirSegments = splitPathSegments(dirnamePath(sourceSyncPath));
+  const targetSegments = splitPathSegments(targetSyncPath);
+  let sharedPrefixLength = 0;
+  while (
+    sharedPrefixLength < sourceDirSegments.length
+    && sharedPrefixLength < targetSegments.length
+    && sourceDirSegments[sharedPrefixLength].toLowerCase() === targetSegments[sharedPrefixLength].toLowerCase()
+  ) {
+    sharedPrefixLength += 1;
+  }
+  const upLevels = sourceDirSegments.length - sharedPrefixLength;
+  const suffixSegments = targetSegments.slice(sharedPrefixLength);
+  const relativeSegments = [...Array.from({ length: upLevels }, () => '..'), ...suffixSegments];
+  return relativeSegments.length > 0 ? relativeSegments.join('/') : './';
+}
+
 function normalizeRelativePathSegments(path) {
   return String(path ?? '')
     .replace(/^[./]+/, '')
@@ -531,7 +566,7 @@ const SCRIPTURE_BOOK_ALIASES = new Map([
 ]);
 const SCRIPTURE_BOOK_MATCH_PATTERN = '(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs?|Ecclesiastes|Songs? of Solomon|Song of Songs|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Wisdom|Maccabees|Sirach|Judith|Tobit|Matthew|Mark|Luke|John|Acts?|Acts of the Apostles|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation(?:s?)?|Gen|Ex|Exo|Lev|Num|Nmb|Deut?|Dt|Josh?|Judg?|Jdg|Rut|Sam|Ki|Kin|Kn|Kgs|Chr(?:on?)?|Ezr|Neh|Est|Jb|Psa?|Pr(?:ov?)?|Eccl?|Song?|Isa|Is|Jer|Lam|Eze|Da?n|Hos|Joe|Amo?|Oba|Jon|Mic|Nah|Hab|Zeph?|Hag|Zech?|Mal|Wis|Sir|Mac|Macc|Jud|Tob|M(?:at)?t|Mr?k|Lu?k|Jh?n|Jo|Act|Rom|Cor|Gal|Eph|Col|Phi(?:l?)?|The?|Thess?|Ti?m|Tit|Phile|Heb|Ja?m|Pe?t|Pt|Ju|Rev)\\.?';
 const SCRIPTURE_PASSAGE_REGEX = new RegExp(`\\b(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)`, 'gi');
-const MARKDOWN_LINK_REGEX = /\[([^]]+)]\(([^)]+)\)/g;
+const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
 
 function normalizeScriptureVolume(volumeRaw) {
   const normalized = normalize(volumeRaw).toLowerCase().replace(/\./g, '');
@@ -1346,18 +1381,18 @@ function listLinkableObjectRefs(db) {
 function lookupObjectSummary(db, id, typeHint) {
   const lookupType = normalize(typeHint).toLowerCase();
   const row = db.prepare(`
-    SELECT id, type, label, date, sync_path FROM (
-      SELECT id, 'topic-note' AS type, title AS label, date, sync_path AS sync_path FROM topic_notes
+    SELECT id, type, label, date, sync_path, passage_url FROM (
+      SELECT id, 'topic-note' AS type, title AS label, date, sync_path AS sync_path, '' AS passage_url FROM topic_notes
       UNION ALL
-      SELECT id, 'daily-note' AS type, date AS label, date, sync_path AS sync_path FROM daily_notes
+      SELECT id, 'daily-note' AS type, date AS label, date, sync_path AS sync_path, '' AS passage_url FROM daily_notes
       UNION ALL
-      SELECT id, 'project' AS type, name AS label, '' AS date, sync_path AS sync_path FROM projects
+      SELECT id, 'project' AS type, name AS label, '' AS date, sync_path AS sync_path, '' AS passage_url FROM projects
       UNION ALL
-      SELECT id, 'ref-material' AS type, name AS label, '' AS date, sync_path AS sync_path FROM ref_materials
+      SELECT id, 'ref-material' AS type, name AS label, '' AS date, sync_path AS sync_path, '' AS passage_url FROM ref_materials
       UNION ALL
-      SELECT id, 'habit' AS type, text AS label, date, sync_path AS sync_path FROM habits
+      SELECT id, 'habit' AS type, text AS label, date, sync_path AS sync_path, '' AS passage_url FROM habits
       UNION ALL
-      SELECT id, 'scripture' AS type, reference AS label, '' AS date, '' AS sync_path FROM scriptures
+      SELECT id, 'scripture' AS type, reference AS label, '' AS date, '' AS sync_path, passage_url AS passage_url FROM scriptures
     )
     WHERE id = ?
       AND (? = '' OR type = ?)
@@ -1371,12 +1406,13 @@ function lookupObjectSummary(db, id, typeHint) {
     title: row.label || '',
     date: row.date || '',
     syncPath: row.sync_path || '',
+    passageUrl: row.passage_url || '',
   };
 }
 
 function parseMarkdownLinkHrefs(contentMarkdown) {
   const markdown = String(contentMarkdown ?? '');
-  const matches = markdown.matchAll(/\[[^]]+]\(([^)]+)\)/g);
+  const matches = markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g);
   const seen = new Set();
   const hrefs = [];
   for (const match of matches) {
@@ -1389,6 +1425,93 @@ function parseMarkdownLinkHrefs(contentMarkdown) {
     hrefs.push(href);
   }
   return hrefs;
+}
+
+function parseCanonicalInternalHref(href) {
+  const decodedHref = decodeUriComponentSafe(String(href ?? '').trim());
+  if (!decodedHref || decodedHref.startsWith('#')) return null;
+  if (/^(mailto|tel):/i.test(decodedHref)) return null;
+  if (/^https?:\/\//i.test(decodedHref)) return null;
+  const withoutQuery = decodedHref.replace(/\?.*$/, '');
+  const hashIndex = withoutQuery.indexOf('#');
+  const targetId = (hashIndex >= 0 ? withoutQuery.slice(0, hashIndex) : withoutQuery).trim();
+  const fragment = (hashIndex >= 0 ? withoutQuery.slice(hashIndex + 1) : '').trim();
+  if (!targetId || targetId.includes('/')) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(targetId)) return null;
+  return { targetId, fragment };
+}
+
+function createSyncOutgoingLinkResolver(db, sourceSyncPath, rootFolder) {
+  const targetCache = new Map();
+
+  function lookupTargetById(id) {
+    if (!id) return null;
+    if (targetCache.has(id)) return targetCache.get(id);
+    const summary = lookupObjectSummary(db, id, '');
+    targetCache.set(id, summary);
+    return summary;
+  }
+
+  function resolveBibleGatewayLink(target, fragment) {
+    const url = String(target?.passageUrl ?? '').trim();
+    if (!url || !SCRIPTURE_LINK_HOST_PATTERN.test(url)) return null;
+    return fragment ? `${url}#${fragment}` : url;
+  }
+
+  function resolveLocalRelativePath(target, fragment) {
+    const targetPath = normalizeSyncPath(target?.syncPath ?? '');
+    if (!targetPath || hasTraversalPathSegments(targetPath)) return null;
+
+    const sourcePath = normalizeSyncPath(sourceSyncPath);
+    if (!sourcePath || hasTraversalPathSegments(sourcePath)) return null;
+    if (!isPathWithinSyncRoot(sourcePath, rootFolder) || !isPathWithinSyncRoot(targetPath, rootFolder)) return null;
+
+    const relativePath = relativeSyncPathBetween(sourcePath, targetPath);
+    if (!relativePath) return null;
+    return fragment ? `${relativePath}#${fragment}` : relativePath;
+  }
+
+  // Resolver precedence (first match wins): BibleGateway URL metadata, then local relative sync path.
+  const resolvers = [resolveBibleGatewayLink, resolveLocalRelativePath];
+
+  return (href) => {
+    const parsed = parseCanonicalInternalHref(href);
+    if (!parsed) return href;
+    const target = lookupTargetById(parsed.targetId);
+    if (!target) return href;
+
+    for (const resolveLink of resolvers) {
+      const nextHref = resolveLink(target, parsed.fragment);
+      if (nextHref) return nextHref;
+    }
+    return href;
+  };
+}
+
+function resolveMarkdownLinkHrefParts(rawHref) {
+  const raw = String(rawHref ?? '');
+  const match = /^(\s*)(<[^>]+>|[^\s)]+)(.*)$/.exec(raw);
+  if (!match) return null;
+  const leading = match[1] ?? '';
+  const hrefToken = match[2] ?? '';
+  const trailing = match[3] ?? '';
+  if (!hrefToken) return null;
+  const wrapped = hrefToken.startsWith('<') && hrefToken.endsWith('>');
+  const href = wrapped ? hrefToken.slice(1, -1) : hrefToken;
+  return { leading, href, trailing, wrapped };
+}
+
+function rewriteMarkdownLinkHrefs(contentMarkdown, resolveHref) {
+  if (typeof resolveHref !== 'function') return String(contentMarkdown ?? '');
+  const linkRegex = new RegExp(MARKDOWN_LINK_REGEX.source, 'g');
+  return String(contentMarkdown ?? '').replace(linkRegex, (full, label, rawHref) => {
+    const parsedHref = resolveMarkdownLinkHrefParts(rawHref);
+    if (!parsedHref) return full;
+    const resolvedHref = String(resolveHref(parsedHref.href) ?? '').trim();
+    if (!resolvedHref || resolvedHref === parsedHref.href) return full;
+    const formattedHref = parsedHref.wrapped ? `<${resolvedHref}>` : resolvedHref;
+    return `[${label}](${parsedHref.leading}${formattedHref}${parsedHref.trailing})`;
+  });
 }
 
 function resolveNoteLinkTarget(refs, href, sourceSyncPath) {
@@ -2336,7 +2459,18 @@ function serializeFrontMatter(data) {
 
 // ── Note sync: serialization ──────────────────────────────────────────────────
 
-function dailyNoteToMarkdown(fields) {
+function serializeNoteBodyForSync(fields, options = {}) {
+  const body =
+    Array.isArray(fields.blocks) && fields.blocks.length > 0
+      ? assembleMarkdownFromBlocks(fields.blocks)
+      : (fields.contentMarkdown ?? '');
+  const db = options.db ?? null;
+  if (!db) return body;
+  const resolveHref = createSyncOutgoingLinkResolver(db, fields.syncPath || '', options.rootFolder || DEFAULT_NOTES_ROOT);
+  return rewriteMarkdownLinkHrefs(body, resolveHref);
+}
+
+function dailyNoteToMarkdown(fields, options = {}) {
   const fm = serializeFrontMatter({
     id: fields.id,
     type: 'daily-note',
@@ -2348,14 +2482,11 @@ function dailyNoteToMarkdown(fields) {
     updatedAt: fields.updatedAt,
   });
   // DEC-38: Prefer assembling from blocks so block IDs are always embedded in the file body.
-  const body =
-    Array.isArray(fields.blocks) && fields.blocks.length > 0
-      ? assembleMarkdownFromBlocks(fields.blocks)
-      : (fields.contentMarkdown ?? '');
+  const body = serializeNoteBodyForSync(fields, options);
   return body ? `${fm}\n\n${body}` : `${fm}\n`;
 }
 
-function topicNoteToMarkdown(fields) {
+function topicNoteToMarkdown(fields, options = {}) {
   const fm = serializeFrontMatter({
     id: fields.id,
     type: 'topic-note',
@@ -2368,10 +2499,7 @@ function topicNoteToMarkdown(fields) {
     updatedAt: fields.updatedAt,
   });
   // DEC-38: Prefer assembling from blocks so block IDs are always embedded in the file body.
-  const body =
-    Array.isArray(fields.blocks) && fields.blocks.length > 0
-      ? assembleMarkdownFromBlocks(fields.blocks)
-      : (fields.contentMarkdown ?? '');
+  const body = serializeNoteBodyForSync(fields, options);
   return body ? `${fm}\n\n${body}` : `${fm}\n`;
 }
 
@@ -2876,7 +3004,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
            }
          } else {
            await ensureSyncFolder(dailyNotesFolderPath(rootFolder));
-           await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+           await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note, { db, rootFolder }));
            markRemotePresence(db, 'daily-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -2891,7 +3019,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+             await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note, { db, rootFolder }));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`daily-note upload ${note.date}: ${String(e)}`);
@@ -2963,7 +3091,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
            }
          } else {
            await ensureSyncFolder(topicNotesFolderPath(rootFolder));
-           await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+           await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note, { db, rootFolder }));
            markRemotePresence(db, 'topic-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -2978,7 +3106,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+             await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note, { db, rootFolder }));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`topic-note upload ${note.id}: ${String(e)}`);
@@ -3365,7 +3493,7 @@ async function reconcileMobileInboxDailyNotes(db, rootFolder) {
         // Re-upload the merged note so the sync folder reflects the appended content.
         const updated = getDailyNote(db, parsed.date);
         if (updated) {
-          await syncUploadText(dailyNoteSyncPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated));
+          await syncUploadText(dailyNoteSyncPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated, { db, rootFolder }));
         }
         result.appended++;
       } else {
