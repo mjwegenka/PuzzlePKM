@@ -27,10 +27,10 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import DescriptionIcon from '@mui/icons-material/Description';
 import RepeatIcon from '@mui/icons-material/Repeat';
-import { useSyncStatus } from '../lib/syncContext';
-import { formatDatePretty } from '../lib/dateUtils';
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../lib/cliService';
-import { cardSpacingTokens, neutralDarkTokens } from '../theme';
+import { useSyncStatus } from '../../lib/syncContext'
+import { formatDatePretty } from '../../lib/dateUtils'
+import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../../lib/cliService'
+import { cardSpacingTokens, neutralDarkTokens } from '../../theme'
 
 interface NavigationItem {
   id: string;

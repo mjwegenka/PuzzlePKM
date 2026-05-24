@@ -10,8 +10,8 @@ import {
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
-import ObjectEditor from './ObjectEditor'
-import { getTodayDate } from '../lib/dateUtils'
+import ObjectEditor from '../objects/ObjectEditor'
+import { getTodayDate } from '../../lib/dateUtils'
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
 

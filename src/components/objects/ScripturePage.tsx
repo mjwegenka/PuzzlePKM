@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Alert, Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Link, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
-import { getObjectColor } from '../lib/objectColors'
-import { getScriptureById, listScriptureMeta, openPathInDefaultApp } from '../lib/cliService'
-import type { Scripture } from '../shared/types'
+import { getObjectColor } from '../../lib/objectColors'
+import { getScriptureById, listScriptureMeta, openPathInDefaultApp } from '../../lib/cliService'
+import type { Scripture } from '../../shared/types'
 
 interface ScripturePageProps {
   onOpenObjectTab?: (target: { id: string; type: 'topic-note' | 'daily-note'; forceNewTab?: boolean }) => void | Promise<void>

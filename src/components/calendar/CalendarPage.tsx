@@ -19,12 +19,12 @@ import { alpha } from '@mui/material/styles'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
-import ObjectEditor from './ObjectEditor'
-import EditorErrorBoundary from './EditorErrorBoundary'
-import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
-import type { ResolvedObjectRef } from '../lib/cliService'
-import { getTodayDate } from '../lib/dateUtils'
-import { getObjectColor } from '../lib/objectColors'
+import ObjectEditor from '../objects/ObjectEditor'
+import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../../lib/cliService'
+import type { ResolvedObjectRef } from '../../lib/cliService'
+import { getTodayDate } from '../../lib/dateUtils'
+import { getObjectColor } from '../../lib/objectColors'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')

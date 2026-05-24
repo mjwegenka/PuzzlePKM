@@ -20,7 +20,7 @@ import CloudIcon from '@mui/icons-material/Cloud'
 import InfoIcon from '@mui/icons-material/Info'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
-import { runPuzzlePKMCli } from '../lib/cliService'
+import { runPuzzlePKMCli } from '../../lib/cliService'
 
 interface ConfigState {
   dbPath?: string

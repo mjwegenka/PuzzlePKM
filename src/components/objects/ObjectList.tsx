@@ -12,7 +12,7 @@ import {
   Divider,
   CircularProgress,
 } from '@mui/material';
-import { getObjectColor } from '../lib/objectColors';
+import { getObjectColor } from '../../lib/objectColors';
 
 interface ObjectListItem {
   id: string;

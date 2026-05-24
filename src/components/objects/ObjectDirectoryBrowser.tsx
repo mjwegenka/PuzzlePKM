@@ -22,7 +22,7 @@ import SlideshowIcon from '@mui/icons-material/Slideshow'
 import MovieIcon from '@mui/icons-material/Movie'
 import AudioFileIcon from '@mui/icons-material/AudioFile'
 import ArchiveIcon from '@mui/icons-material/Archive'
-import { browseDirectory, openPathInDefaultApp } from '../lib/cliService'
+import { browseDirectory, openPathInDefaultApp } from '../../lib/cliService'
 
 type FileObjectType = 'project' | 'ref-material'
 

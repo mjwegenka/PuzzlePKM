@@ -3,7 +3,7 @@ import { Alert, Box, CircularProgress, Paper, Stack, TextField, Typography } fro
 import { alpha, useTheme } from '@mui/material/styles'
 import HubIcon from '@mui/icons-material/Hub'
 import SearchIcon from '@mui/icons-material/Search'
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../lib/cliService'
+import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../../lib/cliService'
 
 type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material'
 
