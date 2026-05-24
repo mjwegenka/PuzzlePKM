@@ -48,24 +48,24 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: 2 }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={2} sx={{ flexShrink: 0 }}>
-        <NoteAddIcon sx={{ color: '#4f8fed', fontSize: 28 }} />
+        <NoteAddIcon sx={{ color: 'accent.selected', fontSize: 28 }} />
         <Box>
           <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
             New Note
           </Typography>
-          <Typography variant="caption" sx={{ color: '#b8bec8' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             Create a new note in your knowledge base
           </Typography>
         </Box>
       </Stack>
 
       {/* Type switcher */}
-      <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', flexShrink: 0 }}>
+      <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', flexShrink: 0 }}>
         <Typography
           variant="caption"
           sx={{
             fontWeight: 700,
-            color: '#b8bec8',
+            color: 'text.secondary',
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
             fontSize: '10px',
@@ -82,32 +82,36 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
           size="small"
           sx={{
             '& .MuiToggleButton-root': {
-              color: '#b8bec8',
-              borderColor: 'rgba(255,255,255,0.09)',
-              borderRightColor: 'rgba(255,255,255,0.09)',
+              color: 'text.secondary',
+              borderColor: 'border.subtle',
+              borderRightColor: 'border.subtle',
               px: 2.5,
               py: 0.75,
               fontSize: '13px',
               '&.Mui-selected': {
-                bgcolor: 'rgba(79,143,237,0.25)',
-                color: '#eceff3',
-                borderColor: '#4f8fed',
-                borderRightColor: '#4f8fed',
+                bgcolor: 'action.selected',
+                color: 'text.primary',
+                borderColor: 'accent.selected',
+                borderRightColor: 'accent.selected',
               },
             },
             '& .MuiToggleButtonGroup-grouped:not(:last-of-type)': {
-              borderRight: '1px solid rgba(255,255,255,0.09) !important',
+              borderRight: '1px solid',
+              borderRightColor: 'border.subtle',
             },
             '& .MuiToggleButtonGroup-grouped.Mui-selected:not(:last-of-type)': {
-              borderRight: '1px solid #4f8fed !important',
+              borderRight: '1px solid',
+              borderRightColor: 'accent.selected',
             },
             '& .MuiToggleButtonGroup-grouped + .MuiToggleButtonGroup-grouped.Mui-selected': {
               marginLeft: 0,
-              borderLeft: '1px solid #4f8fed',
+              borderLeft: '1px solid',
+              borderLeftColor: 'accent.selected',
             },
             '& .MuiToggleButtonGroup-grouped + .MuiToggleButtonGroup-grouped': {
               marginLeft: 0,
-              borderLeft: '1px solid rgba(255,255,255,0.09)',
+              borderLeft: '1px solid',
+              borderLeftColor: 'border.subtle',
             },
             '& .MuiToggleButtonGroup-firstButton': {
               borderTopRightRadius: 0,
@@ -137,7 +141,7 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
         </ToggleButtonGroup>
 
         {/* Hint text per type */}
-        <Typography variant="caption" sx={{ color: '#9198a3', display: 'block', mt: 1.25 }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 1.25 }}>
           {noteType === 'topic-note'
             ? 'Topic notes are titled notes on any subject. They can link to other objects using @mentions.'
             : noteType === 'daily-note'

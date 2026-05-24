@@ -70,13 +70,13 @@ const sidebarColors = {
   background: neutralDarkTokens.surface.app,
   backgroundTop: neutralDarkTokens.surface.app,
   border: 'transparent',
-  divider: alpha('#ffffff', 0.07),
+  divider: alpha(neutralDarkTokens.text.primary, 0.07),
   text: neutralDarkTokens.text.primary,
   textMuted: neutralDarkTokens.text.secondary,
   icon: neutralDarkTokens.text.secondary,
   iconMuted: neutralDarkTokens.text.muted,
-  hover: alpha('#ffffff', 0.04),
-  selected: alpha('#ffffff', 0.065),
+  hover: alpha(neutralDarkTokens.text.primary, 0.04),
+  selected: alpha(neutralDarkTokens.text.primary, 0.065),
   selectedBorder: neutralDarkTokens.border.subtle,
 };
 
@@ -319,10 +319,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             top: 0,
             width: 1,
             height: '100%',
-            bgcolor: isResizing ? alpha('#7dbad6', 0.95) : 'transparent',
+            bgcolor: (theme) => (isResizing ? alpha(theme.palette.accent.selected, 0.95) : 'transparent'),
           },
           '&:hover::before': {
-            bgcolor: alpha('#7dbad6', 0.6),
+            bgcolor: (theme) => alpha(theme.palette.accent.selected, 0.6),
           },
         }}
       />
@@ -465,7 +465,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               size="small"
               onClick={triggerSync}
               disabled={syncing}
-              sx={{ color: syncError ? '#f87171' : sidebarColors.icon, '&:hover': { color: sidebarColors.text } }}
+              sx={{ color: syncError ? 'error.main' : sidebarColors.icon, '&:hover': { color: sidebarColors.text } }}
             >
               {syncing
                 ? <CircularProgress size={18} sx={{ color: sidebarColors.icon }} />
@@ -478,7 +478,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             variant="caption"
             sx={{
               display: 'block',
-              color: syncError ? '#f87171' : sidebarColors.textMuted,
+              color: syncError ? 'error.main' : sidebarColors.textMuted,
               fontSize: '9.5px',
               lineHeight: 1.3,
               whiteSpace: 'nowrap',

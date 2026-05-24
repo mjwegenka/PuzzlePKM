@@ -87,16 +87,16 @@ export default function ObjectDirectoryBrowser({ type, object }: ObjectDirectory
   return (
     <Paper sx={{ mt: 1.5, p: 1.25, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', minHeight: 180, display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="caption" sx={{ color: '#b8bec8', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
           {title}
         </Typography>
-        <IconButton size="small" onClick={() => void load()} sx={{ color: '#b8bec8' }}>
+        <IconButton size="small" onClick={() => void load()} sx={{ color: 'text.secondary' }}>
           <RefreshIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Stack>
 
       {directoryPath && (
-        <Typography variant="caption" sx={{ color: '#9198a3', mb: 1, wordBreak: 'break-all' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', mb: 1, wordBreak: 'break-all' }}>
           {directoryPath}
         </Typography>
       )}
@@ -108,7 +108,7 @@ export default function ObjectDirectoryBrowser({ type, object }: ObjectDirectory
           <CircularProgress size={18} />
         </Box>
       ) : entries.length === 0 ? (
-        <Typography variant="caption" sx={{ color: '#9198a3', fontStyle: 'italic' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
           No files found.
         </Typography>
       ) : (
@@ -121,13 +121,13 @@ export default function ObjectDirectoryBrowser({ type, object }: ObjectDirectory
                 sx={{ borderRadius: 1, mb: 0.25 }}
               >
                 {entry.kind === 'dir'
-                  ? <FolderIcon sx={{ fontSize: 15, color: '#c8832a', mr: 1 }} />
-                  : <DescriptionIcon sx={{ fontSize: 15, color: '#b8bec8', mr: 1 }} />}
+                  ? <FolderIcon sx={{ fontSize: 15, color: 'warning.main', mr: 1 }} />
+                  : <DescriptionIcon sx={{ fontSize: 15, color: 'text.secondary', mr: 1 }} />}
                 <ListItemText
                   primary={entry.name}
                   slotProps={{
                     primary: {
-                      sx: { color: '#eceff3', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                      sx: { color: 'text.primary', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                     },
                   }}
                 />

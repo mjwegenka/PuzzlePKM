@@ -36,7 +36,7 @@ export default class EditorErrorBoundary extends React.Component<EditorErrorBoun
         <Alert severity="error" sx={{ mb: 1.5 }}>
           Failed to render this object.
         </Alert>
-        <Typography variant="caption" sx={{ color: '#b8bec8' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {this.state.message}
         </Typography>
       </Box>

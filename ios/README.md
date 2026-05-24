@@ -144,4 +144,4 @@ The sync output includes appended mobile notes in the **updated** count and impo
 - Each daily note save overwrites any previous mobile draft for the same date (only the most recent draft is sent to desktop).
 - Each habit save creates a new uniquely-named file, so multiple habits per day are supported.
 - The Dropbox SDK handles authentication tokens in the iOS Keychain automatically.
-- See `IMPLEMENTATION_DECISIONS.md` (DEC-55) in the repository root for the full design decision record.
+- See `IMPLEMENTATION_DECISIONS.md` (DEC-52) in the repository root for the full design decision record.

@@ -8,7 +8,6 @@
 ## Canonical Ownership (avoid drift)
 - `README.md`: product/domain truth (what the app is, object definitions).
 - `IMPLEMENTATION_DECISIONS.md`: implementation decision log (behavior decisions; `DEC-*` IDs).
-- `DEVELOPMENT_PLAN.md`: stage sequencing and delivery boundaries (when work lands).
 - `AGENTS.md` (this file): workflow rules for coding agents.
 
 If information must change, update the canonical file above instead of duplicating the same rule in multiple docs.
@@ -16,7 +15,6 @@ If information must change, update the canonical file above instead of duplicati
 ## Read Order for Any Task
 1. `README.md`
 2. `IMPLEMENTATION_DECISIONS.md`
-3. `DEVELOPMENT_PLAN.md`
 
 ## Documentation Hygiene Rules
 - Do not duplicate behavioral rules across docs; link to the canonical file.
@@ -37,7 +35,6 @@ If information must change, update the canonical file above instead of duplicati
 - In code/PRs, cite the relevant `DEC-*` IDs to keep behavior traceable.
 
 ## Delivery Strategy
-- Follow stages in `DEVELOPMENT_PLAN.md`; do not jump to later-stage features unless requested.
 - Prefer small vertical slices: schema -> repository -> UI/editor -> sync wiring.
 - Ship minimal runnable slices first, then broaden feature depth.
 

@@ -399,7 +399,7 @@ function EmptyFilesPrompt() {
         borderRadius: '8px',
         p: 4,
         gap: 2,
-        color: '#9198a3',
+        color: 'text.disabled',
       }}
     >
       <Box sx={{ fontSize: 40, opacity: 0.35 }}>🗂</Box>

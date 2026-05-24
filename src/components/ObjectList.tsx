@@ -47,7 +47,7 @@ export default function ObjectList({
   );
 
   return (
-    <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', height: '100%' }}>
+    <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', height: '100%' }}>
       <Stack spacing={2} sx={{ height: '100%', display: 'flex' }}>
         <TextField
           size="small"
@@ -63,7 +63,7 @@ export default function ObjectList({
               <CircularProgress size={20} />
             </Box>
           ) : filtered.length === 0 ? (
-            <Typography variant="body2" sx={{ color: '#b8bec8', textAlign: 'center', py: 3 }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 3 }}>
               No {type} found
             </Typography>
           ) : (
@@ -128,7 +128,7 @@ export default function ObjectList({
                   />
                 </ListItemButton>
               </ListItem>
-              {idx < filtered.length - 1 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.09)' }} />}
+              {idx < filtered.length - 1 && <Divider sx={{ borderColor: 'border.subtle' }} />}
             </Box>
           ))
           )}

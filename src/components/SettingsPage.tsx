@@ -158,26 +158,26 @@ export default function SettingsPage() {
     <Box sx={{ maxWidth: 680, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2.5, pb: 4, pr: 2 }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" spacing={1.5}>
-        <SettingsIcon sx={{ color: '#4f8fed', fontSize: 28 }} />
+        <SettingsIcon sx={{ color: 'accent.selected', fontSize: 28 }} />
         <Box>
           <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
             Settings
           </Typography>
-          <Typography variant="caption" sx={{ color: '#b8bec8' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             PuzzlePKM configuration &amp; diagnostics
           </Typography>
         </Box>
       </Stack>
 
        {/* ── CLI Status ─────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)' }}>
+       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <InfoIcon sx={{ fontSize: 16, color: '#4f8fed' }} />
+          <InfoIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
           <Typography
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: '#b8bec8',
+              color: 'text.secondary',
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
               fontSize: '10px',
@@ -190,7 +190,7 @@ export default function SettingsPage() {
         {!cliStatus.checked ? (
           <Stack direction="row" spacing={1} alignItems="center">
             <CircularProgress size={14} />
-            <Typography variant="body2" sx={{ color: '#b8bec8' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               Checking CLI…
             </Typography>
           </Stack>
@@ -201,9 +201,9 @@ export default function SettingsPage() {
                 primary={
                   <Stack direction="row" spacing={1} alignItems="center">
                     {cliStatus.ok ? (
-                      <CheckCircleIcon sx={{ fontSize: 15, color: '#48b278' }} />
+                      <CheckCircleIcon sx={{ fontSize: 15, color: 'success.main' }} />
                     ) : (
-                      <ErrorIcon sx={{ fontSize: 15, color: '#e05a5a' }} />
+                      <ErrorIcon sx={{ fontSize: 15, color: 'error.main' }} />
                     )}
                     <Typography component="div" variant="body2">
                       CLI reachable:{' '}
@@ -213,11 +213,10 @@ export default function SettingsPage() {
                         sx={{
                           height: 18,
                           fontSize: '10px',
-                          bgcolor: cliStatus.ok
-                            ? 'rgba(72,178,120,0.2)'
-                            : 'rgba(224,90,90,0.2)',
-                          border: `1px solid ${cliStatus.ok ? 'rgba(72,178,120,0.5)' : 'rgba(224,90,90,0.5)'}`,
-                          color: cliStatus.ok ? '#7dcfaa' : '#e8a0a0',
+                          bgcolor: cliStatus.ok ? 'success.dark' : 'error.dark',
+                          border: '1px solid',
+                          borderColor: cliStatus.ok ? 'success.main' : 'error.main',
+                          color: cliStatus.ok ? 'success.light' : 'error.light',
                         }}
                       />
                     </Typography>
@@ -229,7 +228,7 @@ export default function SettingsPage() {
               <ListItem disablePadding sx={{ py: 0.5 }}>
                 <ListItemText
                   primary={
-                    <Typography variant="body2" sx={{ color: '#b0cce0' }}>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                       {cliStatus.detail}
                     </Typography>
                   }
@@ -246,14 +245,14 @@ export default function SettingsPage() {
       </Paper>
 
        {/* ── Storage ────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)' }}>
+       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <StorageIcon sx={{ fontSize: 16, color: '#4f8fed' }} />
+          <StorageIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
           <Typography
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: '#b8bec8',
+              color: 'text.secondary',
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
               fontSize: '10px',
@@ -270,7 +269,7 @@ export default function SettingsPage() {
             <ListItem disablePadding sx={{ py: 0.5 }}>
               <ListItemText
                 primary={
-                  <Typography variant="body2" sx={{ color: '#b0cce0' }}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     Database path
                   </Typography>
                 }
@@ -279,7 +278,7 @@ export default function SettingsPage() {
                     variant="caption"
                     sx={{
                       fontFamily: 'monospace',
-                      color: '#eceff3',
+                      color: 'text.primary',
                       wordBreak: 'break-all',
                     }}
                   >
@@ -291,12 +290,12 @@ export default function SettingsPage() {
             <ListItem disablePadding sx={{ py: 0.5 }}>
               <ListItemText
                 primary={
-                  <Typography variant="body2" sx={{ color: '#b0cce0' }}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     Sync root folder
                   </Typography>
                 }
                 secondary={
-                  <Typography variant="caption" sx={{ color: '#eceff3', wordBreak: 'break-all' }}>
+                  <Typography variant="caption" sx={{ color: 'text.primary', wordBreak: 'break-all' }}>
                     {config.syncRootFolder || '(not configured)'}
                   </Typography>
                 }
@@ -312,14 +311,14 @@ export default function SettingsPage() {
       </Paper>
 
        {/* ── Sync ───────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)' }}>
+       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <CloudIcon sx={{ fontSize: 16, color: '#4f8fed' }} />
+          <CloudIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
           <Typography
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: '#b8bec8',
+              color: 'text.secondary',
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
               fontSize: '10px',
@@ -329,7 +328,7 @@ export default function SettingsPage() {
           </Typography>
         </Stack>
 
-        <Typography component="div" variant="body2" sx={{ color: '#b0cce0', mb: 2 }}>
+        <Typography component="div" variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
           Projects and Reference Materials are discovered under your configured sync folder.
           Set the root folder path below.
         </Typography>
@@ -348,14 +347,14 @@ export default function SettingsPage() {
           />
 
           {!syncRootValidationError && normalizedSyncRootPreview && (
-            <Typography variant="caption" sx={{ color: '#b8bec8', wordBreak: 'break-all' }}>
-              Effective sync root: <Box component="span" sx={{ color: '#eceff3', fontFamily: 'monospace' }}>{normalizedSyncRootPreview}</Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', wordBreak: 'break-all' }}>
+              Effective sync root: <Box component="span" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{normalizedSyncRootPreview}</Box>
             </Typography>
           )}
 
           {config.resolvedSyncRootFolder && (
-            <Typography variant="caption" sx={{ color: '#b8bec8', wordBreak: 'break-all' }}>
-              Resolved local folder: <Box component="span" sx={{ color: '#eceff3', fontFamily: 'monospace' }}>{config.resolvedSyncRootFolder}</Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', wordBreak: 'break-all' }}>
+              Resolved local folder: <Box component="span" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{config.resolvedSyncRootFolder}</Box>
             </Typography>
           )}
 
@@ -377,13 +376,13 @@ export default function SettingsPage() {
           </Button>
         </Stack>
 
-        <Divider sx={{ borderColor: 'rgba(255,255,255,0.09)', my: 2 }} />
+        <Divider sx={{ borderColor: 'border.subtle', my: 2 }} />
 
         <Typography
           variant="caption"
           sx={{
             fontWeight: 700,
-            color: '#b8bec8',
+            color: 'text.secondary',
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
             fontSize: '10px',
@@ -398,12 +397,13 @@ export default function SettingsPage() {
           sx={{
             m: 0,
             p: 1.5,
-            bgcolor: 'rgba(0,0,0,0.3)',
+            bgcolor: 'surface.app',
             borderRadius: 1,
-            border: '1px solid rgba(255,255,255,0.09)',
+            border: '1px solid',
+            borderColor: 'border.subtle',
             fontFamily: 'monospace',
             fontSize: '12px',
-            color: '#b8bec8',
+            color: 'text.secondary',
             overflow: 'auto',
           }}
         >
@@ -415,21 +415,21 @@ export default function SettingsPage() {
     ├── topic-notes/
     └── habits/`}
         </Box>
-        <Typography variant="caption" sx={{ color: '#9198a3', display: 'block', mt: 1 }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 1 }}>
           New projects and reference materials are added by creating folders in the sync root, not through
           the app.
         </Typography>
       </Paper>
 
        {/* ── About ──────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)' }}>
+       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <InfoIcon sx={{ fontSize: 16, color: '#4f8fed' }} />
+          <InfoIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
           <Typography
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: '#b8bec8',
+              color: 'text.secondary',
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
               fontSize: '10px',
@@ -444,16 +444,16 @@ export default function SettingsPage() {
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
             ['Storage', 'Local SQLite via node:sqlite'],
             ['Sync', 'Local folder'],
-            ['Compatibility', 'puzzlepkm CLI/data paths still supported'],
+            ['CLI command', 'puzzlepkm'],
           ].map(([label, value]) => (
             <ListItem key={label} disablePadding sx={{ py: 0.4 }}>
               <ListItemText
                 primary={
                   <Stack direction="row" spacing={1}>
-                    <Typography variant="body2" sx={{ color: '#b8bec8', minWidth: 110 }}>
+                    <Typography variant="body2" sx={{ color: 'text.secondary', minWidth: 110 }}>
                       {label}
                     </Typography>
-                    <Typography variant="body2" sx={{ color: '#eceff3' }}>
+                    <Typography variant="body2" sx={{ color: 'text.primary' }}>
                       {value}
                     </Typography>
                   </Stack>

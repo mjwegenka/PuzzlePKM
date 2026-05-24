@@ -390,7 +390,11 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
                   borderRadius: 1,
                   border: '1px solid',
                   borderColor: selected ? 'border.strong' : 'border.subtle',
-                  bgcolor: selected ? alpha('#4f8fed', 0.12) : today ? alpha('#4f8fed', 0.08) : 'surface.app',
+                  bgcolor: selected
+                    ? (theme) => alpha(theme.palette.accent.selected, 0.12)
+                    : today
+                      ? (theme) => alpha(theme.palette.accent.selected, 0.08)
+                      : 'surface.app',
                   cursor: 'pointer',
                   transition: 'background 0.12s',
                   '&:hover': { bgcolor: 'surface.sunken', borderColor: 'border.strong' },

@@ -8,16 +8,16 @@ A local-first knowledge management app with folder-based sync. The core product 
 
 ## Features
 
-- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views (see [`DEC-43`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-44`](./IMPLEMENTATION_DECISIONS.md))
-- **Daily Notes** – One note per calendar day with date-link lifecycle guardrails (date-anchored routing, uniqueness enforced; see [`DEC-42`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-46`](./IMPLEMENTATION_DECISIONS.md))
+- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-41`](./IMPLEMENTATION_DECISIONS.md))
+- **Daily Notes** – One note per calendar day with date-link lifecycle guardrails (date-anchored routing, uniqueness enforced; see [`DEC-39`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-43`](./IMPLEMENTATION_DECISIONS.md))
 - **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
-- **Habits** – Lightweight dated entries (≤ 255 chars) with a single identity tag and lifecycle status (`planned`/`accomplished`) (see [`DEC-45`](./IMPLEMENTATION_DECISIONS.md))
-- **Scripture** – Save-time scripture reference extraction/normalization for notes, with canonical Bible Gateway links and shared Scripture objects ordered by canonical book sequence (see [`DEC-51`](./IMPLEMENTATION_DECISIONS.md))
+- **Habits** – Lightweight dated entries (≤ 255 chars) with a single identity tag and lifecycle status (`planned`/`accomplished`) (see [`DEC-42`](./IMPLEMENTATION_DECISIONS.md))
+- **Scripture** – Save-time scripture reference extraction/normalization for notes, with canonical Bible Gateway links and shared Scripture objects ordered by canonical book sequence (see [`DEC-48`](./IMPLEMENTATION_DECISIONS.md))
 - **Tags** – Case-insensitive, aggregate any object type
 - **Local-folder sync** – Sync against a configured local root folder
 - **Offline-first** – SQLite local store; sync when connected
 - **Background sync daemon** – `puzzlepkm sync --watch` for continuous background syncing
-- **iOS companion app** – Write-only iPhone app for capturing daily notes and habits on the go; entries are merged on the next desktop sync (see [`DEC-55`](./IMPLEMENTATION_DECISIONS.md) and [`ios/README.md`](./ios/README.md))
+- **iOS companion app** – Write-only iPhone app for capturing daily notes and habits on the go; entries are merged on the next desktop sync (see [`DEC-52`](./IMPLEMENTATION_DECISIONS.md) and [`ios/README.md`](./ios/README.md))
 
 ## Tech Stack
 
@@ -40,14 +40,14 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **Calendar View** – Navigate daily notes by date
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
-- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-49`](./IMPLEMENTATION_DECISIONS.md))
-- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy path aliases still resolve for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
-- **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
+- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-46`](./IMPLEMENTATION_DECISIONS.md))
+- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (see [`DEC-34`](./IMPLEMENTATION_DECISIONS.md))
+- **Block-backed note content** – Note bodies are authored from ordered `note_blocks`, which are the canonical persisted source for note content (see [`DEC-38`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
-- **Sidebar Navigation** – Quick access to all views with Collections-based layout (see [`DEC-50`](./IMPLEMENTATION_DECISIONS.md))
-- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally (see [`DEC-48`](./IMPLEMENTATION_DECISIONS.md))
+- **Sidebar Navigation** – Quick access to all views with Collections-based layout (see [`DEC-47`](./IMPLEMENTATION_DECISIONS.md))
+- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally (see [`DEC-45`](./IMPLEMENTATION_DECISIONS.md))
 
-See [HEPTABASE_INTERFACE_CHANGE_PLAN.md](./HEPTABASE_INTERFACE_CHANGE_PLAN.md) for the current desktop UI design and implementation roadmap.
+See the `Desktop UI Contract Work (In Progress)` section in this README for the current desktop UI implementation roadmap.
 
 ## Development Setup
 
@@ -219,7 +219,7 @@ npm run issues:queue
 npm run issues:queue:apply
 ```
 
-For full details on automated issue sequencing and Copilot PR merging, see [`archive/SEQUENCING_v1.md`](./archive/SEQUENCING_v1.md).
+For issue sequencing details, use the automation scripts in `scripts/` (`issue_sequence_runner.mjs` and `apply_issue_labels_and_milestones.mjs`).
 
 ## SQLite scale benchmark
 
@@ -234,7 +234,7 @@ The repository includes a captured sample run at [`benchmarks/sqlite-benchmark-s
 
 Latest benchmark evidence (5,760-object dataset: 2,000 topic notes, 1,200 daily notes, 800 habits, 400 projects, 400 ref materials, 900 scriptures, 60 tags):
 
-- `list.topic-notes.legacy-simulation`: **54.35ms avg**
+- `list.topic-notes.baseline-simulation`: **54.35ms avg**
 - `list.topic-notes` (batched tags + block reads): **29.10ms avg**
 - `search.notes-filter`: **29.61ms avg**
 - `save.topic-note`: **10.97ms avg**
@@ -257,13 +257,47 @@ ios/               iOS companion app (Swift / SwiftUI)
 
 The `ios/` directory contains a write-only iPhone app for capturing daily notes and habits on the go. Entries are written to a `mobile-inbox/` sub-folder inside your Dropbox sync root and merged into the desktop app on the next `puzzlepkm sync`.
 
-See [`ios/README.md`](./ios/README.md) for Xcode setup instructions and [`DEC-55`](./IMPLEMENTATION_DECISIONS.md) for the design decision record.
+See [`ios/README.md`](./ios/README.md) for Xcode setup instructions and [`DEC-52`](./IMPLEMENTATION_DECISIONS.md) for the design decision record.
 
 ```bash
 # After writing notes/habits from the iOS app, merge them on the desktop:
 puzzlepkm sync
 ```
 
-## Development Plan
+## Project Status
 
-See [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) for the full staged roadmap.
+- Core product scope is implemented and stable for local-first use.
+- v1 release-readiness verification is the active delivery gate.
+- iOS companion app is implemented and integrated with desktop sync.
+
+## v1 Release Readiness Checklist
+
+Use this checklist to determine release readiness (`DEC-51`).
+
+**Regression**
+- [ ] All object types (daily-note, topic-note, habit, project, ref-material, scripture) can be created, read, updated, and deleted via CLI without data loss.
+- [ ] `note_blocks` backfill runs idempotently on `openDb()` for all notes; malformed rows emit warnings and do not abort startup.
+- [ ] Block IDs match `blk-<12 hex chars>` format; positions are contiguous and unique per note.
+- [ ] Daily Note date identity is immutable: update flows reject date-field mutations.
+- [ ] Habit writes enforce one-tag rule and persist a valid `status` value.
+- [ ] Backlink sets remain reciprocal after add/remove/edit of a source link.
+
+**Sync safety**
+- [ ] One-shot `puzzlepkm sync` completes without data loss across all object types.
+- [ ] Background `puzzlepkm sync --watch` operates correctly with the default 15-minute interval and a custom `--interval`.
+- [ ] Missing sync folder triggers folder creation and skips deletion reconciliation for that type on the same run (safe fallback).
+- [ ] Deleting a locally-tracked object removes its sync file before the DB record is dropped.
+- [ ] Inbox tag is added exactly once to newly imported objects; existing objects are never re-tagged on subsequent syncs.
+- [ ] `syncPath` metadata is present and correct in serialized front matter.
+
+**Migration flows**
+- [ ] Opening existing databases auto-backfills `note_blocks` from `content_markdown` without data loss.
+- [ ] Markdown without embedded block IDs receives fresh block IDs on import; no content is dropped.
+- [ ] Links resolve correctly with local-sync transport metadata (`DEC-08`).
+- [ ] `PUZZLEPKM_DB_PATH` resolves to the correct database.
+- [ ] `puzzlepkm` CLI command resolves to the expected binary.
+
+**Documentation**
+- [ ] Command lists in `README.md` and `AGENTS.md` are identical and cover all runnable commands.
+- [ ] All `DEC-*` references in `README.md` resolve to entries in `IMPLEMENTATION_DECISIONS.md`.
+- [ ] No behavioral rule appears in more than one canonical file.

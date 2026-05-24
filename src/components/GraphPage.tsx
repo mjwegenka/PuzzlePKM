@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Alert, Box, CircularProgress, Paper, Stack, TextField, Typography } from '@mui/material'
+import { alpha, useTheme } from '@mui/material/styles'
 import HubIcon from '@mui/icons-material/Hub'
 import SearchIcon from '@mui/icons-material/Search'
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../lib/cliService'
@@ -24,6 +25,7 @@ interface GraphPageProps {
 }
 
 export default function GraphPage({ onOpenNode }: GraphPageProps) {
+  const theme = useTheme()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(false)
@@ -126,10 +128,10 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
   }
 
   return (
-    <Paper sx={{ flex: 1, minHeight: 0, p: 1.5, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ flex: 1, minHeight: 0, p: 1.5, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
-        <HubIcon sx={{ color: '#b8bec8', fontSize: 18 }} />
-        <Typography variant="subtitle2" sx={{ color: '#eceff3', fontWeight: 700 }}>Graph</Typography>
+        <HubIcon sx={{ color: 'text.secondary', fontSize: 18 }} />
+        <Typography variant="subtitle2" sx={{ color: 'text.primary', fontWeight: 700 }}>Graph</Typography>
         <TextField
           size="small"
           value={search}
@@ -138,7 +140,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
           sx={{ ml: 'auto', width: 260 }}
           slotProps={{
             input: {
-              startAdornment: <SearchIcon sx={{ fontSize: 14, color: '#9198a3', mr: 0.5 }} />,
+              startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5 }} />,
             },
           }}
         />
@@ -152,9 +154,10 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
           flex: 1,
           minHeight: 0,
           position: 'relative',
-          border: hasFocus ? '1px solid #4f8fed' : '1px solid rgba(255,255,255,0.09)',
+          border: '1px solid',
+          borderColor: hasFocus ? 'accent.selected' : 'border.subtle',
           borderRadius: 1,
-          bgcolor: 'rgba(0,0,0,0.15)',
+          bgcolor: (localTheme) => alpha(localTheme.palette.surface.app, 0.45),
           overflow: 'hidden',
           cursor: hasFocus ? 'default' : 'pointer',
         }}
@@ -176,7 +179,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                   y1={source.y}
                   x2={target.x}
                   y2={target.y}
-                  stroke="rgba(184,190,200,0.35)"
+                  stroke={alpha(theme.palette.text.secondary, 0.35)}
                   strokeWidth={1}
                 />
               )
@@ -189,14 +192,14 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                     cx={node.x}
                     cy={node.y}
                     r={focused ? 12 : 9}
-                    fill={focused ? '#4f8fed' : '#17191c'}
-                    stroke={focused ? '#7dcfaa' : '#b8bec8'}
+                    fill={focused ? theme.palette.accent.selected : theme.palette.surface.app}
+                    stroke={focused ? theme.palette.success.main : theme.palette.text.secondary}
                     strokeWidth={focused ? 2 : 1}
                   />
                   <text
                     x={node.x + 14}
                     y={node.y + 4}
-                    fill="#b8bec8"
+                    fill={theme.palette.text.secondary}
                     style={{ fontSize: '11px', userSelect: 'none' }}
                   >
                     {node.label.slice(0, 28)}
@@ -208,15 +211,15 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
         )}
 
         {!hasFocus && (
-          <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(18,19,21,0.65)' }}>
-            <Typography variant="body2" sx={{ color: '#b8bec8' }}>
+          <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: (localTheme) => alpha(localTheme.palette.surface.app, 0.75) }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               Click to focus graph
             </Typography>
           </Box>
         )}
       </Box>
 
-      <Typography variant="caption" sx={{ color: '#9198a3', mt: 1 }}>
+      <Typography variant="caption" sx={{ color: 'text.disabled', mt: 1 }}>
         Tip: click a node once to focus it, click it again to open in a new tab.
       </Typography>
     </Paper>

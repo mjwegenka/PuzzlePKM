@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Box, Paper, List, ListItem, ListItemButton, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { getObjectColor } from '../lib/objectColors';
 
 export interface MentionOption {
   id: string;
@@ -17,13 +19,6 @@ interface MentionPopupProps {
   onClose: () => void;
   position: { top: number; left: number } | null;
 }
-
-const TYPE_COLORS: Record<string, string> = {
-  'daily-note': '#4f8fed',
-  'topic-note': '#2aa876',
-  'project': '#c8832a',
-  'ref-material': '#9c6dd4',
-};
 
 const TYPE_LABELS: Record<string, string> = {
   'daily-note': 'daily',
@@ -82,30 +77,31 @@ export default function MentionPopup({
         maxHeight: 260,
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: '#17191c',
-        border: '1px solid rgba(255,255,255,0.09)',
+        bgcolor: 'surface.app',
+        border: '1px solid',
+        borderColor: 'border.subtle',
         borderRadius: '6px',
         boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
         overflow: 'hidden',
       }}
     >
       {/* Search header */}
-      <Box sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid rgba(255,255,255,0.09)', flexShrink: 0 }}>
-        <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '11px' }}>
+      <Box sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderBottomColor: 'border.subtle', flexShrink: 0 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px' }}>
           {query ? `Searching for "${query}"…` : 'Link to object — type to filter'}
         </Typography>
       </Box>
 
       {options.length === 0 ? (
         <Box sx={{ px: 1.5, py: 1.5 }}>
-          <Typography variant="caption" sx={{ color: '#b8bec8' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {query.length === 0 ? 'Searching all objects…' : `No matches for "${query}"`}
           </Typography>
         </Box>
       ) : (
         <List ref={listRef} sx={{ p: 0.5, overflow: 'auto', flex: 1 }}>
           {options.slice(0, 8).map((option, idx) => {
-            const color = TYPE_COLORS[option.type] ?? '#b8bec8';
+            const color = getObjectColor(option.type).accent;
             const label = TYPE_LABELS[option.type] ?? option.type;
             return (
               <ListItem key={`${option.type}-${option.id}-${idx}`} disablePadding>
@@ -117,11 +113,9 @@ export default function MentionPopup({
                     borderRadius: '4px',
                     gap: 1,
                     '&.Mui-selected': {
-                      bgcolor: 'rgba(79,143,237,0.22)',
+                      bgcolor: 'action.selected',
                     },
-                    '&:hover': {
-                      bgcolor: 'rgba(79,143,237,0.15)',
-                    },
+                    '&:hover': { bgcolor: (theme) => alpha(theme.palette.accent.selected, 0.14) },
                   }}
                 >
                   {/* Type badge */}
@@ -134,9 +128,9 @@ export default function MentionPopup({
                       px: 0.75,
                       py: 0.25,
                       borderRadius: '3px',
-                      bgcolor: `${color}22`,
+                      bgcolor: alpha(color, 0.14),
                       color,
-                      border: `1px solid ${color}55`,
+                      border: `1px solid ${alpha(color, 0.34)}`,
                       textTransform: 'uppercase',
                     }}
                   >
@@ -168,13 +162,14 @@ export default function MentionPopup({
         sx={{
           px: 1.5,
           py: 0.5,
-          borderTop: '1px solid rgba(255,255,255,0.09)',
+          borderTop: '1px solid',
+          borderTopColor: 'border.subtle',
           flexShrink: 0,
           display: 'flex',
           gap: 2,
         }}
       >
-        <Typography variant="caption" sx={{ color: '#9198a3', fontSize: '10px' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '10px' }}>
           ↑↓ navigate · Enter select · Esc close
         </Typography>
       </Box>

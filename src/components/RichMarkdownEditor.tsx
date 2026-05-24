@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box,
-  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -794,19 +793,6 @@ export default function RichMarkdownEditor({
     setAdmonitionMenuAnchor(null)
   }, [editor])
 
-  const handleRemoveAdmonition = useCallback(() => {
-    if (!editor || !editor.isActive('blockquote')) {
-      setAdmonitionMenuAnchor(null)
-      return
-    }
-    editor
-      .chain()
-      .focus()
-      .updateAttributes('blockquote', { admonitionType: null, admonitionLabel: null })
-      .run()
-    setAdmonitionMenuAnchor(null)
-  }, [editor])
-
   const handleAdmonitionMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -936,20 +922,6 @@ export default function RichMarkdownEditor({
               {option.label}
             </MenuItem>
           ))}
-          <Divider sx={{ my: 0.25 }} />
-          <MenuItem
-            disabled={!activeAdmonitionType}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={handleRemoveAdmonition}
-            sx={{
-              minHeight: 28,
-              px: 1,
-              fontSize: '12px',
-              color: 'text.secondary',
-            }}
-          >
-            Remove admonition
-          </MenuItem>
         </Menu>
 
         <Box

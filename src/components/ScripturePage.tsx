@@ -91,7 +91,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
       <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Stack alignItems="center" spacing={1.5}>
           <CircularProgress size={26} />
-          <Typography variant="body2" sx={{ color: '#9db6d1' }}>Loading scripture references…</Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Loading scripture references…</Typography>
         </Stack>
       </Box>
     )
@@ -115,11 +115,11 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 2,
-          color: '#9198a3',
+          color: 'text.disabled',
         }}
       >
         <AutoStoriesIcon sx={{ fontSize: 56, opacity: 0.35 }} />
-        <Typography variant="h6" sx={{ fontWeight: 600, color: '#b8bec8' }}>
+        <Typography variant="h6" sx={{ fontWeight: 600, color: 'text.secondary' }}>
           Scripture
         </Typography>
         <Typography variant="body2" sx={{ textAlign: 'center', maxWidth: 380 }}>
@@ -133,7 +133,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
     <Box sx={{ flex: 1, p: 2.5, overflowY: 'auto' }}>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-          <Typography variant="subtitle2" sx={{ color: '#d7e7f6', fontWeight: 700 }}>
+          <Typography variant="subtitle2" sx={{ color: 'text.primary', fontWeight: 700 }}>
             Scripture objects ({filteredItems.length})
           </Typography>
           <TextField
@@ -154,7 +154,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
         </Stack>
 
         {filteredItems.length === 0 ? (
-          <Typography variant="body2" sx={{ color: '#7f9ab7', fontStyle: 'italic', py: 2 }}>
+          <Typography variant="body2" sx={{ color: 'text.disabled', fontStyle: 'italic', py: 2 }}>
             No scripture references match this book filter.
           </Typography>
         ) : filteredItems.map((item) => (
@@ -182,19 +182,19 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
                 component="button"
                 underline="hover"
                 onClick={(event) => { void handleOpenPassage(event, item.passageUrl) }}
-                sx={{ color: '#b9d9ef', width: 'fit-content', fontSize: '12px' }}
+                sx={{ color: 'accent.link', width: 'fit-content', fontSize: '12px' }}
               >
                 Open on Bible Gateway
               </Link>
-              <Typography variant="caption" sx={{ color: '#93b3d1' }}>
+              <Typography variant="caption" sx={{ color: 'text.disabled' }}>
                 {item.bookName}
               </Typography>
-              <Typography variant="caption" sx={{ color: '#b3c9df' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 Linked notes
               </Typography>
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                 {item.linkedNotes.length === 0 ? (
-                  <Typography variant="caption" sx={{ color: '#7f9ab7', fontStyle: 'italic' }}>
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
                     No linked notes
                   </Typography>
                 ) : item.linkedNotes.map((note) => (
@@ -204,9 +204,10 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
                     label={note.type === 'daily-note' ? (note.date || note.id) : (note.title || note.id)}
                     onClick={(event) => { void handleOpenLinkedNote(event, note) }}
                     sx={{
-                      bgcolor: 'rgba(14,32,56,0.55)',
-                      border: '1px solid rgba(184,190,200,0.35)',
-                      color: '#d7e7f6',
+                      bgcolor: 'surface.sunken',
+                      border: '1px solid',
+                      borderColor: 'border.strong',
+                      color: 'text.primary',
                       cursor: 'pointer',
                     }}
                   />
@@ -229,7 +230,7 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
         <DialogContent>
           {selectedScripture ? (
             <Stack spacing={1.25} sx={{ pt: 0.5 }}>
-              <Typography variant="caption" sx={{ color: '#7f9ab7' }}>
+              <Typography variant="caption" sx={{ color: 'text.disabled' }}>
                 Book: {selectedScripture.bookName}
               </Typography>
               <Link
@@ -240,12 +241,12 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
               >
                 Open Bible Gateway passage
               </Link>
-              <Typography variant="caption" sx={{ color: '#b3c9df' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 Linked notes
               </Typography>
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                 {selectedScripture.linkedNotes.length === 0 ? (
-                  <Typography variant="caption" sx={{ color: '#7f9ab7', fontStyle: 'italic' }}>
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
                     No linked notes
                   </Typography>
                 ) : selectedScripture.linkedNotes.map((note) => (
@@ -255,9 +256,10 @@ export default function ScripturePage({ onOpenObjectTab }: ScripturePageProps) {
                     label={note.type === 'daily-note' ? (note.date || note.id) : (note.title || note.id)}
                     onClick={(event) => { void handleOpenLinkedNote(event, note) }}
                     sx={{
-                      bgcolor: 'rgba(14,32,56,0.55)',
-                      border: '1px solid rgba(184,190,200,0.35)',
-                      color: '#d7e7f6',
+                      bgcolor: 'surface.sunken',
+                      border: '1px solid',
+                      borderColor: 'border.strong',
+                      color: 'text.primary',
                       cursor: 'pointer',
                     }}
                   />
