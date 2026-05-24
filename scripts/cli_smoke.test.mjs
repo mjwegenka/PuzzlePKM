@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -144,6 +144,87 @@ test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relat
     assert.match(sourceFileContent, new RegExp(`\\[PathTarget\\]\\(${expectedRelativePathWithFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[ScriptureTarget\\]\\(${scripture.passageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[UnsafeTarget\\]\\(${unsafeTopic.id}\\)`));
+  } finally {
+    rmSync(sandboxDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI migrate-links dry-run/apply converts unambiguous legacy paths and reports unresolved links', () => {
+  const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-migrate-links-'));
+  const dbPath = join(sandboxDir, 'migrate-links.sqlite');
+  const syncRoot = join(sandboxDir, 'sync-root');
+  const env = {
+    PUZZLEPKM_DB_PATH: dbPath,
+  };
+
+  try {
+    runCli(['settings', 'set', 'root-folder', syncRoot], { env });
+
+    const target = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ title: 'Migration Target', contentMarkdown: 'Target body' })], { env }).stdout,
+    );
+    const targetFull = parseLastJson(runCli(['get', 'topic-note', target.id], { env }).stdout);
+    const targetFileName = basename(targetFull.syncPath);
+
+    const ambiguousA = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ title: 'Ambiguous A', contentMarkdown: 'A' })], { env }).stdout,
+    );
+    const ambiguousB = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ title: 'Ambiguous B', contentMarkdown: 'B' })], { env }).stdout,
+    );
+
+    const source = parseLastJson(
+      runCli([
+        'write',
+        'topic-note',
+        JSON.stringify({
+          title: 'Legacy Source',
+          contentMarkdown: [
+            `[Resolvable](./${targetFileName}#blk-abc123def456)`,
+            '[Ambiguous](duplicate.md)',
+            '[Missing](missing-link.md)',
+            `[Canonical](${target.id})`,
+            '[External](https://example.com)',
+          ].join(' '),
+        }),
+      ], { env }).stdout,
+    );
+
+    const db = new DatabaseSync(dbPath);
+    db.prepare('UPDATE topic_notes SET sync_path = ? WHERE id = ?').run(`${syncRoot}/topic-notes/a/duplicate.md`, ambiguousA.id);
+    db.prepare('UPDATE topic_notes SET sync_path = ? WHERE id = ?').run(`${syncRoot}/topic-notes/b/duplicate.md`, ambiguousB.id);
+    db.close();
+
+    const dryRunReport = parseLastJson(runCli(['migrate-links', '--dry-run'], { env }).stdout);
+    assert.equal(dryRunReport.mode, 'dry-run');
+    assert.equal(dryRunReport.summary.converted, 1);
+    assert.equal(dryRunReport.summary.unresolved, 2);
+    assert.equal(dryRunReport.summary.notesChanged, 1);
+    assert.ok(dryRunReport.converted.some((entry) => entry.noteId === source.id && entry.targetId === target.id));
+    assert.ok(
+      dryRunReport.unresolved.some(
+        (entry) =>
+          entry.noteId === source.id
+          && String(entry.reason).startsWith('multiple-')
+          && Array.isArray(entry.candidateIds)
+          && entry.candidateIds.length === 2,
+      ),
+    );
+    assert.ok(dryRunReport.unresolved.some((entry) => entry.noteId === source.id && entry.reason === 'no-matching-object'));
+
+    const applyReport = parseLastJson(runCli(['migrate-links', '--apply'], { env }).stdout);
+    assert.equal(applyReport.mode, 'apply');
+    assert.equal(applyReport.summary.converted, 1);
+    assert.equal(applyReport.summary.notesChanged, 1);
+
+    const migratedSource = parseLastJson(runCli(['get', 'topic-note', source.id], { env }).stdout);
+    assert.match(migratedSource.contentMarkdown, new RegExp(`\\[Resolvable\\]\\(${target.id}#blk-abc123def456\\)`));
+    assert.match(migratedSource.contentMarkdown, /\[Ambiguous\]\(duplicate\.md\)/);
+    assert.match(migratedSource.contentMarkdown, /\[Missing\]\(missing-link\.md\)/);
+
+    const secondApplyReport = parseLastJson(runCli(['migrate-links', '--apply'], { env }).stdout);
+    assert.equal(secondApplyReport.summary.converted, 0);
+    assert.equal(secondApplyReport.summary.notesChanged, 0);
   } finally {
     rmSync(sandboxDir, { recursive: true, force: true });
   }

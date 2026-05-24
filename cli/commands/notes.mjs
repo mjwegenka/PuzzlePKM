@@ -1,4 +1,20 @@
 export async function handleNotesCommand(action, args, ctx) {
+  if (action === 'migrate-links') {
+    const allowedFlags = new Set(['--dry-run', '--apply']);
+    const unknownFlag = args.find((arg) => arg.startsWith('-') && !allowedFlags.has(arg));
+    if (unknownFlag) {
+      throw new Error(`Unknown flag: ${unknownFlag}`);
+    }
+    const dryRun = args.includes('--dry-run');
+    const apply = args.includes('--apply');
+    if (dryRun && apply) {
+      throw new Error(`Use either --dry-run or --apply (not both): ${ctx.PRIMARY_CLI_COMMAND} migrate-links [--dry-run|--apply]`);
+    }
+    const result = ctx.runLegacyLinkMigration({ apply });
+    console.log(ctx.formatCompact(result));
+    return true;
+  }
+
   if (action === 'add') {
     const text = args.join(' ').trim();
     if (!text) throw new Error(`Please provide note text: ${ctx.PRIMARY_CLI_COMMAND} add <text>`);
