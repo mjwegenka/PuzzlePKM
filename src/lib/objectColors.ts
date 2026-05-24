@@ -22,12 +22,12 @@ type ColorableType = Exclude<ObjectType, 'tag'>
 
 /** One canonical color mapping per object type. */
 export const objectColors: Record<ColorableType, ObjectColorToken> = {
-  'daily-note':   { text: '#b8bec8', bg: 'rgba(79,143,237,0.18)',  border: 'rgba(79,143,237,0.45)',  accent: '#4f8fed', selectionGlow: 'rgba(79,143,237,0.40)'  },
-  'topic-note':   { text: '#7dcfaa', bg: 'rgba(72,178,120,0.18)',  border: 'rgba(72,178,120,0.45)',  accent: '#48b278', selectionGlow: 'rgba(72,178,120,0.40)'  },
-  'habit':        { text: '#e8a84a', bg: 'rgba(200,131,42,0.18)',  border: 'rgba(200,131,42,0.45)',  accent: '#c8832a', selectionGlow: 'rgba(200,131,42,0.40)'  },
-  'project':      { text: '#c49be8', bg: 'rgba(156,109,212,0.18)', border: 'rgba(156,109,212,0.45)', accent: '#9c6dd4', selectionGlow: 'rgba(156,109,212,0.40)' },
-  'ref-material': { text: '#9ed8ef', bg: 'rgba(109,176,212,0.18)', border: 'rgba(109,176,212,0.45)', accent: '#6db0d4', selectionGlow: 'rgba(109,176,212,0.40)' },
-  'scripture':    { text: '#f1c768', bg: 'rgba(214,154,44,0.18)',  border: 'rgba(214,154,44,0.45)',  accent: '#d69a2c', selectionGlow: 'rgba(214,154,44,0.40)'  },
+  'daily-note':   { text: '#cbe3ff', bg: 'rgba(74,144,255,0.24)',  border: 'rgba(74,144,255,0.62)',  accent: '#4a90ff', selectionGlow: 'rgba(74,144,255,0.52)'  },
+  'topic-note':   { text: '#c9ffe1', bg: 'rgba(46,201,126,0.24)',  border: 'rgba(46,201,126,0.62)',  accent: '#2ec97e', selectionGlow: 'rgba(46,201,126,0.52)'  },
+  'habit':        { text: '#ffe0b9', bg: 'rgba(255,155,64,0.24)',  border: 'rgba(255,155,64,0.62)',  accent: '#ff9b40', selectionGlow: 'rgba(255,155,64,0.52)'  },
+  'project':      { text: '#e9d0ff', bg: 'rgba(176,96,255,0.24)',  border: 'rgba(176,96,255,0.62)',  accent: '#b060ff', selectionGlow: 'rgba(176,96,255,0.52)'  },
+  'ref-material': { text: '#ffd0ef', bg: 'rgba(255,92,186,0.24)',  border: 'rgba(255,92,186,0.62)',  accent: '#ff5cba', selectionGlow: 'rgba(255,92,186,0.52)'  },
+  'scripture':    { text: '#ffe5ae', bg: 'rgba(255,198,62,0.24)',  border: 'rgba(255,198,62,0.62)',  accent: '#ffc63e', selectionGlow: 'rgba(255,198,62,0.52)'  },
 }
 
 /** Look up the color token for a given object type string, falling back to daily-note colors. */

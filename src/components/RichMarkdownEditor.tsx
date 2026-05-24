@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Button,
   Box,
+  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -19,8 +19,8 @@ import CodeIcon from '@mui/icons-material/Code'
 import ChecklistIcon from '@mui/icons-material/Checklist'
 import TitleIcon from '@mui/icons-material/Title'
 import LinkIcon from '@mui/icons-material/Link'
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import type { AnyExtension } from '@tiptap/core'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -86,6 +86,7 @@ turndown.addRule('tightLineBreaks', {
 })
 
 const ADMONITION_MARKER_RE = /^\[!([A-Za-z0-9_-]+)]([+-])?(?:\s+(.*))?$/
+const BLANK_LINE_MARKER = '<!--puzzlepkm-blank-line-->'
 
 function escapeHtml(value: string): string {
   return String(value)
@@ -245,13 +246,21 @@ function normalizeEditorHtmlForMarkdown(html: string): string {
 
 function markdownToHtml(markdown: string): string {
   if (!markdown.trim()) return '<p></p>'
-  return marked.parse(transformAdmonitionMarkdownToHtml(markdown)) as string
+  const withBlankLineHtml = String(markdown ?? '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => (line.trim() === BLANK_LINE_MARKER ? '<p data-puzzlepkm-blank-line="true"><br></p>' : line))
+    .join('\n')
+  return marked.parse(transformAdmonitionMarkdownToHtml(withBlankLineHtml)) as string
 }
 
 function htmlToMarkdown(html: string): string {
   const normalizedHtml = normalizeEditorHtmlForMarkdown(html)
   const markdown = turndown.turndown(normalizedHtml)
     .replace(/\r\n/g, '\n')
+    // Turndown serializes empty paragraphs as a standalone "  " line; keep
+    // those as explicit markers so marked won't collapse them on reload.
+    .replace(/^[ \t]{2}$/gm, BLANK_LINE_MARKER)
   return markdown === '\n' ? '' : markdown
 }
 
@@ -263,9 +272,14 @@ function fallbackBlockId(index: number): string {
 }
 
 function splitMarkdownIntoParagraphs(markdown: string): string[] {
-  const raw = markdown.trimEnd()
+  const raw = String(markdown ?? '')
+    .replace(/\r\n/g, '\n')
+    .trimEnd()
   if (!raw) return []
-  return raw.split(/\n{2,}/).map((paragraph) => paragraph.trimEnd()).filter(Boolean)
+
+  // Split on paragraph boundaries while keeping empty segments so that
+  // intentional blank lines survive round-trips through saved block data.
+  return raw.split('\n\n').map((paragraph) => paragraph.trimEnd())
 }
 
 function reconcileBlocksWithMarkdown(prevBlocks: NoteBlock[], markdown: string): NoteBlock[] {
@@ -364,15 +378,16 @@ function ToolbarButton({ title, active, onClick, children }: ToolbarButtonProps)
       <IconButton
         size="small"
         onClick={onClick}
-        sx={{
-          color: active ? '#eceff3' : '#b8bec8',
-          bgcolor: active ? 'rgba(79,143,237,0.24)' : 'transparent',
-          border: active ? '1px solid #4f8fed' : '1px solid transparent',
+        sx={(theme) => ({
+          color: active ? theme.palette.text.primary : theme.palette.text.secondary,
+          bgcolor: active ? theme.palette.action.selected : 'transparent',
+          border: `1px solid ${active ? theme.palette.border.strong : 'transparent'}`,
           borderRadius: '6px',
           '&:hover': {
-            bgcolor: 'rgba(79,143,237,0.16)',
+            bgcolor: active ? theme.palette.action.selected : theme.palette.action.hover,
+            borderColor: theme.palette.border.strong,
           },
-        }}
+        })}
       >
         {children}
       </IconButton>
@@ -563,7 +578,7 @@ export default function RichMarkdownEditor({
         mentionRangeRef.current ??
         { from: targetEditor.state.selection.from, to: targetEditor.state.selection.from }
       const resolvedHref = await Promise.resolve(
-        resolveMentionHref?.(option) ?? option.syncPath ?? option.dropboxPath ?? option.id,
+        resolveMentionHref?.(option) ?? option.syncPath ?? option.syncPath ?? option.id,
       )
       const href = resolvedHref.trim()
       if (!href) return
@@ -589,7 +604,7 @@ export default function RichMarkdownEditor({
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: 'dropith-rich-editor-content ProseMirror',
+        class: 'puzzlepkm-rich-editor-content ProseMirror',
       },
       handleDOMEvents: {
         click: (_view, event) => {
@@ -779,6 +794,19 @@ export default function RichMarkdownEditor({
     setAdmonitionMenuAnchor(null)
   }, [editor])
 
+  const handleRemoveAdmonition = useCallback(() => {
+    if (!editor || !editor.isActive('blockquote')) {
+      setAdmonitionMenuAnchor(null)
+      return
+    }
+    editor
+      .chain()
+      .focus()
+      .updateAttributes('blockquote', { admonitionType: null, admonitionLabel: null })
+      .run()
+    setAdmonitionMenuAnchor(null)
+  }, [editor])
+
   const handleAdmonitionMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -792,11 +820,11 @@ export default function RichMarkdownEditor({
   return (
     <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-        <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '12px', fontWeight: 500 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '12px', fontWeight: 500 }}>
           {label}
         </Typography>
         {typeof currentCount === 'number' && typeof maxLength === 'number' && (
-          <Typography variant="caption" sx={{ color: currentCount > maxLength ? '#ef5350' : '#9198a3', fontSize: '11px' }}>
+          <Typography variant="caption" sx={{ color: currentCount > maxLength ? 'error.main' : 'text.disabled', fontSize: '11px' }}>
             {currentCount}/{maxLength}
           </Typography>
         )}
@@ -804,9 +832,10 @@ export default function RichMarkdownEditor({
 
       <Box
         sx={{
-          border: '1px solid rgba(184,190,200,0.45)',
+          border: '1px solid',
+          borderColor: 'border.subtle',
           borderRadius: '12px',
-          bgcolor: 'rgba(11, 24, 40, 0.75)',
+          bgcolor: 'surface.sunken',
           flex: 1,
           minHeight: 0,
           display: 'flex',
@@ -814,7 +843,7 @@ export default function RichMarkdownEditor({
           overflow: 'hidden',
         }}
       >
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid rgba(255,255,255,0.09)', flexShrink: 0 }}>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid', borderColor: 'border.subtle', flexShrink: 0 }}>
           <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
             <TitleIcon fontSize="small" />
           </ToolbarButton>
@@ -851,28 +880,25 @@ export default function RichMarkdownEditor({
           <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={handleLinkPrompt}>
             <LinkIcon fontSize="small" />
           </ToolbarButton>
-          <Button
-            size="small"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={handleAdmonitionMenuOpen}
-            endIcon={<ArrowDropDownIcon fontSize="small" />}
-            sx={{
-              minHeight: 30,
-              px: 1,
-              borderRadius: '6px',
-              border: '1px solid',
-              borderColor: activeAdmonitionType ? '#4f8fed' : 'rgba(255,255,255,0.09)',
-              bgcolor: activeAdmonitionType ? 'rgba(79,143,237,0.24)' : 'transparent',
-              color: activeAdmonitionType ? '#eceff3' : '#b8bec8',
-              textTransform: 'none',
-              '&:hover': {
-                bgcolor: 'rgba(79,143,237,0.16)',
-                borderColor: '#4f8fed',
-              },
-            }}
-          >
-            {activeAdmonitionType ? `Admonition: ${capitalize(activeAdmonitionType)}` : 'Admonition'}
-          </Button>
+          <Tooltip title={activeAdmonitionType ? `Admonition (${capitalize(activeAdmonitionType)})` : 'Admonition'}>
+            <IconButton
+              size="small"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleAdmonitionMenuOpen}
+              sx={(theme) => ({
+                color: activeAdmonitionType ? theme.palette.text.primary : theme.palette.text.secondary,
+                bgcolor: activeAdmonitionType ? theme.palette.action.selected : 'transparent',
+                border: `1px solid ${activeAdmonitionType ? theme.palette.border.strong : 'transparent'}`,
+                borderRadius: '6px',
+                '&:hover': {
+                  bgcolor: activeAdmonitionType ? theme.palette.action.selected : theme.palette.action.hover,
+                  borderColor: theme.palette.border.strong,
+                },
+              })}
+            >
+              <InfoOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
 
         <Menu
@@ -882,8 +908,15 @@ export default function RichMarkdownEditor({
           slotProps={{
             paper: {
               sx: {
-                bgcolor: '#1a1c1f',
-                border: '1px solid rgba(255,255,255,0.09)',
+                bgcolor: 'surface.elevated',
+                border: '1px solid',
+                borderColor: 'border.subtle',
+              },
+            },
+            list: {
+              dense: true,
+              sx: {
+                py: 0.25,
               },
             },
           }}
@@ -894,10 +927,29 @@ export default function RichMarkdownEditor({
               selected={activeAdmonitionType === option.value}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => handleApplyAdmonitionType(option.value)}
+              sx={{
+                minHeight: 28,
+                px: 1,
+                fontSize: '12px',
+              }}
             >
               {option.label}
             </MenuItem>
           ))}
+          <Divider sx={{ my: 0.25 }} />
+          <MenuItem
+            disabled={!activeAdmonitionType}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleRemoveAdmonition}
+            sx={{
+              minHeight: 28,
+              px: 1,
+              fontSize: '12px',
+              color: 'text.secondary',
+            }}
+          >
+            Remove admonition
+          </MenuItem>
         </Menu>
 
         <Box

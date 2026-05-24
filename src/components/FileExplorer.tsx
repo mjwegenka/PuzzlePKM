@@ -30,7 +30,6 @@ interface FileItem {
   name: string;
   author?: string;
   syncPath: string;
-  dropboxPath?: string;
   type: 'project' | 'ref-material';
 }
 

@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-const repo = 'mjwegenka/dropith';
-const planPath = '/Users/michael/WebProjects/dropith/plan-blockLevelNoteLinking.issues.prompt.md';
+const repo = 'mjwegenka/puzzlepkm';
+const planPath = '/Users/michael/WebProjects/puzzlepkm/plan-blockLevelNoteLinking.issues.prompt.md';
 const text = readFileSync(planPath, 'utf8');
 
-const issueRegex = /^### Issue\s+(\d+)\s+-\s+(.+?)\n([\s\S]*?)(?=^### Issue\s+\d+\s+-|^## Suggested Labels|\Z)/gm;
+const issueRegex = /^### Issue\s+(\d+)\s+-\s+(.+?)\n([\s\S]*?)(?=^### Issue\s+\d+\s+-|^## Suggested Labels|$)/gm;
 
 const issues = [];
 let match;

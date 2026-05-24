@@ -62,13 +62,13 @@ declare module '@mui/material/Typography' {
 
 export const neutralDarkTokens = {
   surface: {
-    app: '#121315',
-    elevated: '#1a1c1f',
-    sunken: '#17191c',
+    app: '#1b1d20',
+    elevated: '#1e2024',
+    sunken: '#20242a',
   },
   border: {
-    subtle: alpha('#ffffff', 0.09),
-    strong: alpha('#ffffff', 0.16),
+    subtle: alpha('#ffffff', 0.08),
+    strong: alpha('#ffffff', 0.13),
   },
   text: {
     primary: '#eceff3',
@@ -140,9 +140,9 @@ export const appTheme = createTheme({
       main: neutralDarkTokens.accent.metadata,
     },
     action: {
-      selected: alpha(neutralDarkTokens.accent.selected, 0.28),
+      selected: alpha(neutralDarkTokens.accent.selected, 0.18),
       hover: alpha('#ffffff', 0.04),
-      focus: alpha(neutralDarkTokens.accent.selected, 0.34),
+      focus: alpha(neutralDarkTokens.accent.selected, 0.24),
     },
     surface: {
       app: neutralDarkTokens.surface.app,

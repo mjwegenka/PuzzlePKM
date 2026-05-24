@@ -21,7 +21,7 @@ Stages 1 through 8 have been fully implemented:
 - **Stage 5 – Notes Workflows**: Markdown import pipeline and core note/object workflows are available in the CLI.
 - **Stage 6 – Sync File Objects**: Projects and Reference Materials are sync-backed as slug-named directories with `meta.yaml`. Directory browsing and open-in-folder helpers are in CLI and desktop UI (`DEC-17`, `DEC-23`).
 - **Stage 7 – Habits and Tags**: Habit lifecycle enforces single-tag identity and required `status` enum (`DEC-45`). Case-insensitive tags aggregate across all object types. Tags page lists all tagged objects including habits (`DEC-24`).
-- **Stage 8 – Sync and Reliability**: Local-folder sync is the active transport (`DEC-35`, `DEC-41`). One-shot `puzzlepkm sync` and background `puzzlepkm sync --watch` are available. Conflict resolution follows last-write-wins semantics (`DEC-09`). Dropbox OAuth commands are now legacy/deprecated.
+- **Stage 8 – Sync and Reliability**: Local-folder sync is the active transport (`DEC-35`, `DEC-41`). One-shot `puzzlepkm sync` and background `puzzlepkm sync --watch` are available. Conflict resolution follows last-write-wins semantics (`DEC-09`). Legacy provider-auth commands are now deprecated.
 
 ## Block-Level Note Linking (Completed)
 
@@ -67,14 +67,14 @@ See `DEC-54` in `IMPLEMENTATION_DECISIONS.md` for the full v1 readiness definiti
 - [ ] Missing sync folder triggers folder creation and skips deletion reconciliation for that type on the same run (safe fallback).
 - [ ] Deleting a locally-tracked object removes its sync file before the DB record is dropped.
 - [ ] Inbox tag is added exactly once to newly imported objects; existing objects are never re-tagged on subsequent syncs.
-- [ ] `syncPath` metadata is present and correct in serialized front matter; legacy `dropboxPath` values round-trip for compatibility.
+- [ ] `syncPath` metadata is present and correct in serialized front matter; legacy path aliases round-trip for compatibility.
 
 **Migration flows**
 - [ ] Opening a pre-block-era database auto-backfills `note_blocks` from `content_markdown` without data loss.
 - [ ] Legacy markdown without embedded block IDs receives fresh block IDs on import; no content is dropped.
-- [ ] Legacy `dropboxPath` links resolve after migration to the local-sync transport (`DEC-35`).
-- [ ] `PUZZLEPKM_DB_PATH` and legacy `DROPITH_DB_PATH` environment variables both resolve to the correct database.
-- [ ] `puzzlepkm` primary CLI and `dropith` compatibility alias both resolve to the same binary.
+- [ ] Legacy path-field links resolve after migration to the local-sync transport (`DEC-35`).
+- [ ] `PUZZLEPKM_DB_PATH` and legacy `PUZZLEPKM_DB_PATH` environment variables both resolve to the correct database.
+- [ ] `puzzlepkm` primary CLI and `puzzlepkm` compatibility alias both resolve to the same binary.
 
 **Documentation**
 - [ ] Command lists in `README.md` and `AGENTS.md` are identical and cover all runnable commands.

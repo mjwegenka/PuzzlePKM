@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 
-const repo = process.env.ISSUE_REPO || 'mjwegenka/dropith';
+const repo = process.env.ISSUE_REPO || 'mjwegenka/puzzlepkm';
 const sequencePath = new URL('../.github/issue-sequence.json', import.meta.url);
 const sequence = JSON.parse(readFileSync(sequencePath, 'utf8'));
 

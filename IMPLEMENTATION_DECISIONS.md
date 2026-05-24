@@ -11,7 +11,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 - `DEC-01` Primary interface is the CLI (`cli.mjs`), which runs standalone with Node.js 22+ (no build step). All features are available in the CLI. A Tauri desktop wrapper provides a secondary UI that delegates all operations back to the CLI via subprocess execution, ensuring feature parity.
 - `DEC-02` Companion web shell (React + TypeScript + Vite) conforms to `HEPTABASE_INTERFACE_CHANGE_PLAN.md` for responsive behavior and component styling. Desktop packaging uses Tauri v2 (Rust host + web UI).
 - `DEC-03` Local persistence uses built-in `node:sqlite`; no native database addons. Secrets are stored in an app-managed `secrets.json` file shared by CLI and desktop wrapper.
-- `DEC-04` Platform target is macOS-first; application data stored per platform conventions: macOS `~/Library/Application Support/dropith/`, Linux `~/.config/dropith/`, Windows `%APPDATA%\dropith\`.
+- `DEC-04` Platform target is macOS-first; application data stored per platform conventions: macOS `~/Library/Application Support/puzzlepkm/`, Linux `~/.config/puzzlepkm/`, Windows `%APPDATA%\puzzlepkm\`.
 
 ---
 
@@ -25,12 +25,12 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 ## Sync Transport (Local-Folder Based)
 
-- `DEC-35` **Active sync transport is local-folder based**: `puzzlepkm sync` reads/writes the configured sync root on the local filesystem and no longer requires Dropbox API/OAuth connectivity for routine sync operations. The default virtual root `/Dropith` maps to a local Dropbox client folder path (`~/Library/CloudStorage/Dropbox/Dropith` on macOS; `~/Dropbox/Dropith` fallback). Existing path metadata (`dropboxPath`) is retained for compatibility and link stability. Dropbox OAuth commands are now legacy/deprecated for active syncing.
-  - **Supersedes**: DEC-08, DEC-09, DEC-10, DEC-11 (Dropbox-specific sync behavior)
+- `DEC-35` **Active sync transport is local-folder based**: `puzzlepkm sync` reads/writes the configured sync root on the local filesystem and no longer requires provider API/OAuth connectivity for routine sync operations. The default virtual root `/PuzzlePKM` maps to a local sync folder path (`~/Library/CloudStorage/Sync/PuzzlePKM` on macOS; `~/Sync/PuzzlePKM` fallback). Existing path metadata aliases are retained for compatibility and link stability. Legacy provider-auth commands are now deprecated for active syncing.
+  - **Supersedes**: DEC-08, DEC-09, DEC-10, DEC-11 (provider-specific sync behavior)
 
-- `DEC-41` **Local-sync naming cleanup**: User-facing Dropbox auth/connect commands are removed from CLI/UI/help so local-folder sync is the only active sync mode. Path metadata is now documented as `syncPath`; parsers continue reading legacy `dropboxPath` values from existing DB rows/front matter for compatibility.
+- `DEC-41` **Local-sync naming cleanup**: User-facing provider auth/connect commands are removed from CLI/UI/help so local-folder sync is the only active sync mode. Path metadata is now documented as `syncPath`; parsers continue reading legacy path aliases from existing DB rows/front matter for compatibility.
 
-- `DEC-17` Sync includes habits, projects, and reference materials in addition to notes. Sync ensures required local sync folders exist (`daily-notes`, `topic-notes`, `habits`, `projects`, `ref-materials`) and creates missing folders. If a folder was missing at sync start, Dropith recreates it and skips remote-deletion reconciliation for that object type during that run. Projects and reference materials are stored as directories (with slug-derived names); each directory contains a `meta.yaml` file with metadata. When a project/reference material name changes, the directory is renamed to match the new slug. Habits are stored as individual `{id}.md` files. Directories can contain user files alongside the metadata file.
+- `DEC-17` Sync includes habits, projects, and reference materials in addition to notes. Sync ensures required local sync folders exist (`daily-notes`, `topic-notes`, `habits`, `projects`, `ref-materials`) and creates missing folders. If a folder was missing at sync start, PuzzlePKM recreates it and skips remote-deletion reconciliation for that object type during that run. Projects and reference materials are stored as directories (with slug-derived names); each directory contains a `meta.yaml` file with metadata. When a project/reference material name changes, the directory is renamed to match the new slug. Habits are stored as individual `{id}.md` files. Directories can contain user files alongside the metadata file.
 
 - `DEC-09` **Conflict resolution**: Bidirectional last-write-wins semantics. Remote updates apply if remote `updatedAt > local updatedAt`. Local updates upload if local `updatedAt > remote updatedAt`. When timestamps are equal, content differences (body, title, tags, links) trigger updates to catch manual sync folder edits. Sync state tracks whether each note has previously had a local sync copy.
 
@@ -68,7 +68,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 - `DEC-22` **Link navigation**: When a user Shift+clicks a link in note content, the application resolves the sync path to the target object and opens its editor (either inline or as a modal). Regular clicks do not navigate; they are used for display only.
 
-- `DEC-27` **Relative path linking**: `@`-inserted Markdown links are rendered relative to the current object's sync file location rather than as absolute sync-root paths. For example, a Daily Note linking to `/Dropith/habits/foo.md` stores `../habits/foo.md`, while a Habit linking to another Habit in the same folder stores `foo.md`. If the target object's `syncPath` metadata is missing, the app auto-backfills metadata on DB open and only falls back to ID-based links if no canonical path can be resolved.
+- `DEC-27` **Relative path linking**: `@`-inserted Markdown links are rendered relative to the current object's sync file location rather than as absolute sync-root paths. For example, a Daily Note linking to `/PuzzlePKM/habits/foo.md` stores `../habits/foo.md`, while a Habit linking to another Habit in the same folder stores `foo.md`. If the target object's `syncPath` metadata is missing, the app auto-backfills metadata on DB open and only falls back to ID-based links if no canonical path can be resolved.
 
 ---
 
@@ -82,7 +82,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 - `DEC-26` **Calendar grid**: Days are rendered with fixed widths (all seven columns equal width) using CSS `gridTemplateColumns: repeat(7, 1fr)`, regardless of content size. This ensures consistent, predictable calendar layout.
 
-- `DEC-28` **Hard delete with sync safety**: Delete operations (`puzzlepkm delete ...` and desktop UI delete flows) are hard deletes for sync-tracked objects. Before removing the local DB record, Dropith attempts to delete the corresponding sync file/folder path. If the object is known to have a remote copy (`sync_state.has_remote_copy = 1`) and sync is not connected, the delete operation fails instead of silently creating a local-only delete.
+- `DEC-28` **Hard delete with sync safety**: Delete operations (`puzzlepkm delete ...` and desktop UI delete flows) are hard deletes for sync-tracked objects. Before removing the local DB record, PuzzlePKM attempts to delete the corresponding sync file/folder path. If the object is known to have a remote copy (`sync_state.has_remote_copy = 1`) and sync is not connected, the delete operation fails instead of silently creating a local-only delete.
 
 - `DEC-29` **Daily Note non-overwrite**: Daily Note creation is strict-non-overwriting. The `write daily-note` path only updates when an explicit existing `id` is provided; if another note already exists for the selected `date`, creation fails. In the desktop "Create New Note" modal, selecting a date that already has a Daily Note automatically opens that existing note instead of saving over it.
 
@@ -100,7 +100,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 ## Block-Level Linking Architecture
 
-- `DEC-36` **Block identity & linking format**: Each paragraph-level block in a note body is assigned a stable `blockId` of the form `blk-<12 lowercase hex characters>` (e.g., `blk-a1b2c3d4e5f6`), generated once at first persist and embedded as a trailing HTML comment (e.g., `text <!-- blk-a1b2c3d4e5f6 -->`). Canonical block ordering is document order (top-to-bottom). Link target format is `syncPath#blockId` (legacy `dropboxPath#blockId` supported). Lifecycle: (a) **update** — edits do not change `blockId`; (b) **delete** — incoming links become dangling; app surfaces warnings but does not auto-redirect; (c) **merge** — surviving upper block retains `blockId`, lower block's id discarded; (d) **split** — upper block retains original `blockId`, lower block receives new `blockId`; (e) **move across files** — `blockId` preserved, `syncPath` in links updated to reflect new location.
+- `DEC-36` **Block identity & linking format**: Each paragraph-level block in a note body is assigned a stable `blockId` of the form `blk-<12 lowercase hex characters>` (e.g., `blk-a1b2c3d4e5f6`), generated once at first persist and embedded as a trailing HTML comment (e.g., `text <!-- blk-a1b2c3d4e5f6 -->`). Canonical block ordering is document order (top-to-bottom). Link target format is `syncPath#blockId` (legacy path-field aliases supported). Lifecycle: (a) **update** — edits do not change `blockId`; (b) **delete** — incoming links become dangling; app surfaces warnings but does not auto-redirect; (c) **merge** — surviving upper block retains `blockId`, lower block's id discarded; (d) **split** — upper block retains original `blockId`, lower block receives new `blockId`; (e) **move across files** — `blockId` preserved, `syncPath` in links updated to reflect new location.
 
 - `DEC-37` **`note_blocks` schema**: A `note_blocks` table stores ordered blocks for both `topic-note` and `daily-note` objects. Columns: `note_id TEXT` (FK), `block_id TEXT` (per DEC-36), `note_type TEXT` (`'topic-note'` or `'daily-note'`), `position INTEGER` (zero-based), `content_markdown TEXT`, `created_at TEXT`, `updated_at TEXT`. Primary key: `(note_id, block_id)`. Indexes: `idx_note_blocks_note_id`, `idx_note_blocks_position`. The `topic_notes.content_markdown` and `daily_notes.content_markdown` columns remain for backwards compatibility. A `backfillNoteBlocks` function runs on every `openDb()` call and idempotently creates a single seed block from legacy `content_markdown` for any note with no entries in `note_blocks` yet.
 
@@ -122,7 +122,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 - `DEC-45` **Habit lifecycle**: Habits persist a required `status` enum with values `planned` or `accomplished`. New habits default to `planned`; habit imports/sync front matter missing `status` default to `accomplished`. Habit writes enforce a one-tag rule by persisting at most one tag. Habit metadata/list/front matter payloads include `status` for CLI and desktop bridge parity.
 
-- `DEC-46` **Date-link semantics**: Dates are first-class links to Daily Notes. When a note link resolves to a date, or an object date field (Topic Note `date`, Habit `date`, Project `startDate`/`endDate`) is set, Dropith creates/reuses the corresponding Daily Note and persists the link so backlinks remain reciprocal. Daily Notes may be deleted only when empty and unreferenced (no content, tags, links, or backlinks). When date links are removed, Dropith auto-cleans orphan Daily Notes that satisfy the same empty/unreferenced rule.
+- `DEC-46` **Date-link semantics**: Dates are first-class links to Daily Notes. When a note link resolves to a date, or an object date field (Topic Note `date`, Habit `date`, Project `startDate`/`endDate`) is set, PuzzlePKM creates/reuses the corresponding Daily Note and persists the link so backlinks remain reciprocal. Daily Notes may be deleted only when empty and unreferenced (no content, tags, links, or backlinks). When date links are removed, PuzzlePKM auto-cleans orphan Daily Notes that satisfy the same empty/unreferenced rule.
 
 ---
 
@@ -130,7 +130,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 - `DEC-47` **Inbox tagging for imports**: When sync reconciliation discovers a previously unseen object (any type), it automatically adds the reserved `Inbox` tag so users can review new arrivals. Updates to existing objects never reapply `Inbox`. For habits (subject to one-tag rule of DEC-45), `Inbox` is prepended and becomes the sole stored tag. The Notes page provides an Inbox toggle button that filters all columns to show only `Inbox`-tagged items.
 
-- `DEC-48` **Pinned navigation**: Objects tagged with reserved `Pinned` (case-insensitive) appear in a dedicated **Pinned** sidebar section beneath primary navigation. The pinned list is mixed-type, opens the target object directly on click, supports mouse drag/drop plus keyboard-accessible up/down reordering, and persists that order locally in `localStorage` (`dropith:pinned-order:v1`). Unpinning removes the `Pinned` tag immediately and persists via the existing `write` path.
+- `DEC-48` **Pinned navigation**: Objects tagged with reserved `Pinned` (case-insensitive) appear in a dedicated **Pinned** sidebar section beneath primary navigation. The pinned list is mixed-type, opens the target object directly on click, supports mouse drag/drop plus keyboard-accessible up/down reordering, and persists that order locally in `localStorage` (`puzzlepkm:pinned-order:v1`). Unpinning removes the `Pinned` tag immediately and persists via the existing `write` path.
 
 - `DEC-49` **Multi-tab Notes workspace**: Notes modal editing supports multiple open object tabs (topic-note, daily-note, habit, plus linked project/ref-material targets). Opening an object reuses an existing tab by default; users can intentionally open another tab via Ctrl/Cmd-open. Each tab tracks its own dirty state and close confirmation. Active-tab selection is preserved while Notes section remains mounted. Tab state is in-memory and resets on full app reload/section remount.
 
@@ -142,7 +142,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 - `DEC-51` **Scripture extraction**: On create/update save for Topic and Daily notes, note block markdown is deterministically normalized to canonical scripture markdown links (`[Reference](https://www.biblegateway.com/passage/?search=...&version=RSVCE&interface=print)`). Canonicalized references are persisted in a dedicated `scriptures` table, linked to notes through `object_links`, and exposed as a first-class `scripture` object type. Scripture listing is ordered by canonical Bible book sequence then reference text, and scripture detail payloads include linked notes.
 
-- `DEC-52` **PuzzlePKM rename**: User-facing branding now prefers **PuzzlePKM** across CLI help, docs, and desktop chrome. The primary CLI command is `puzzlepkm`, while the legacy `dropith` binary/env-var aliases remain supported. Existing app-data directories (`dropith`) and the desktop bundle identifier (`com.dropith.desktop`) stay unchanged so current users are not forced through abrupt migration.
+- `DEC-52` **PuzzlePKM naming**: User-facing branding uses **PuzzlePKM** across CLI help, docs, and desktop chrome. CLI usage is `puzzlepkm` and database overrides use `PUZZLEPKM_DB_PATH`. App-data directories remain `puzzlepkm`, and the desktop bundle identifier is `com.puzzlepkm.desktop`.
 
 ---
 
@@ -154,7 +154,7 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 ## Release Criteria & Mobile
 
-- `DEC-54` **v1 readiness**: v1 is release-ready when: (a) all object types pass regression (create/read/update/delete without data loss); (b) sync safety holds across one-shot and watch-mode sync for all object types, including safe fallback on missing folders and correct Inbox-tag application for new imports; (c) migration flows complete without data loss for pre-block-era databases and legacy `dropboxPath` link metadata; (d) canonical documentation is internally consistent — command lists in `README.md` and `AGENTS.md` are identical, all `DEC-*` references resolve, no behavioral rule is duplicated across canonical files, and `DEVELOPMENT_PLAN.md` stage statuses match actual implementation state. The full actionable checklist is in DEVELOPMENT_PLAN.md Stage 9.
+- `DEC-54` **v1 readiness**: v1 is release-ready when: (a) all object types pass regression (create/read/update/delete without data loss); (b) sync safety holds across one-shot and watch-mode sync for all object types, including safe fallback on missing folders and correct Inbox-tag application for new imports; (c) migration flows complete without data loss for pre-block-era databases and legacy path-field link metadata; (d) canonical documentation is internally consistent — command lists in `README.md` and `AGENTS.md` are identical, all `DEC-*` references resolve, no behavioral rule is duplicated across canonical files, and `DEVELOPMENT_PLAN.md` stage statuses match actual implementation state. The full actionable checklist is in DEVELOPMENT_PLAN.md Stage 9.
 
 - `DEC-55` **iOS companion app**: A write-only iPhone app (`ios/`) lets users capture daily notes and habits on the go. The app writes to a `mobile-inbox/` sub-folder inside the sync root: daily notes to `{rootFolder}/mobile-inbox/daily-notes/YYYY-MM-DD.md` and habits to `{rootFolder}/mobile-inbox/habits/{date}-{tag}-{shortId}.md`. Each file uses minimal YAML front matter with `source: "mobile"` as the type discriminator. When `puzzlepkm sync` runs, `reconcileMobileInboxDailyNotes` and `reconcileMobileInboxHabits` process the files: daily-note content is *appended* to existing notes for the same date (or a new note is created), habits are imported as new entries, and processed inbox files are deleted. The iOS app is implemented in SwiftUI (iOS 17+) using SwiftyDropbox SDK. Setup instructions are in `ios/README.md`.
 
@@ -162,9 +162,9 @@ When a decision is superseded, both the old and new decision IDs are referenced 
 
 ## Legacy Decisions (Historical Reference)
 
-- `DEC-08` **[LEGACY — Superseded by DEC-35]** Dropbox-specific daily notes sync path structure.
-- `DEC-11` **[LEGACY — Superseded by DEC-35]** Dropbox OAuth token flow for browser-based authentication.
-- `DEC-15` **[LEGACY — Superseded by DEC-35]** Dropbox authentication configuration via CLI commands.
+- `DEC-08` **[LEGACY — Superseded by DEC-35]** Provider-specific daily-notes sync path structure.
+- `DEC-11` **[LEGACY — Superseded by DEC-35]** OAuth token flow for browser-based authentication.
+- `DEC-15` **[LEGACY — Superseded by DEC-35]** Provider-auth configuration via CLI commands.
 
 These decisions remain documented for historical context and understanding pre-local-sync architecture. All active sync guidance is now in DEC-35 and DEC-41.
 

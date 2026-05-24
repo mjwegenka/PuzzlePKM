@@ -30,8 +30,8 @@ Mobile inbox files are deleted from Dropbox after successful processing.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/mjwegenka/dropith.git
-cd dropith/ios
+git clone https://github.com/mjwegenka/puzzlepkm.git
+cd puzzlepkm/ios
 ```
 
 ### 2. Create a new Xcode project
@@ -39,7 +39,7 @@ cd dropith/ios
 1. Open Xcode and choose **File → New → Project**.
 2. Select **iOS → App**.
 3. Set the product name to **PuzzlePKMMobile**, bundle identifier to something like `com.yourname.puzzlepkm.mobile`, and interface to **SwiftUI**.
-4. Save the project inside `dropith/ios/`.
+4. Save the project inside `puzzlepkm/ios/`.
 
 ### 3. Add the Swift Package
 
@@ -82,7 +82,7 @@ Build and run the app on a simulator or device. On first launch:
 
 1. Open the **Settings** tab.
 2. Enter your **Dropbox App Key**.
-3. Set the **Sync Root Folder** (must match the value configured in PuzzlePKM on your desktop, e.g. `/Dropith`).
+3. Set the **Sync Root Folder** (must match the value configured in PuzzlePKM on your desktop, e.g. `/PuzzlePKM`).
 4. Tap **Connect to Dropbox** and complete the OAuth flow.
 
 ## Creating a Dropbox App Key

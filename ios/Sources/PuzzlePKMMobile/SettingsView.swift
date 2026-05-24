@@ -6,7 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var dropboxService: DropboxService
 
     @AppStorage("dropboxAppKey") private var appKey: String = ""
-    @AppStorage("rootFolder")    private var rootFolder: String = "/Dropith"
+    @AppStorage("rootFolder")    private var rootFolder: String = "/PuzzlePKM"
 
     @State private var pendingAppKey: String = ""
     @State private var pendingRootFolder: String = ""
@@ -80,10 +80,10 @@ struct SettingsView: View {
 
     private var syncFolderSection: some View {
         Section {
-            TextField("/Dropith", text: $pendingRootFolder)
+            TextField("/PuzzlePKM", text: $pendingRootFolder)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-            Text("Must match the root folder configured in PuzzlePKM on your desktop (e.g. /Dropith).")
+            Text("Must match the root folder configured in PuzzlePKM on your desktop (e.g. /PuzzlePKM).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } header: {

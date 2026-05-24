@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import process from 'node:process'
 
-const repoDir = '/Users/michael/WebProjects/dropith'
-const importDir = '/Users/michael/Library/CloudStorage/Dropbox/_Staging/To Import/05_Habit'
+const repoDir = '/Users/michael/WebProjects/puzzlepkm'
+const importDir = '/Users/michael/Library/CloudStorage/Sync/_Staging/To Import/05_Habit'
 
 function runCli(args) {
   return spawnSync('node', ['./cli.mjs', ...args], {
@@ -20,8 +21,7 @@ function parseFrontmatter(content) {
     const i = line.indexOf(':')
     if (i < 0) continue
     const key = line.slice(0, i).trim()
-    const val = line.slice(i + 1).trim().replace(/^['"]|['"]$/g, '')
-    out[key] = val
+    out[key] = line.slice(i + 1).trim().replace(/^['"]|['"]$/g, '')
   }
   return out
 }

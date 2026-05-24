@@ -2,7 +2,7 @@
 
 ## What Was Built
 
-The Dropith desktop wrapper now provides a complete knowledge management interface with the following features:
+The PuzzlePKM desktop wrapper now provides a complete knowledge management interface with the following features:
 
 ### Core UI Components
 
@@ -12,7 +12,7 @@ The Dropith desktop wrapper now provides a complete knowledge management interfa
 - Active section highlighting
 - Navigation items:
   - Calendar
-  - Files (Dropbox browser)
+  - Files (sync browser)
   - New Note (create topic note)
   - Tags (placeholder)
   - Settings (placeholder)
@@ -56,7 +56,7 @@ The Dropith desktop wrapper now provides a complete knowledge management interfa
 - **Maximum 8 suggestions** visible at once
 
 #### 6. **File Explorer** (`FileExplorer.tsx`)
-- Directory browser for Dropbox content
+- Directory browser for sync content
 - Folder/file navigation
 - Back button for parent directory
 - Mock data structure (ready for CLI integration)
@@ -84,7 +84,7 @@ The Dropith desktop wrapper now provides a complete knowledge management interfa
 ### Service Layer
 
 **CLI Service** (`lib/cliService.ts`)
-- `runDropithCli(args)` - Execute Tauri-bridged CLI commands
+- `runPuzzlePKMCli(args)` - Execute Tauri-bridged CLI commands
 - `listObjects(type)` - Get objects by type
 - `getObject(type, id)` - Fetch single object
 - `updateObject(type, id, data)` - Save object
@@ -131,7 +131,7 @@ src/
 - Hierarchical directory navigation
 - Folder/file type indicators
 - Breadcrumb path display (as path string)
-- Mock data structure ready for Dropbox API
+- Mock data structure ready for sync API
 
 ### ✅ Calendar Interface
 - Monthly calendar grid
@@ -167,7 +167,7 @@ src/
 
 ### Start the Desktop App
 ```bash
-cd /Users/michael/WebProjects/dropith
+cd /Users/michael/WebProjects/puzzlepkm
 npm run tauri:dev
 ```
 
@@ -195,7 +195,7 @@ npm run tauri:dev
 - Click "Files" in sidebar
 - Navigate folder hierarchy
 - See folder/file icons
-- (Will populate with real Dropbox data)
+- (Will populate with real sync data)
 
 ## Next Steps
 
@@ -206,7 +206,7 @@ npm run tauri:dev
 4. Connect save operations to CLI updates
 
 ### Short Term
-1. Add settings screen (Dropbox auth status, root folder)
+1. Add settings screen (sync status, root folder)
 2. Implement tags view
 3. Add search/filter across all objects
 4. Add keyboard shortcuts

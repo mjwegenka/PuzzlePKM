@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
-const repo = 'mjwegenka/dropith';
+const repo = 'mjwegenka/puzzlepkm';
 
 const labels = [
   { name: 'area:cli', color: '0E8A16', description: 'CLI surface and command behavior' },

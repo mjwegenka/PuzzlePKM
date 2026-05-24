@@ -28,7 +28,7 @@ enum DropboxServiceError: LocalizedError {
 /// Handles Dropbox OAuth authentication and file uploads for the mobile inbox.
 ///
 /// The iOS app writes daily notes and habits to a `mobile-inbox/` sub-folder
-/// inside the configured sync root folder (default `/Dropith`). When the
+/// inside the configured sync root folder (default `/PuzzlePKM`). When the
 /// desktop runs `puzzlepkm sync`, it processes these files: daily notes are
 /// appended to any existing note for the same date, and habits are imported as
 /// new entries. See DEC-55 for the full specification.
@@ -57,9 +57,9 @@ final class DropboxService: ObservableObject {
 
     // MARK: Computed properties
 
-    /// The configured sync root folder (e.g. `/Dropith`).
+    /// The configured sync root folder (e.g. `/PuzzlePKM`).
     var rootFolder: String {
-        (UserDefaults.standard.string(forKey: "rootFolder") ?? "/Dropith")
+        (UserDefaults.standard.string(forKey: "rootFolder") ?? "/PuzzlePKM")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

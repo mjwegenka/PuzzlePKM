@@ -28,14 +28,12 @@ export interface MentionSearchResult {
   author?: string;
   date?: string;
   syncPath?: string;
-  dropboxPath?: string;
 }
 
 export interface ResolvedObjectRef {
   id: string;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
   syncPath: string;
-  dropboxPath?: string;
 }
 
 type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture';
@@ -49,21 +47,21 @@ type CliObjectByType = {
   scripture: Scripture;
 };
 
-function normalizeDropboxPath(path: string): string {
+function normalizeSyncPath(path: string): string {
   const value = path.replace(/\\/g, '/').trim();
   if (!value) return '';
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-function withLegacyPathAlias<T extends { syncPath: string }>(item: T): T & { dropboxPath: string } {
+function withLegacyPathAlias<T extends { syncPath: string }>(item: T): T & { syncPath: string } {
   return {
     ...item,
-    dropboxPath: item.syncPath,
+    syncPath: item.syncPath,
   };
 }
 
 function normalizePathForLookup(path: string): string {
-  return normalizeDropboxPath(path)
+  return normalizeSyncPath(path)
     .replace(/[?#].*$/, '')
     .replace(/\/+/g, '/')
     .toLowerCase();
@@ -109,7 +107,7 @@ function dirname(path: string): string {
 function resolveRelativePath(baseFilePath: string, href: string): string {
   const normalizedHref = href.replace(/\\/g, '/').trim();
   if (!normalizedHref) return '';
-  if (normalizedHref.startsWith('/')) return normalizeDropboxPath(normalizedHref);
+  if (normalizedHref.startsWith('/')) return normalizeSyncPath(normalizedHref);
 
   const baseDirParts = splitPath(dirname(baseFilePath));
   const hrefParts = splitPath(normalizedHref);
@@ -148,7 +146,7 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
         rows.push(withLegacyPathAlias({
           id,
           type,
-          syncPath: normalizeDropboxPath(path),
+          syncPath: normalizeSyncPath(path),
         }));
       }
     } catch {
@@ -177,13 +175,13 @@ export async function resolveObjectFromLinkPath(
   const directIdMatch = index.find((item) => item.id === idLikeHref);
   if (directIdMatch) return directIdMatch;
 
-  const hrefLooksLikeRootRelative = /^(?:dropith|puzzlepkm)\//i.test(cleanedHref);
+  const hrefLooksLikeRootRelative = /^puzzlepkm\//i.test(cleanedHref);
   const normalizedRootRelativeHref = hrefLooksLikeRootRelative ? `/${cleanedHref}` : cleanedHref;
 
   const targetPath = normalizedRootRelativeHref.startsWith('/')
-    ? normalizeDropboxPath(normalizedRootRelativeHref)
+    ? normalizeSyncPath(normalizedRootRelativeHref)
     : currentObjectSyncPath
-      ? resolveRelativePath(normalizeDropboxPath(currentObjectSyncPath), normalizedRootRelativeHref)
+      ? resolveRelativePath(normalizeSyncPath(currentObjectSyncPath), normalizedRootRelativeHref)
       : null;
 
   if (!targetPath) return null;
@@ -210,7 +208,7 @@ export async function resolveObjectFromLinkPath(
   }) ?? null;
 }
 
-export async function runDropithCli(args: string[]): Promise<CliRunResult> {
+export async function runPuzzlePKMCli(args: string[]): Promise<CliRunResult> {
   // When running in plain browser mode (not Tauri), avoid hard runtime crashes.
   const tauriInvoke =
     typeof window !== 'undefined' &&
@@ -226,7 +224,7 @@ export async function runDropithCli(args: string[]): Promise<CliRunResult> {
     };
   }
 
-  const result = await invoke<CliRunResult>('run_dropith_cli', { args });
+  const result = await invoke<CliRunResult>('run_puzzlepkm_cli', { args });
   return {
     ...result,
     stderr: stripNodeWarnings(result.stderr),
@@ -234,7 +232,7 @@ export async function runDropithCli(args: string[]): Promise<CliRunResult> {
 }
 
 export async function listObjects(type: string): Promise<string> {
-  const result = await runDropithCli(['list', type]);
+  const result = await runPuzzlePKMCli(['list', type]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `list ${type} failed`);
   return result.stdout;
 }
@@ -247,9 +245,9 @@ function fallbackBlockId(index: number): string {
 }
 
 function parseLegacyBlocksFromMarkdown(contentMarkdown: string): NoteBlock[] {
-  const raw = contentMarkdown.trimEnd();
+  const raw = String(contentMarkdown ?? '').replace(/\r\n/g, '\n').trimEnd();
   if (!raw) return [];
-  const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  const paragraphs = raw.split('\n\n').map((p) => p.trimEnd());
   return paragraphs.map((paragraph, index) => {
     const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
     return {
@@ -288,7 +286,7 @@ function normalizeNotePayload<T extends TopicNote | DailyNote>(value: T): T {
 }
 
 export async function getObject<T extends CliObjectType>(type: T, id: string): Promise<CliObjectByType[T]> {
-  const result = await runDropithCli(['get', type, id]);
+  const result = await runPuzzlePKMCli(['get', type, id]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `get ${type} ${id} failed`);
   const parsed = JSON.parse(result.stdout) as CliObjectByType[T];
   if (type === 'topic-note' || type === 'daily-note') {
@@ -302,7 +300,7 @@ export async function writeObject(
   type: string,
   data: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const result = await runDropithCli(['write', type, JSON.stringify(data)]);
+  const result = await runPuzzlePKMCli(['write', type, JSON.stringify(data)]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `write ${type} failed`);
   const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
   if (type === 'topic-note' || type === 'daily-note') {
@@ -312,7 +310,7 @@ export async function writeObject(
 }
 
 export async function deleteObject(type: string, id: string): Promise<boolean> {
-  const result = await runDropithCli(['delete', type, id]);
+  const result = await runPuzzlePKMCli(['delete', type, id]);
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || `delete ${type} ${id} failed`);
   }
@@ -321,7 +319,7 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
 
 /** DEC-19: One-shot local-folder sync triggered from the desktop UI. */
 export async function runSync(): Promise<void> {
-  const result = await runDropithCli(['sync']);
+  const result = await runPuzzlePKMCli(['sync']);
   if (result.exitCode !== 0) throw new Error(result.stderr || 'sync failed');
 }
 
@@ -474,7 +472,7 @@ export async function listTopicNoteMeta(): Promise<
  * CLI format: id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 export async function listHabitMeta(): Promise<
-  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; dropboxPath: string; tags: string[]; type: 'habit' }>
+  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; tags: string[]; type: 'habit' }>
 > {
   try {
     const stdout = await listObjects('habit');
@@ -509,9 +507,9 @@ export async function listHabitMeta(): Promise<
  * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }>
+  Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }>
 > {
-  const results: Array<{ id: string; name: string; author?: string; syncPath: string; dropboxPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }> = [];
+  const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }> = [];
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
@@ -581,7 +579,7 @@ export async function browseDirectory(
   path: string,
 ): Promise<{ directoryPath: string; entries: Array<{ kind: 'dir' | 'file'; name: string }> }> {
   const localPath = await resolveSyncPathToLocal(path);
-  const result = await runDropithCli(['browse', 'files', localPath]);
+  const result = await runPuzzlePKMCli(['browse', 'files', localPath]);
   if (result.exitCode !== 0) throw new Error(result.stderr || 'browse failed');
 
   const lines = result.stdout.split('\n').filter(Boolean);
@@ -628,15 +626,15 @@ async function resolveSyncPathToLocal(path: string): Promise<string> {
   if (!raw) throw new Error('Browse path is required');
 
   // Already an absolute local filesystem path.
-  if (/^(\/|[A-Za-z]:[\\/])/.test(raw) && !raw.startsWith('/Dropith')) {
+  if (/^(\/|[A-Za-z]:[\\/])/.test(raw) && !raw.startsWith('/PuzzlePKM')) {
     return raw;
   }
 
-  if (!raw.startsWith('/Dropith')) {
+  if (!raw.startsWith('/PuzzlePKM')) {
     return raw;
   }
 
-  const settings = await runDropithCli(['settings', 'show']);
+  const settings = await runPuzzlePKMCli(['settings', 'show']);
   if (settings.exitCode !== 0) {
     throw new Error(settings.stderr || 'Could not resolve sync root folder');
   }
@@ -647,6 +645,6 @@ async function resolveSyncPathToLocal(path: string): Promise<string> {
   const root = parsed.sync?.resolvedRootFolder ?? parsed.sync?.effectiveRootFolder ?? parsed.sync?.rootFolder;
   if (!root) throw new Error('Sync root folder is not configured');
 
-  const suffix = raw.replace(/^\/Dropith\/?/, '');
+  const suffix = raw.replace(/^\/PuzzlePKM\/?/, '');
   return joinPath(root, suffix);
 }

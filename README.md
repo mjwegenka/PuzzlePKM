@@ -1,7 +1,7 @@
 # PuzzlePKM
 
-<p align="center">
-  <img src="./public/icons/icon-128.png" alt="PuzzlePKM icon" width="96" height="96" />
+<p>
+  <img src="./public/icons/icon-128.png" alt="PuzzlePKM icon" width="128" height="128" />
 </p>
 
 A local-first knowledge management app with folder-based sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
@@ -41,7 +41,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
 - **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-49`](./IMPLEMENTATION_DECISIONS.md))
-- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy `dropboxPath` still resolves for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
+- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (legacy path aliases still resolve for compatibility; see [`DEC-36`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`; legacy note-level `content_markdown` is now a compatibility read fallback only (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Quick access to all views with Collections-based layout (see [`DEC-50`](./IMPLEMENTATION_DECISIONS.md))
@@ -54,7 +54,7 @@ See [HEPTABASE_INTERFACE_CHANGE_PLAN.md](./HEPTABASE_INTERFACE_CHANGE_PLAN.md) f
 ### Prerequisites
 - Node.js 22+ (uses built-in `node:sqlite`)
 - macOS, Linux, or Windows
-- Optional: Dropbox desktop client if you want cloud replication of the sync folder
+- Optional: any cloud-sync desktop client if you want off-device replication of the sync folder
 
 ### 1. Install dependencies
 
@@ -64,15 +64,15 @@ npm install
 
 ### 2. Configure sync root folder
 
-Set the folder PuzzlePKM should sync against. You can use a local folder that is also synced by the Dropbox desktop app. The legacy `/Dropith` virtual root remains the compatibility default for existing installs.
+Set the folder PuzzlePKM should sync against. You can use any local folder, including one mirrored by your cloud-sync client.
 
 ```bash
-npm run cli -- settings set root-folder "/Dropith"
+npm run cli -- settings set root-folder "/PuzzlePKM"
 ```
 
-By default, `/Dropith` maps to:
-- macOS: `~/Library/CloudStorage/Dropbox/Dropith`
-- Linux/Windows fallback: `~/Dropbox/Dropith`
+By default, `/PuzzlePKM` maps to:
+- macOS: `~/Library/CloudStorage/Sync/PuzzlePKM`
+- Linux/Windows fallback: `~/Sync/PuzzlePKM`
 
 ### 3. Run the companion web shell in development
 
@@ -151,32 +151,33 @@ puzzlepkm import topic-note ./topic-notes
 
 ```bash
 puzzlepkm settings show
-puzzlepkm settings set root-folder /Dropith
+puzzlepkm settings set root-folder /PuzzlePKM
 ```
 
 Default CLI database path follows platform app-data conventions:
-- macOS: `~/Library/Application Support/dropith/dropith.sqlite`
-- Linux: `~/.config/dropith/dropith.sqlite` (or `$XDG_CONFIG_HOME/dropith/dropith.sqlite`)
-- Windows: `%APPDATA%\\dropith\\dropith.sqlite`
+- macOS: `~/Library/Application Support/puzzlepkm/puzzlepkm.sqlite`
+- Linux: `~/.config/puzzlepkm/puzzlepkm.sqlite` (or `$XDG_CONFIG_HOME/puzzlepkm/puzzlepkm.sqlite`)
+- Windows: `%APPDATA%\\puzzlepkm\\puzzlepkm.sqlite`
 
-Install globally from a checkout (optional) to use the `puzzlepkm` command. The legacy `dropith` alias is still installed for compatibility:
+Install globally from a checkout (optional) to use the `puzzlepkm` command:
 
 ```bash
 npm install -g .
 puzzlepkm --help
 ```
 
-Use `PUZZLEPKM_DB_PATH` to point the CLI at a specific PuzzlePKM SQLite file. `DROPITH_DB_PATH` remains supported as a legacy alias:
+Use `PUZZLEPKM_DB_PATH` to point the CLI at a specific PuzzlePKM SQLite file:
 
 ```bash
-PUZZLEPKM_DB_PATH=/absolute/path/to/dropith.sqlite puzzlepkm list
+PUZZLEPKM_DB_PATH=/absolute/path/to/puzzlepkm.sqlite puzzlepkm list
 ```
 
-#### Compatibility strategy
+#### Runtime naming
 
-- `puzzlepkm` is the primary CLI name; `dropith` remains available as a compatibility alias in this release.
-- Existing local data/config continue to live in legacy `dropith` app-data folders, and the desktop bundle identifier stays `com.dropith.desktop`, to avoid abrupt migration breakage.
-- The legacy `/Dropith` virtual root remains supported and is still the default auto-mapped sync location for current installs.
+- CLI command: `puzzlepkm`
+- Database env var: `PUZZLEPKM_DB_PATH`
+- App-data folder names: `puzzlepkm`
+- Desktop bundle identifier: `com.puzzlepkm.desktop`
 
 ### 5. Build for production
 

@@ -7,7 +7,6 @@ export interface MentionOption {
   title: string;
   date?: string;
   syncPath?: string;
-  dropboxPath?: string;
 }
 
 interface MentionPopupProps {

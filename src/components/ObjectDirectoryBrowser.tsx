@@ -29,7 +29,7 @@ function joinPath(base: string, child: string): string {
 }
 
 export default function ObjectDirectoryBrowser({ type, object }: ObjectDirectoryBrowserProps) {
-  const syncPath = String((object?.syncPath ?? object?.dropboxPath ?? '') as string).trim()
+  const syncPath = String((object?.syncPath ?? object?.syncPath ?? '') as string).trim()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [directoryPath, setDirectoryPath] = useState('')
@@ -85,7 +85,7 @@ export default function ObjectDirectoryBrowser({ type, object }: ObjectDirectory
   )
 
   return (
-    <Paper sx={{ mt: 1.5, p: 1.25, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', minHeight: 180, display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ mt: 1.5, p: 1.25, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', minHeight: 180, display: 'flex', flexDirection: 'column' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
         <Typography variant="caption" sx={{ color: '#b8bec8', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
           {title}

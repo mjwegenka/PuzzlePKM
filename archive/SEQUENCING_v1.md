@@ -93,10 +93,10 @@ Example:
 Both workflows can be manually triggered via:
 ```bash
 # Sequencer
-gh workflow run "Issue Sequencer" -R mjwegenka/dropith
+gh workflow run "Issue Sequencer" -R mjwegenka/puzzlepkm
 
 # Auto-merge
-gh workflow run "Auto-Approve and Merge Copilot PRs" -R mjwegenka/dropith
+gh workflow run "Auto-Approve and Merge Copilot PRs" -R mjwegenka/puzzlepkm
 ```
 
 ## Safety & Guardrails
@@ -114,12 +114,12 @@ gh workflow run "Auto-Approve and Merge Copilot PRs" -R mjwegenka/dropith
 3. Verify the next issue has `status:ready` label
 
 ### PR not auto-merging
-1. Check CI status: `gh run list -R mjwegenka/dropith --workflow="..."`
+1. Check CI status: `gh run list -R mjwegenka/puzzlepkm --workflow="..."`
 2. If CI is broken, the PR will not merge (by design)
 3. Fix the issue or manually close the PR and allow the issue to be closed
 
 ### Copilot not starting work
 1. Ensure the ready-issue auto-comment includes the `@copilot` line
 2. Check Copilot's subscription/permissions on the repo
-3. Manually trigger with: `gh issue comment <number> -R mjwegenka/dropith --body "@copilot please implement this issue"`
+3. Manually trigger with: `gh issue comment <number> -R mjwegenka/puzzlepkm --body "@copilot please implement this issue"`
 

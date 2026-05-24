@@ -9,6 +9,7 @@ import {
   CircularProgress,
   Divider,
   IconButton,
+  Checkbox,
   ToggleButton,
   ToggleButtonGroup,
   Dialog,
@@ -41,7 +42,7 @@ import EditorErrorBoundary from './EditorErrorBoundary'
 import FilterChip from './ui/FilterChip'
 import { NoteCard } from './ui/NoteCard'
 import type { NoteCardData } from './ui/NoteCard'
-import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
+import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, listScriptureMeta, getObject } from '../lib/cliService'
 import type { ResolvedObjectRef } from '../lib/cliService'
 import { formatDatePretty, formatWeekdayShort, getTodayDate } from '../lib/dateUtils'
 import { getObjectColor } from '../lib/objectColors'
@@ -103,6 +104,14 @@ interface FileItem {
   type: 'project' | 'ref-material'
 }
 
+interface ScriptureItem {
+  id: string
+  reference: string
+  passageUrl: string
+  noteCount: number
+  type: 'scripture'
+}
+
 interface OpenEditorTab {
   tabId: string
   objectId: string
@@ -115,11 +124,27 @@ interface OpenEditorTab {
 
 /** Internal board card shape — maps 1:1 to NoteCardData for rendering. */
 interface BoardCard extends NoteCardData {
-  type: EditorObjectType
+  type: NoteCardData['type']
   sortTimestamp: number
 }
 
 type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
+type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture'
+
+const LIBRARY_OBJECT_TYPE_OPTIONS: Array<{ value: LibraryObjectFilterType; label: string; checkedByDefault: boolean }> = [
+  { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
+  { value: 'daily-note', label: 'Daily Notes', checkedByDefault: true },
+  { value: 'habit', label: 'Habits', checkedByDefault: false },
+  { value: 'project', label: 'Projects', checkedByDefault: true },
+  { value: 'ref-material', label: 'Reference Materials', checkedByDefault: true },
+  { value: 'tag', label: 'Tags', checkedByDefault: false },
+  { value: 'scripture', label: 'Scripture', checkedByDefault: false },
+]
+
+const DEFAULT_VISIBLE_LIBRARY_TYPES = LIBRARY_OBJECT_TYPE_OPTIONS
+  .filter((option) => option.checkedByDefault)
+  .map((option) => option.value)
+
 const BOARD_SORT_LABELS: Record<BoardSort, string> = {
   recent: 'Newest',
   oldest: 'Oldest',
@@ -339,6 +364,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
   const [habits, setHabits] = useState<HabitItem[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
+  const [scriptures, setScriptures] = useState<ScriptureItem[]>([])
   const [loading, setLoading] = useState(false)
 
   const [openTabs, setOpenTabs] = useState<OpenEditorTab[]>([])
@@ -350,6 +376,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
   const [createMenuAnchorEl, setCreateMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [objectTypeMenuAnchorEl, setObjectTypeMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
 
   // Inbox filter
@@ -358,22 +385,40 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
-  const [activeFilterChips, setActiveFilterChips] = useState<{ cardType: boolean; tags: boolean; untagged: boolean; custom: boolean }>({
-    cardType: false,
+  const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
+  const [activeFilterChips, setActiveFilterChips] = useState<{ tags: boolean; untagged: boolean; custom: boolean }>({
     tags: false,
     untagged: false,
     custom: false,
   })
   const [showCustomFilterChip, setShowCustomFilterChip] = useState(true)
 
+  const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
+  const isObjectTypeFilterCustomized = useMemo(
+    () => LIBRARY_OBJECT_TYPE_OPTIONS.some((option) => visibleObjectTypeSet.has(option.value) !== option.checkedByDefault),
+    [visibleObjectTypeSet],
+  )
+
+  const toggleObjectTypeVisibility = useCallback((type: LibraryObjectFilterType) => {
+    setVisibleObjectTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return LIBRARY_OBJECT_TYPE_OPTIONS
+        .map((option) => option.value)
+        .filter((value) => next.has(value))
+    })
+  }, [])
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [topicsRes, dailiesRes, habitsRes, filesRes] = await Promise.allSettled([
+      const [topicsRes, dailiesRes, habitsRes, filesRes, scriptureRes] = await Promise.allSettled([
         listTopicNoteMeta(),
         listDailyNoteMeta(),
         listHabitMeta(),
         listFileMeta(),
+        listScriptureMeta(),
       ])
       if (topicsRes.status === 'fulfilled')
         setTopicNotes(topicsRes.value as TopicItem[])
@@ -383,6 +428,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         setHabits(habitsRes.value as HabitItem[])
       if (filesRes.status === 'fulfilled')
         setFiles(filesRes.value as FileItem[])
+      if (scriptureRes.status === 'fulfilled')
+        setScriptures(scriptureRes.value as ScriptureItem[])
     } finally {
       setLoading(false)
     }
@@ -471,9 +518,9 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
     if (target.type === 'habit') {
       const habitsMeta = await listHabitMeta()
-      const targetPath = normalizePathForLookup(target.syncPath ?? target.dropboxPath)
+      const targetPath = normalizePathForLookup(target.syncPath ?? target.syncPath)
       const fallback = habitsMeta.find((item) => item.id === target.id)
-        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.dropboxPath) === targetPath)
+        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.syncPath) === targetPath)
       if (fallback) {
         void openObjectInTab(fallback.id, 'habit', options)
       }
@@ -562,21 +609,29 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
    // Unified card list
   const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
-  const hasActiveBoardFilters = activeFilterChips.cardType || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
+  const hasActiveBoardFilters = isObjectTypeFilterCustomized || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
   const allCards = useMemo((): BoardCard[] => {
     const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
     const topicCards: BoardCard[] = topicNotes
       .filter((n) => !showInbox || hasInboxTag(n.tags))
-      .map((n) => ({
-        id: n.id,
-        type: 'topic-note' as NoteType,
-        title: deriveTopicCardTitle(n.title, n.preview, n.date),
-        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
-        metadata: n.date ? formatDatePretty(n.date) : undefined,
-        snippet: sanitizeCardPreview(n.preview) || undefined,
-        tags: n.tags,
-        sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
-      }))
+      .map((n): BoardCard | null => {
+        const title = deriveTopicCardTitle(n.title, n.preview, n.date)
+        const snippet = sanitizeCardPreview(n.preview) || undefined
+        const hasMeaningfulTopicContent = Boolean(title || snippet || n.date)
+        if (!hasMeaningfulTopicContent) return null
+
+        return {
+          id: n.id,
+          type: 'topic-note' as NoteType,
+          title,
+          weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
+          metadata: n.date ? formatDatePretty(n.date) : undefined,
+          snippet,
+          tags: n.tags,
+          sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
+        }
+      })
+      .filter((card): card is BoardCard => Boolean(card))
 
     const dailyCards: BoardCard[] = dailyNotes
       .filter((n) => !showInbox || hasInboxTag(n.tags))
@@ -616,15 +671,37 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         sortTimestamp: toSortTimestamp(f.startDate),
       }))
 
-    const currentTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
-    const selectedCardType: EditorObjectType | null = isCreating
-      ? createType
-      : currentTab?.type === 'topic-note' || currentTab?.type === 'daily-note' || currentTab?.type === 'habit' || currentTab?.type === 'project' || currentTab?.type === 'ref-material'
-        ? currentTab.type
-        : null
-    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards].filter((card) => {
+    const scriptureCards: BoardCard[] = scriptures
+      .map((s) => ({
+        id: s.id,
+        type: 'scripture' as const,
+        title: s.reference || 'Scripture',
+        metadata: s.noteCount === 1 ? '1 linked note' : `${s.noteCount} linked notes`,
+        snippet: s.passageUrl || undefined,
+        tags: [],
+        sortTimestamp: 0,
+      }))
+
+    const tagCountMap = new Map<string, number>()
+    for (const card of [...topicCards, ...dailyCards, ...habitCards, ...fileCards]) {
+      for (const tag of card.tags ?? []) {
+        const normalizedTag = String(tag ?? '').trim().toLowerCase()
+        if (!normalizedTag) continue
+        tagCountMap.set(normalizedTag, (tagCountMap.get(normalizedTag) ?? 0) + 1)
+      }
+    }
+    const tagCards: BoardCard[] = [...tagCountMap.entries()].map(([tag, count]) => ({
+      id: tag,
+      type: 'tag' as const,
+      title: `#${tag}`,
+      metadata: count === 1 ? '1 object' : `${count} objects`,
+      tags: [tag],
+      sortTimestamp: count,
+    }))
+
+    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
       if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
-      if (activeFilterChips.cardType && selectedCardType && card.type !== selectedCardType) return false
+      if (!visibleObjectTypeSet.has(card.type)) return false
 
       const hasTags = (card.tags?.length ?? 0) > 0
       if (activeFilterChips.tags !== activeFilterChips.untagged) {
@@ -639,7 +716,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, showInbox, boardFilter, boardSort, activeFilterChips, openTabs, activeTabId, isCreating, createType])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, activeFilterChips, visibleObjectTypeSet])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material'
     ? activeTab.type
@@ -677,7 +754,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
           px: 1,
           py: 0.75,
           borderRadius: '10px',
-          bgcolor: 'surface.elevated',
+          bgcolor: 'transparent',
           border: '1px solid',
           borderColor: 'border.subtle',
         }}
@@ -688,8 +765,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              icon={<TuneIcon />}
              label="Object type"
              showCaret
-             selected={activeFilterChips.cardType}
-             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, cardType: !prev.cardType }))}
+             selected={isObjectTypeFilterCustomized}
+             onToggle={(event) => setObjectTypeMenuAnchorEl((event?.currentTarget as HTMLElement) ?? null)}
            />
            <FilterChip
              icon={<LabelIcon />}
@@ -726,6 +803,25 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              }}
            />
          </Stack>
+
+          <Menu
+            anchorEl={objectTypeMenuAnchorEl}
+            open={Boolean(objectTypeMenuAnchorEl)}
+            onClose={() => setObjectTypeMenuAnchorEl(null)}
+            slotProps={{ list: { dense: true, 'aria-label': 'Filter by object type' } }}
+          >
+            {LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => {
+              const checked = visibleObjectTypeSet.has(option.value)
+              return (
+                <MenuItem key={option.value} onClick={() => toggleObjectTypeVisibility(option.value)}>
+                  <ListItemIcon sx={{ minWidth: 30 }}>
+                    <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple size="small" />
+                  </ListItemIcon>
+                  <ListItemText primary={option.label} />
+                </MenuItem>
+              )
+            })}
+          </Menu>
 
         <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
           {/* Search input */}
@@ -904,22 +1000,33 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
          ) : (
            <Box
              sx={{
-               display: 'grid',
-               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-               gap: cardSpacingTokens.cardVerticalGutter,
-               alignItems: 'start',
+                columnWidth: { xs: '100%', sm: '260px' },
+                columnGap: cardSpacingTokens.cardVerticalGutter,
                 width: '100%',
                 minWidth: 0,
              }}
            >
              {allCards.map((card) => (
-                <NoteCard
+                <Box
                   key={`${card.type}:${card.id}`}
-                  card={card}
-                  isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                  onClick={(e) => handleSelectItem(card.id, card.type, { forceNewTab: e.metaKey || e.ctrlKey })}
-                  title="Click to open • Ctrl/Cmd-click to open in new tab"
-                />
+                  sx={{
+                    mb: cardSpacingTokens.cardVerticalGutter,
+                    breakInside: 'avoid',
+                    WebkitColumnBreakInside: 'avoid',
+                  }}
+                >
+                  {(() => {
+                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material'
+                    return (
+                  <NoteCard
+                    card={card}
+                    isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                    onClick={isOpenable ? (e) => handleSelectItem(card.id, card.type as EditorObjectType, { forceNewTab: e.metaKey || e.ctrlKey }) : undefined}
+                    title={isOpenable ? 'Click to open • Ctrl/Cmd-click to open in new tab' : undefined}
+                  />
+                    )
+                  })()}
+                </Box>
              ))}
            </Box>
          )}
@@ -928,7 +1035,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       {activeTab && (
         <Paper sx={{ width: 560, minWidth: 420, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
          <>
-           <Stack direction="row" alignItems="center" gap={0.5} sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
+            <Stack direction="row" alignItems="center" gap={0.5} sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}>
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
@@ -939,7 +1046,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                   minHeight: 40,
                  flex: 1,
                  '& .MuiTabs-indicator': { display: 'none' },
-                 '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
+                  '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
                  '& .MuiTabs-scroller': { overflow: 'visible !important' },
                  '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
                  '& .MuiTab-root': {
@@ -948,13 +1055,16 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                    minWidth: 0,
                     px: 0.75,
                     py: 0,
+                     borderRadius: '8px 8px 0 0',
                     color: 'text.secondary',
-                    transition: 'color 120ms ease',
+                     transition: 'color 120ms ease, background-color 120ms ease',
                    '&:hover': {
                       color: 'text.primary',
+                       bgcolor: 'surface.sunken',
                    },
                     '&.Mui-selected': {
                       color: 'text.primary',
+                       bgcolor: 'surface.sunken',
                     },
                  },
                }}
@@ -969,11 +1079,11 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                      sx={{
                        '&.Mui-selected': {
                          color: tabToken.text,
-                         backgroundColor: '#1a1c1f',
+                          backgroundColor: 'transparent',
                          borderColor: tabToken.border,
-                         borderBottomColor: '#1a1c1f',
+                          borderBottomColor: 'transparent',
                          boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
-                         bgcolor: tabToken.accent,
+                          bgcolor: 'surface.sunken',
                        },
                        '&.Mui-selected .notes-editor-tab-dot': {
                          bgcolor: tabToken.accent,
@@ -1011,13 +1121,14 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                <CloseIcon fontSize="small" />
              </MuiIconButton>
            </Stack>
-           <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
              {activeTab ? (
                <EditorErrorBoundary>
                  <ObjectEditor
                    key={activeTab.tabId}
                    object={activeTab.object}
                    type={activeTab.type}
+                    flatTop
                    onSave={handleSaveEdit}
                    onCancel={handleCloseEditor}
                    onDirty={(isDirty) => {

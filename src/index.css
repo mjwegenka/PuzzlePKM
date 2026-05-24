@@ -20,7 +20,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #121315;
+  background: #1b1d20;
   color: #eceff3;
 }
 
@@ -45,7 +45,7 @@ body {
   padding: 0.1rem 0;
 }
 
-.dropith-rich-editor-content {
+.puzzlepkm-rich-editor-content {
   width: 100%;
   max-width: none;
   margin: 0;
@@ -101,8 +101,8 @@ body {
 }
 
 .ProseMirror blockquote {
-  border-left: 3px solid #4f8fed;
-  color: #b8d4e5;
+  border-left: 3px solid rgba(255, 255, 255, 0.22);
+  color: #b8bec8;
   padding-left: 0.95rem;
   margin-left: 0;
 }
@@ -111,8 +111,8 @@ body {
   position: relative;
   border-left-width: 4px;
   border-left-style: solid;
-  border-left-color: var(--admonition-accent, #4f8fed);
-  background: var(--admonition-bg, rgba(26, 138, 181, 0.12));
+  border-left-color: var(--admonition-accent, rgba(255, 255, 255, 0.32));
+  background: var(--admonition-bg, rgba(255, 255, 255, 0.05));
   border-radius: 12px;
   color: #eceff3;
   padding: 1.5rem 1rem 0.9rem;
@@ -131,7 +131,7 @@ body {
 
 .ProseMirror blockquote[data-admonition-type='note'] {
   --admonition-accent: #4f8fed;
-  --admonition-bg: rgba(26, 138, 181, 0.12);
+  --admonition-bg: rgba(79, 143, 237, 0.12);
 }
 
 .ProseMirror blockquote[data-admonition-type='tip'] {
@@ -160,18 +160,18 @@ body {
 }
 
 .ProseMirror pre {
-  background: #081321;
+  background: #171a1f;
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 10px;
-  color: #d9f0ff;
+  color: #d4dae4;
   padding: 0.9rem 1rem;
   overflow-x: auto;
 }
 
 .ProseMirror code {
-  background: rgba(125, 186, 214, 0.14);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 6px;
-  color: #9fd8ff;
+  color: #d0d6e0;
   font-size: 0.92em;
   padding: 0.12rem 0.34rem;
 }
@@ -222,10 +222,10 @@ body {
 }
 
 .ProseMirror .mention {
-  background-color: #1e3a5f;
+  background-color: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   padding: 1px 4px;
-  color: #93c5fd;
+  color: #d2d8e3;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
@@ -238,7 +238,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #121315;
+  background: #1b1d20;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -247,5 +247,5 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #2a4a7a;
+  background: rgba(255, 255, 255, 0.2);
 }

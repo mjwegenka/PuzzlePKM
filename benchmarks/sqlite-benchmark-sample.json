@@ -235,9 +235,9 @@
     ]
   },
   "artifacts": {
-    "workspace": "/tmp/dropith-sqlite-bench-run",
-    "dbPath": "/tmp/dropith-sqlite-bench-run/dropith-benchmark.sqlite",
-    "syncRoot": "/tmp/dropith-sqlite-bench-run/sync-root",
-    "outputPath": "/tmp/dropith-sqlite-bench-run/results.json"
+    "workspace": "/tmp/puzzlepkm-sqlite-bench-run",
+    "dbPath": "/tmp/puzzlepkm-sqlite-bench-run/puzzlepkm-benchmark.sqlite",
+    "syncRoot": "/tmp/puzzlepkm-sqlite-bench-run/sync-root",
+    "outputPath": "/tmp/puzzlepkm-sqlite-bench-run/results.json"
   }
 }

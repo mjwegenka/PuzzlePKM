@@ -31,6 +31,7 @@ import type { NoteBlock } from '../shared/types';
 interface ObjectEditorProps {
   object?: Record<string, unknown>;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+  flatTop?: boolean;
   onSave?: (saved: Record<string, unknown>) => void;
   onCancel?: () => void;
   onDirty?: (isDirty: boolean) => void;
@@ -39,7 +40,7 @@ interface ObjectEditorProps {
 }
 
 
-function normalizeDropboxPath(path?: string): string | undefined {
+function normalizeSyncPath(path?: string): string | undefined {
   const value = (path ?? '').trim();
   return value && value !== '(no path)' ? value.replace(/\\/g, '/') : undefined;
 }
@@ -52,13 +53,13 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'untitled';
 }
 
-function pathInsideDropboxRoot(path: string): string {
+function pathInsideSyncRoot(path: string): string {
   const segments = splitPath(path);
   return segments.slice(1).join('/');
 }
 
-function dirnameInsideDropboxRoot(path: string): string {
-  const insideRoot = pathInsideDropboxRoot(path);
+function dirnameInsideSyncRoot(path: string): string {
+  const insideRoot = pathInsideSyncRoot(path);
   const segments = splitPath(insideRoot);
   return segments.slice(0, -1).join('/');
 }
@@ -69,12 +70,12 @@ function inferCurrentSourceDir(
   title: string,
   date: string,
 ): string | undefined {
-  const currentPath = normalizeDropboxPath((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined));
+  const currentPath = normalizeSyncPath((object?.syncPath as string | undefined) ?? (object?.syncPath as string | undefined));
   if (currentPath) {
     if (type === 'project' || type === 'ref-material') {
-      return pathInsideDropboxRoot(currentPath);
+      return pathInsideSyncRoot(currentPath);
     }
-    return dirnameInsideDropboxRoot(currentPath);
+    return dirnameInsideSyncRoot(currentPath);
   }
 
   switch (type) {
@@ -93,9 +94,9 @@ function inferCurrentSourceDir(
   }
 }
 
-function relativeDropboxPath(fromDir: string, targetPath: string): string {
+function relativeSyncPath(fromDir: string, targetPath: string): string {
   const fromSegments = splitPath(fromDir);
-  const targetSegments = splitPath(pathInsideDropboxRoot(targetPath));
+  const targetSegments = splitPath(pathInsideSyncRoot(targetPath));
 
   if (targetSegments.length === 0) return targetPath;
 
@@ -143,9 +144,9 @@ function fallbackBlockId(index: number): string {
 }
 
 function parseLegacyBlocksFromMarkdown(contentMarkdown: string): NoteBlock[] {
-  const raw = contentMarkdown.trimEnd();
+  const raw = String(contentMarkdown ?? '').replace(/\r\n/g, '\n').trimEnd();
   if (!raw) return [];
-  const paragraphs = raw.split(/\n{2,}/).map((p) => p.trimEnd()).filter(Boolean);
+  const paragraphs = raw.split('\n\n').map((p) => p.trimEnd());
   return paragraphs.map((paragraph, index) => {
     const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
     return {
@@ -192,7 +193,7 @@ function joinBlockMarkdown(blocks: NoteBlock[]): string {
     .join('\n\n');
 }
 
-export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
+export default function ObjectEditor({ object, type, flatTop = false, onSave, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
   const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
     type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
@@ -227,6 +228,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
   const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
   const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset form when a different object payload is loaded.
   useEffect(() => {
@@ -271,10 +273,10 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
   const resolveMentionHref = useCallback(
     async (option: MentionOption) => {
-      const targetPath = normalizeDropboxPath(option.syncPath ?? option.dropboxPath);
+      const targetPath = normalizeSyncPath(option.syncPath ?? option.syncPath);
       const currentSourceDir = inferCurrentSourceDir(type, object, title, date);
       const baseHref = targetPath && currentSourceDir
-        ? relativeDropboxPath(currentSourceDir, targetPath)
+        ? relativeSyncPath(currentSourceDir, targetPath)
         : targetPath || option.id;
 
       const isNoteTarget =
@@ -304,8 +306,18 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     [date, object, title, type],
   );
 
-  const handleAddTag = () => {
+  const closeTagDialog = useCallback(() => {
+    setShowTagDialog(false);
+    setNewTag('');
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
+
+  const handleAddTag = useCallback((): boolean => {
     const tag = newTag.trim().toLowerCase();
+    if (!tag) return false;
+
     if (tag) {
       if (type === 'habit') {
         setTags([tag]);
@@ -313,12 +325,23 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         setTags([...tags, tag]);
       }
       setNewTag('');
+      return true;
     }
-  };
+    return false;
+  }, [newTag, tags, type]);
 
   const handleRemoveTag = (tag: string) => {
     setTags(tags.filter((t) => t !== tag));
   };
+
+  useEffect(() => {
+    if (!showTagDialog) return;
+    const frame = window.requestAnimationFrame(() => {
+      tagInputRef.current?.focus();
+      tagInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showTagDialog]);
 
   const persistCurrentObject = useCallback(async (): Promise<Record<string, unknown>> => {
     setSaving(true);
@@ -343,11 +366,11 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       } else if (type === 'project') {
         data.name = title;
         data.startDate = date || undefined;
-        data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
+        data.syncPath = (object?.syncPath as string) ?? '';
       } else if (type === 'ref-material') {
         data.name = title;
         data.author = author || '';
-        data.dropboxPath = ((object?.syncPath as string) ?? (object?.dropboxPath as string)) ?? '';
+        data.syncPath = ((object?.syncPath as string) ?? (object?.syncPath as string)) ?? '';
       } else if (type === 'habit') {
         data.text = content;
         data.date = date;
@@ -363,7 +386,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       };
       setIsDirty(false);
       onDirty?.(false);
-      window.dispatchEvent(new Event('dropith:objects-updated'));
+      window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
       // Queue sync after save without extending the save interaction.
       triggerSyncInBackground();
       return saved;
@@ -373,7 +396,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     } finally {
       setSaving(false);
     }
-  }, [author, content, date, noteBlocks, object?.dropboxPath, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+  }, [author, content, date, noteBlocks, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
 
   const handleSave = async () => {
     const isEmptyNoteContent =
@@ -450,7 +473,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
 
     if (!onNavigateToObject) return;
      try {
-       const currentPath = normalizeDropboxPath(((object?.syncPath as string | undefined) ?? (object?.dropboxPath as string | undefined)));
+       const currentPath = normalizeSyncPath((object?.syncPath as string | undefined) ?? '');
        const target = await resolveObjectFromLinkPath(normalizedHref, currentPath);
  
        if (!target) {
@@ -467,7 +490,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
      } catch (err) {
        setSaveError(`Failed to open linked object: ${String(err)}`);
      }
-  }, [executeNavigation, isDirty, object?.dropboxPath, object?.syncPath, onNavigateToObject]);
+  }, [executeNavigation, isDirty, object?.syncPath, onNavigateToObject]);
 
   const handleDiscardAndNavigate = async () => {
     if (!pendingNavigation) return;
@@ -529,13 +552,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
   const relationToTarget = (relation: Record<string, unknown>): ResolvedObjectRef | null => {
     const id = String(relation.id ?? '').trim();
     const relationType = String(relation.type ?? '').trim() as ResolvedObjectRef['type'];
-    const syncPath = String(relation.syncPath ?? relation.dropboxPath ?? '').trim();
+    const syncPath = String(relation.syncPath ?? '').trim();
     if (!id || !relationType) return null;
     return {
       id,
       type: relationType,
       syncPath,
-      dropboxPath: syncPath || undefined,
     };
   };
   const handleRelationClick = async (
@@ -600,8 +622,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
     <Paper
       sx={{
         p: 3,
-        bgcolor: '#1a1c1f',
-        border: '1px solid rgba(255,255,255,0.09)',
+        bgcolor: 'surface.elevated',
+        border: '1px solid',
+        borderColor: 'border.subtle',
+        borderTopLeftRadius: flatTop ? 0 : undefined,
+        borderTopRightRadius: flatTop ? 0 : undefined,
+        borderTop: flatTop ? 'none' : undefined,
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
@@ -716,7 +742,7 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
         )}
 
         {/* ── BOTTOM: Relationships + Tags ── */}
-        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.09)', pt: 2, flexShrink: 0, minHeight: 0 }}>
+        <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2, flexShrink: 0, minHeight: 0 }}>
           {isNoteType && (
             <Stack spacing={1.5} sx={{ mb: 2 }}>
               <Box>
@@ -806,11 +832,12 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
       </Stack>
 
       {/* Tag dialog */}
-      <Dialog open={showTagDialog} onClose={() => setShowTagDialog(false)} maxWidth="xs" fullWidth>
+      <Dialog open={showTagDialog} onClose={closeTagDialog} maxWidth="xs" fullWidth disableRestoreFocus>
         <DialogTitle>Add Tag</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
+            inputRef={tagInputRef}
             margin="dense"
             label="Tag name"
             fullWidth
@@ -819,18 +846,23 @@ export default function ObjectEditor({ object, type, onSave, onCancel, onDirty, 
             variant="standard"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                handleAddTag();
-                setShowTagDialog(false);
+                e.preventDefault();
+                e.stopPropagation();
+                if (handleAddTag()) closeTagDialog();
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTagDialog();
               }
             }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowTagDialog(false)}>Cancel</Button>
+          <Button onClick={closeTagDialog}>Cancel</Button>
           <Button
             onClick={() => {
-              handleAddTag();
-              setShowTagDialog(false);
+              if (handleAddTag()) closeTagDialog();
             }}
             variant="contained"
           >

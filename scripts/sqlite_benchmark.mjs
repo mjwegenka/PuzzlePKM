@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import os from 'node:os';
+import process from 'node:process';
 import { performance } from 'node:perf_hooks';
 
 function parseArgs(argv) {
@@ -74,10 +75,10 @@ function percentile(values, p) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const workspace = options.workspace ?? mkdtempSync(join(os.tmpdir(), 'dropith-sqlite-bench-'));
+  const workspace = options.workspace ?? mkdtempSync(join(os.tmpdir(), 'puzzlepkm-sqlite-bench-'));
   const homeDir = join(workspace, 'home');
   const syncRoot = join(workspace, 'sync-root');
-  const dbPath = join(workspace, 'dropith-benchmark.sqlite');
+  const dbPath = join(workspace, 'puzzlepkm-benchmark.sqlite');
   const outputPath = options.out ?? join(workspace, 'sqlite-benchmark-results.json');
 
   rmSync(workspace, { recursive: true, force: true });
@@ -109,11 +110,11 @@ async function main() {
   };
 
   const statements = {
-    insertTopic: db.prepare('INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
-    insertDaily: db.prepare('INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-    insertHabit: db.prepare('INSERT INTO habits (id, text, date, status, dropbox_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-    insertProject: db.prepare('INSERT INTO projects (id, name, dropbox_path, start_date, end_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
-    insertRef: db.prepare('INSERT INTO ref_materials (id, name, author, dropbox_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    insertTopic: db.prepare('INSERT INTO topic_notes (id, title, date, content, linked_object_ids, sync_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
+    insertDaily: db.prepare('INSERT INTO daily_notes (id, date, content, linked_object_ids, sync_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    insertHabit: db.prepare('INSERT INTO habits (id, text, date, status, sync_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    insertProject: db.prepare('INSERT INTO projects (id, name, sync_path, start_date, end_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    insertRef: db.prepare('INSERT INTO ref_materials (id, name, author, sync_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'),
     insertTag: db.prepare('INSERT INTO tags (id, name, display_name, created_at) VALUES (?, ?, ?, ?)'),
     insertObjectTag: db.prepare('INSERT INTO object_tags (object_id, object_type, tag_id) VALUES (?, ?, ?)'),
     insertScripture: db.prepare('INSERT INTO scriptures (id, reference, book_name, book_order, passage_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
@@ -133,7 +134,7 @@ async function main() {
       const id = `daily-${i.toString().padStart(5, '0')}`;
       const date = dateOffset(i);
       dataset.dailyIds.push(id);
-      statements.insertDaily.run(id, date, '{}', '[]', `/Dropith/daily-notes/${date}.md`, isoOffset(i), isoOffset(i));
+      statements.insertDaily.run(id, date, '{}', '[]', `/PuzzlePKM/daily-notes/${date}.md`, isoOffset(i), isoOffset(i));
       statements.insertBlock.run(id, toBlockId(i + 1), 'daily-note', 0, `Daily note ${i}`, isoOffset(i), isoOffset(i));
       const tagA = dataset.tagIds[i % dataset.tagIds.length];
       const tagB = dataset.tagIds[(i + 1) % dataset.tagIds.length];
@@ -150,7 +151,7 @@ async function main() {
         '',
         '{}',
         '[]',
-        `/Dropith/topic-notes/topic-${i}-${id.slice(-8)}.md`,
+        `/PuzzlePKM/topic-notes/topic-${i}-${id.slice(-8)}.md`,
         isoOffset(i),
         isoOffset(i),
       );
@@ -164,21 +165,21 @@ async function main() {
     for (let i = 0; i < options.habits; i++) {
       const id = `habit-${i.toString().padStart(5, '0')}`;
       dataset.habitIds.push(id);
-      statements.insertHabit.run(id, `Habit ${i}`, dateOffset(i), 'planned', `/Dropith/habits/${dateOffset(i)}-habit-${i}.md`, isoOffset(i), isoOffset(i));
+      statements.insertHabit.run(id, `Habit ${i}`, dateOffset(i), 'planned', `/PuzzlePKM/habits/${dateOffset(i)}-habit-${i}.md`, isoOffset(i), isoOffset(i));
       statements.insertObjectTag.run(id, 'habit', dataset.tagIds[i % dataset.tagIds.length]);
     }
 
     for (let i = 0; i < options.projects; i++) {
       const id = `project-${i.toString().padStart(5, '0')}`;
       dataset.projectIds.push(id);
-      statements.insertProject.run(id, `Project ${i}`, `/Dropith/projects/project-${i}`, '', '', isoOffset(i), isoOffset(i));
+      statements.insertProject.run(id, `Project ${i}`, `/PuzzlePKM/projects/project-${i}`, '', '', isoOffset(i), isoOffset(i));
       statements.insertObjectTag.run(id, 'project', dataset.tagIds[i % dataset.tagIds.length]);
     }
 
     for (let i = 0; i < options.refMaterials; i++) {
       const id = `ref-${i.toString().padStart(5, '0')}`;
       dataset.refIds.push(id);
-      statements.insertRef.run(id, `Reference ${i}`, `Author ${i}`, `/Dropith/ref-materials/reference-${i}`, isoOffset(i), isoOffset(i));
+      statements.insertRef.run(id, `Reference ${i}`, `Author ${i}`, `/PuzzlePKM/ref-materials/reference-${i}`, isoOffset(i), isoOffset(i));
       statements.insertObjectTag.run(id, 'ref-material', dataset.tagIds[i % dataset.tagIds.length]);
     }
 
@@ -209,10 +210,10 @@ async function main() {
     throw error;
   }
 
-  const rowsForBacklinkTargets = db.prepare('SELECT id, dropbox_path FROM topic_notes ORDER BY id ASC LIMIT 4').all();
+  const rowsForBacklinkTargets = db.prepare('SELECT id, sync_path FROM topic_notes ORDER BY id ASC LIMIT 4').all();
   const backlinkSourceId = rowsForBacklinkTargets[0]?.id;
-  const backlinkTargetAPath = rowsForBacklinkTargets[1]?.dropbox_path;
-  const backlinkTargetBPath = rowsForBacklinkTargets[2]?.dropbox_path;
+  const backlinkTargetAPath = rowsForBacklinkTargets[1]?.sync_path;
+  const backlinkTargetBPath = rowsForBacklinkTargets[2]?.sync_path;
 
   function cleanupSavedTopic(id) {
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
@@ -259,7 +260,7 @@ async function main() {
   const operations = [];
 
   function listTopicNotesLegacySimulation() {
-    const rows = db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
+    const rows = db.prepare('SELECT id, title, date, content_markdown, sync_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
     const getBlocks = db.prepare('SELECT block_id, position, content_markdown FROM note_blocks WHERE note_id = ? ORDER BY position ASC');
     const getTags = db.prepare(`
       SELECT t.display_name
@@ -278,7 +279,7 @@ async function main() {
         id: row.id,
         title: row.title,
         date: row.date || '',
-        dropboxPath: row.dropbox_path || '',
+        syncPath: row.sync_path || '',
         preview: contentMarkdown.slice(0, 80),
         tags,
         createdAt: row.created_at,
@@ -360,7 +361,7 @@ async function main() {
   }
 
   const queryPlans = {
-    listTopicNotes: db.prepare('EXPLAIN QUERY PLAN SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all(),
+    listTopicNotes: db.prepare('EXPLAIN QUERY PLAN SELECT id, title, date, content_markdown, sync_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all(),
     linksBySourceAndType: db.prepare('EXPLAIN QUERY PLAN SELECT source_id, target_id, target_type FROM object_links WHERE source_id = ? AND source_type = ?').all(dataset.topicIds[0], 'topic-note'),
     listScriptures: db.prepare(`EXPLAIN QUERY PLAN
       SELECT s.id, s.reference, s.book_name, s.book_order, s.passage_url, s.created_at, s.updated_at,

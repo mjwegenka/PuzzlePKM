@@ -3,8 +3,8 @@ import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
-import type { ObjectType } from '../../shared/types'
-import { cardSpacingTokens } from '../../theme'
+import type { ObjectType } from '@shared/types'
+import { cardSpacingTokens } from '@/theme'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,11 +47,12 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'project': 'Project',
   'ref-material': 'Reference',
   'scripture': 'Scripture',
+  'tag': 'Tag',
 }
 
 const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
 const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
-const MARKDOWN_LINK_REGEX = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g
+const MARKDOWN_LINK_REGEX = /!\[([^]]*)]\(([^)\s]+)\)|\[([^]]+)]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g
 
 function isMediaHref(value: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico|mp4|mov|webm|m4v|mp3|wav|ogg)$/i.test(value)

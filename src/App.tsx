@@ -1,12 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Box, CircularProgress, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import NavigationSidebar from './components/NavigationSidebar'
 import CalendarPage from './components/CalendarPage'
 import ObjectEditor from './components/ObjectEditor'
 import NotesPage from './components/NotesPage'
-import TagsPage from './components/TagsPage'
-import ScripturePage from './components/ScripturePage'
 import GraphPage from './components/GraphPage'
 import SettingsPage from './components/SettingsPage'
 import ObjectDirectoryBrowser from './components/ObjectDirectoryBrowser'
@@ -14,7 +13,7 @@ import { getObject, listHabitMeta } from './lib/cliService'
 import type { ResolvedObjectRef } from './lib/cliService'
 import { formatDatePretty } from './lib/dateUtils'
 
-type Section = 'calendar' | 'library' | 'files' | 'scripture' | 'tags' | 'graph' | 'settings'
+type Section = 'calendar' | 'library' | 'files' | 'graph' | 'settings'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
 type WorkspaceObjectType = NotesObjType | FileObjType
@@ -33,8 +32,6 @@ const SECTION_LABELS: Record<Section, string> = {
   calendar: 'Calendar',
   library: 'Library',
   files: 'Files',
-  scripture: 'Scripture',
-  tags: 'Tags',
   graph: 'Graph',
   settings: 'Settings',
 }
@@ -62,10 +59,10 @@ function getObjectTabTitle(type: WorkspaceObjectType, object: Record<string, unk
 
 export default function App() {
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
-    { id: 'section:calendar', kind: 'section', title: SECTION_LABELS.calendar, section: 'calendar' },
+    { id: 'section:library', kind: 'section', title: SECTION_LABELS.library, section: 'library' },
   ])
-  const [activeTabId, setActiveTabId] = useState('section:calendar')
-  const [sidebarSection, setSidebarSection] = useState<Section>('calendar')
+  const [activeTabId, setActiveTabId] = useState('section:library')
+  const [sidebarSection, setSidebarSection] = useState<Section>('library')
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
@@ -149,9 +146,9 @@ export default function App() {
       if (index === -1) return prev
       const next = prev.filter((tab) => tab.id !== tabId)
       if (next.length === 0) {
-        const fallback: WorkspaceTab = { id: 'section:calendar', kind: 'section', title: SECTION_LABELS.calendar, section: 'calendar' }
+        const fallback: WorkspaceTab = { id: 'section:library', kind: 'section', title: SECTION_LABELS.library, section: 'library' }
         setActiveTabId(fallback.id)
-        setSidebarSection('calendar')
+        setSidebarSection('library')
         return [fallback]
       }
       if (activeTabId === tabId) {
@@ -191,8 +188,30 @@ export default function App() {
     )
   }, [openObjectTab, sidebarSection])
 
+  const handleTopDragMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const tauriInvoke =
+      typeof window !== 'undefined' &&
+      typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke === 'function'
+    if (!tauriInvoke) return
+    void getCurrentWindow().startDragging().catch(() => {
+      // Ignore if the native drag API is temporarily unavailable.
+    })
+  }, [])
+
   const renderSection = (section: Section) => {
-    if (section === 'calendar') return <CalendarPage />
+    if (section === 'calendar') {
+      return (
+        <CalendarPage
+          onOpenObjectTab={async (target) => {
+            await openObjectTab(
+              { id: target.id, type: target.type },
+              { forceNewTab: true, sourceSection: 'calendar' },
+            )
+          }}
+        />
+      )
+    }
     if (section === 'library') {
       return (
         <NotesPage
@@ -205,19 +224,6 @@ export default function App() {
         />
       )
     }
-    if (section === 'scripture') {
-      return (
-        <ScripturePage
-          onOpenObjectTab={async (target) => {
-            await openObjectTab(
-              { id: target.id, type: target.type },
-              { forceNewTab: target.forceNewTab, sourceSection: 'scripture' },
-            )
-          }}
-        />
-      )
-    }
-    if (section === 'tags') return <TagsPage />
     if (section === 'graph') {
       return (
         <GraphPage
@@ -241,7 +247,21 @@ export default function App() {
   }
 
   return (
-    <Box sx={{ display: 'flex', bgcolor: '#121315', height: '100vh', overflow: 'hidden', color: '#eceff3' }}>
+    <Box sx={{ display: 'flex', bgcolor: 'surface.app', height: '100vh', overflow: 'hidden', color: 'text.primary', position: 'relative' }}>
+      <Box
+        data-tauri-drag-region
+        onMouseDown={handleTopDragMouseDown}
+        sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 'calc(env(titlebar-area-height, 0px) + 18px)',
+          zIndex: 5,
+          pointerEvents: 'auto',
+          backgroundColor: 'transparent',
+        }}
+      />
       <NavigationSidebar
         currentSection={sidebarSection}
         onNavigate={handleNavigate}
@@ -249,7 +269,7 @@ export default function App() {
       />
 
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, p: 2 }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 0.5, bgcolor: 'surface.app' }}>
           <Box
             sx={{
               flex: 1,
@@ -258,13 +278,14 @@ export default function App() {
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
-              border: showWorkspaceTabBar ? '1px solid rgba(255,255,255,0.09)' : 'none',
+              border: showWorkspaceTabBar ? '1px solid' : 'none',
+              borderColor: showWorkspaceTabBar ? 'border.subtle' : 'transparent',
               borderRadius: showWorkspaceTabBar ? 1 : 0,
-              bgcolor: showWorkspaceTabBar ? '#1a1c1f' : 'transparent',
+              bgcolor: showWorkspaceTabBar ? 'surface.elevated' : 'surface.app',
             }}
           >
           {showWorkspaceTabBar && (
-            <Box sx={{ px: 1.25, bgcolor: '#17191c', borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
+            <Box sx={{ px: 1.25, bgcolor: 'surface.elevated', borderBottom: '1px solid', borderColor: 'border.subtle' }}>
               <Tabs
                 value={activeTab?.id ?? false}
                 onChange={(_, value: string) => {
@@ -277,23 +298,26 @@ export default function App() {
                 scrollButtons="auto"
                 sx={{
                   minHeight: 48,
-                  '& .MuiTabs-indicator': { bgcolor: '#4f8fed', height: 3, borderRadius: 999 },
+                  '& .MuiTabs-indicator': { display: 'none' },
                   '& .MuiTabs-flexContainer': { alignItems: 'center' },
                   '& .MuiTabs-scroller': { overflow: 'hidden' },
-                  '& .MuiTabScrollButton-root': { width: 24, color: '#b8bec8' },
+                  '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
                   '& .MuiTab-root': {
                     minHeight: 48,
                     textTransform: 'none',
                     minWidth: 0,
                     px: 1.25,
                     py: 0,
-                    color: '#b8bec8',
-                    transition: 'color 120ms ease',
+                    borderRadius: '8px 8px 0 0',
+                    color: 'text.secondary',
+                    transition: 'color 120ms ease, background-color 120ms ease',
                     '&:hover': {
-                      color: '#eceff3',
+                      color: 'text.primary',
+                      bgcolor: 'surface.sunken',
                     },
                     '&.Mui-selected': {
-                      color: '#eceff3',
+                      color: 'text.primary',
+                      bgcolor: 'surface.sunken',
                     },
                   },
                 }}
@@ -318,7 +342,7 @@ export default function App() {
                             p: 0.1,
                             color: 'inherit',
                             opacity: 0.72,
-                            '&:hover': { opacity: 1, bgcolor: 'rgba(255,255,255,0.08)' },
+                            '&:hover': { opacity: 1, bgcolor: 'action.hover' },
                           }}
                         >
                           <CloseIcon sx={{ fontSize: 12 }} />
@@ -340,10 +364,11 @@ export default function App() {
                   <CircularProgress size={24} />
                 </Box>
               ) : (
-                <Stack spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
+                <Stack spacing={0} sx={{ flex: 1, minHeight: 0 }}>
                   <ObjectEditor
                     object={activeTab.object}
                     type={activeTab.objectType}
+                    flatTop={showWorkspaceTabBar}
                     onSave={(saved) => handleObjectSave(activeTab.id, activeTab.objectType, saved)}
                     onNavigateToObject={handleNavigateFromEditor}
                   />

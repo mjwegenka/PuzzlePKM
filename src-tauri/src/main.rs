@@ -30,7 +30,7 @@ fn resolve_cli_path(app: &tauri::AppHandle) -> PathBuf {
 }
 
 #[tauri::command]
-fn run_dropith_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunResult, String> {
+fn run_puzzlepkm_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunResult, String> {
     if args.is_empty() {
         return Err("Provide at least one CLI argument (example: `help`).".to_string());
     }
@@ -97,7 +97,7 @@ fn open_url(url: String) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![run_dropith_cli, open_url])
+        .invoke_handler(tauri::generate_handler![run_puzzlepkm_cli, open_url])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

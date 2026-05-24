@@ -35,8 +35,7 @@ export interface DailyNote extends BaseObject {
 export interface Project extends BaseObject {
   type: 'project';
   name: string;
-  syncPath?: string;
-  dropboxPath: string;
+  syncPath: string;
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
 }
@@ -45,8 +44,7 @@ export interface ReferenceMaterial extends BaseObject {
   type: 'ref-material';
   name: string;
   author?: string;
-  syncPath?: string;
-  dropboxPath: string;
+  syncPath: string;
 }
 
 export interface Habit extends BaseObject {
@@ -89,14 +87,14 @@ export interface Link {
   createdAt: string;
 }
 
-export interface DropboxAuthState {
+export interface SyncAuthState {
   isConnected: boolean;
   isConfigured: boolean;
   accountEmail?: string;
   rootFolder?: string;
 }
 
-export interface DropboxConfigState {
+export interface SyncConfigState {
   appKeySet: boolean;
   appSecretSet: boolean;
   source: 'in-app' | 'environment' | 'mixed' | 'none';
@@ -123,7 +121,7 @@ export interface SearchResult {
   snippet?: string;
 }
 
-export interface DropboxEntry {
+export interface SyncEntry {
   name: string;
   path: string;
   type: 'file' | 'folder';

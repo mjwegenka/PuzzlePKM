@@ -17,9 +17,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import FolderIcon from '@mui/icons-material/Folder';
-import TagIcon from '@mui/icons-material/Label';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
-import AutoStoriesIcon from '@mui/icons-material/AutoStories';
 import HubIcon from '@mui/icons-material/Hub';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -56,32 +54,30 @@ interface PinnedNavItem {
 }
 
 const PINNED_TAG = 'pinned';
-const PINNED_ORDER_STORAGE_KEY = 'dropith:pinned-order:v1';
-const SIDEBAR_WIDTH_STORAGE_KEY = 'dropith:sidebar-width:v1';
+const PINNED_ORDER_STORAGE_KEY = 'puzzlepkm:pinned-order:v1';
+const SIDEBAR_WIDTH_STORAGE_KEY = 'puzzlepkm:sidebar-width:v1';
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_DEFAULT_WIDTH = 272;
 
 const navItems: NavigationItem[] = [
-  { id: 'calendar', label: 'Calendar', icon: <CalendarTodayIcon /> },
   { id: 'library', label: 'Library', icon: <LibraryBooksIcon /> },
-  { id: 'scripture', label: 'Scripture', icon: <AutoStoriesIcon /> },
-  { id: 'tags', label: 'Tags', icon: <TagIcon /> },
+  { id: 'calendar', label: 'Calendar', icon: <CalendarTodayIcon /> },
   { id: 'graph', label: 'Graph', icon: <HubIcon /> },
 ];
 
 const sidebarColors = {
-  background: '#141619',
-  backgroundTop: '#171a1f',
-  border: neutralDarkTokens.border.subtle,
-  divider: alpha('#ffffff', 0.08),
+  background: neutralDarkTokens.surface.app,
+  backgroundTop: neutralDarkTokens.surface.app,
+  border: 'transparent',
+  divider: alpha('#ffffff', 0.07),
   text: neutralDarkTokens.text.primary,
   textMuted: neutralDarkTokens.text.secondary,
   icon: neutralDarkTokens.text.secondary,
   iconMuted: neutralDarkTokens.text.muted,
-  hover: alpha('#ffffff', 0.045),
-  selected: alpha('#ffffff', 0.10),
-  selectedBorder: neutralDarkTokens.border.strong,
+  hover: alpha('#ffffff', 0.04),
+  selected: alpha('#ffffff', 0.065),
+  selectedBorder: neutralDarkTokens.border.subtle,
 };
 
 function formatLastSynced(date: Date | null): string {
@@ -95,6 +91,14 @@ function formatLastSynced(date: Date | null): string {
 
 function makePinnedKey(item: { id: string; type: PinnedType }): string {
   return `${item.type}:${item.id}`;
+}
+
+function normalizeTagValue(tag: string): string {
+  return String(tag ?? '').trim().replace(/^#/, '').toLowerCase();
+}
+
+function isPinnedTag(tag: string): boolean {
+  return normalizeTagValue(tag) === PINNED_TAG;
 }
 
 function objectIcon(type: PinnedType): React.ReactNode {
@@ -220,7 +224,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           tags: item.tags ?? [],
         })),
       ];
-      const pinned = combined.filter((item) => item.tags.some((tag) => tag.toLowerCase() === PINNED_TAG));
+      const pinned = combined.filter((item) => item.tags.some((tag) => isPinnedTag(tag)));
       setPinnedItems(orderPinnedItems(pinned));
     } finally {
       setLoadingPinned(false);
@@ -235,8 +239,8 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     const handleObjectsUpdated = () => {
       void loadPinnedItems();
     };
-    window.addEventListener('dropith:objects-updated', handleObjectsUpdated);
-    return () => window.removeEventListener('dropith:objects-updated', handleObjectsUpdated);
+    window.addEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
+    return () => window.removeEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
   }, [loadPinnedItems]);
 
   const movePinned = useCallback((sourceIdx: number, targetIdx: number) => {
@@ -263,14 +267,14 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     const tags = Array.isArray((current as { tags?: unknown }).tags)
       ? ((current as { tags: string[] }).tags ?? [])
       : [];
-    const nextTags = tags.filter((tag) => tag.toLowerCase() !== PINNED_TAG);
+    const nextTags = tags.filter((tag) => !isPinnedTag(tag));
     await writeObject(item.type, { ...current, tags: nextTags });
     setPinnedItems((prev) => {
       const next = prev.filter((entry) => !(entry.id === item.id && entry.type === item.type));
       persistPinnedOrder(next);
       return next;
     });
-    window.dispatchEvent(new Event('dropith:objects-updated'));
+    window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
   }, [persistPinnedOrder]);
 
   return (
@@ -283,14 +287,15 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         '& .MuiDrawer-paper': {
           width: sidebarWidth,
           boxSizing: 'border-box',
-          background: `linear-gradient(180deg, ${sidebarColors.backgroundTop} 0%, ${sidebarColors.background} 100%)`,
-          borderRight: `1px solid ${sidebarColors.border}`,
+          backgroundColor: sidebarColors.background,
+          borderRight: 'none',
           color: sidebarColors.text,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           px: 1,
-          py: 1,
+          pt: 'calc(env(titlebar-area-height, 0px) + 30px)',
+          pb: 1,
         },
       }}
     >
@@ -337,7 +342,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
                 '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
                 '&.Mui-selected': {
-                  background: `linear-gradient(90deg, ${sidebarColors.selected} 0%, ${alpha('#ffffff', 0.06)} 100%)`,
+                  backgroundColor: sidebarColors.selected,
                   color: sidebarColors.text,
                   border: `1px solid ${sidebarColors.selectedBorder}`,
                 },
@@ -502,7 +507,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
               '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
               '&.Mui-selected': {
-                background: `linear-gradient(90deg, ${sidebarColors.selected} 0%, ${alpha('#ffffff', 0.06)} 100%)`,
+                backgroundColor: sidebarColors.selected,
                 color: sidebarColors.text,
                 border: `1px solid ${sidebarColors.selectedBorder}`,
               },

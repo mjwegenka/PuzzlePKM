@@ -9,17 +9,16 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  TextField,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
-import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker'
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../lib/cliService'
@@ -45,6 +44,10 @@ interface CalEvent {
   type: CalObjectType
 }
 
+interface CalendarPageProps {
+  onOpenObjectTab?: (target: { id: string; type: CalObjectType; forceNewTab?: boolean }) => void | Promise<void>
+}
+
 const TYPE_COLORS: Record<CalObjectType, { bg: string; border: string; text: string }> = {
   'daily-note':   getObjectColor('daily-note'),
   'topic-note':   getObjectColor('topic-note'),
@@ -61,7 +64,9 @@ const TYPE_LABELS: Record<CalObjectType, string> = {
   'ref-material': 'Reference Material',
 }
 
-export default function CalendarPage() {
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
   const [loading, setLoading] = useState(false)
@@ -74,6 +79,7 @@ export default function CalendarPage() {
 
   const yr = currentMonth.getFullYear()
   const mo = currentMonth.getMonth()
+  const yearOptions = Array.from({ length: 121 }, (_, index) => yr - 60 + index)
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -135,6 +141,12 @@ export default function CalendarPage() {
   }
 
   const openEvent = useCallback(async (evt: CalEvent) => {
+    if (onOpenObjectTab) {
+      setSelectedDate(evt.date)
+      await Promise.resolve(onOpenObjectTab({ id: evt.id, type: evt.type, forceNewTab: true }))
+      return
+    }
+
     setSelectedDate(evt.date)
     setSelectedType(evt.type)
     try {
@@ -147,7 +159,7 @@ export default function CalendarPage() {
           : { id: evt.id, date: evt.date, type: evt.type, contentMarkdown: '', tags: [] },
       )
     }
-  }, [])
+  }, [onOpenObjectTab])
 
   const handleDayClick = useCallback(
     async (day: number) => {
@@ -155,14 +167,18 @@ export default function CalendarPage() {
       setSelectedDate(date)
       const dayEvts = eventsForDate(date)
       if (dayEvts.length === 0) {
+        if (onOpenObjectTab) return
         setSelectedType('daily-note')
         setSelectedObject({ date, type: 'daily-note', contentMarkdown: '', tags: [], linkedObjectIds: [] })
       } else if (dayEvts.length === 1) {
         await openEvent(dayEvts[0])
+      } else if (onOpenObjectTab) {
+        const dailyFirst = dayEvts.find((evt) => evt.type === 'daily-note') ?? dayEvts[0]
+        await openEvent(dailyFirst)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [yr, mo, events, openEvent],
+    [yr, mo, events, onOpenObjectTab, openEvent],
   )
 
   const handleSave = useCallback(
@@ -220,9 +236,9 @@ export default function CalendarPage() {
 
     if (target.type === 'habit') {
       const habitsMeta = await listHabitMeta()
-      const targetPath = normalizePathForLookup(target.syncPath ?? target.dropboxPath)
+      const targetPath = normalizePathForLookup(target.syncPath ?? target.syncPath)
       const fallback = habitsMeta.find((item) => item.id === target.id)
-        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.dropboxPath) === targetPath)
+        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.syncPath) === targetPath)
       if (fallback) {
         try {
           const fullFallback = await getObject('habit', fallback.id)
@@ -247,8 +263,9 @@ export default function CalendarPage() {
           flex: 1,
           minWidth: 0,
           p: 2,
-          bgcolor: '#1a1c1f',
-          border: '1px solid rgba(255,255,255,0.09)',
+          bgcolor: 'surface.elevated',
+          border: '1px solid',
+          borderColor: 'border.subtle',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -256,32 +273,71 @@ export default function CalendarPage() {
       >
         {/* Month header */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5, flexShrink: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
             {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
           </Typography>
             <Stack direction="row" spacing={0.75} alignItems="center">
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <Box sx={{ width: 170 }}>
-                  <MUIDatePicker
-                    label="Go to month"
-                    value={new Date(yr, mo, 1)}
-                    onChange={(next) => {
-                      if (!next) return
-                      setCurrentMonth(new Date(next.getFullYear(), next.getMonth(), 1))
-                    }}
-                    slotProps={{ textField: { size: 'small', variant: 'outlined' } }}
-                  />
-                </Box>
-              </LocalizationProvider>
-            {loading && <CircularProgress size={14} sx={{ mr: 0.5 }} />}
-            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))}>
-              <ChevronLeftIcon fontSize="small" />
+              <TextField
+                select
+                size="small"
+                value={mo}
+                aria-label="Select month"
+                onChange={(event) => {
+                  setCurrentMonth(new Date(yr, Number(event.target.value), 1))
+                }}
+                sx={{
+                  width: 90,
+                  '& .MuiOutlinedInput-root': {
+                    minHeight: 32,
+                    fontSize: '12px',
+                    bgcolor: 'surface.sunken',
+                    color: 'text.secondary',
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+                }}
+              >
+                {MONTH_LABELS.map((label, monthIndex) => (
+                  <MenuItem key={label} value={monthIndex}>{label}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                size="small"
+                value={yr}
+                aria-label="Select year"
+                onChange={(event) => {
+                  const parsedYear = Number.parseInt(String(event.target.value), 10)
+                  if (!Number.isFinite(parsedYear)) return
+                  setCurrentMonth(new Date(parsedYear, mo, 1))
+                }}
+                sx={{
+                  width: 88,
+                  '& .MuiOutlinedInput-root': {
+                    minHeight: 32,
+                    fontSize: '12px',
+                    bgcolor: 'surface.sunken',
+                    color: 'text.secondary',
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
+                }}
+              >
+                {yearOptions.map((year) => (
+                  <MenuItem key={year} value={year}>{year}</MenuItem>
+                ))}
+              </TextField>
+            {loading && <CircularProgress size={14} sx={{ mr: 0.5, color: 'text.secondary' }} />}
+            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))} sx={{ color: 'text.secondary' }}>
+              <ChevronLeftIcon fontSize="small" sx={{ fontSize: 18 }} />
             </IconButton>
-            <Button size="small" variant="outlined" onClick={() => setCurrentMonth(new Date())}>
+            <Button size="small" variant="outlined" onClick={() => setCurrentMonth(new Date())} sx={{ borderColor: 'border.subtle', color: 'text.primary', bgcolor: 'surface.sunken', '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' } }}>
               Today
             </Button>
-            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo + 1, 1))}>
-              <ChevronRightIcon fontSize="small" />
+            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo + 1, 1))} sx={{ color: 'text.secondary' }}>
+              <ChevronRightIcon fontSize="small" sx={{ fontSize: 18 }} />
             </IconButton>
           </Stack>
         </Stack>
@@ -303,7 +359,7 @@ export default function CalendarPage() {
         {/* Day-of-week headers */}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '1px', mb: 0.5, flexShrink: 0 }}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: '#b8bec8', py: 0.5, fontSize: '11px' }}>
+            <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: 'text.secondary', py: 0.5, fontSize: '11px' }}>
               {d}
             </Typography>
           ))}
@@ -333,17 +389,17 @@ export default function CalendarPage() {
                   p: '4px 6px',
                   borderRadius: 1,
                   border: '1px solid',
-                  borderColor: selected ? '#4f8fed' : 'rgba(255,255,255,0.09)',
-                  bgcolor: today ? 'rgba(79,143,237,0.09)' : selected ? 'rgba(79,143,237,0.05)' : 'rgba(255,255,255,0.01)',
+                  borderColor: selected ? 'border.strong' : 'border.subtle',
+                  bgcolor: selected ? alpha('#4f8fed', 0.12) : today ? alpha('#4f8fed', 0.08) : 'surface.app',
                   cursor: 'pointer',
                   transition: 'background 0.12s',
-                  '&:hover': { bgcolor: 'rgba(79,143,237,0.13)' },
+                  '&:hover': { bgcolor: 'surface.sunken', borderColor: 'border.strong' },
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px',
                 }}
               >
-                <Typography variant="caption" sx={{ fontWeight: today ? 800 : 400, color: today ? '#4f8fed' : '#eceff3', fontSize: '12px', lineHeight: 1.3 }}>
+                <Typography variant="caption" sx={{ fontWeight: today ? 800 : 500, color: today || selected ? 'accent.selected' : 'text.primary', fontSize: '12px', lineHeight: 1.3 }}>
                   {day}
                 </Typography>
                 {dayEvts.slice(0, 3).map((evt) => {
@@ -364,7 +420,7 @@ export default function CalendarPage() {
                   )
                 })}
                 {dayEvts.length > 3 && (
-                  <Typography variant="caption" sx={{ color: '#b8bec8', fontSize: '10px' }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '10px' }}>
                     +{dayEvts.length - 3} more
                   </Typography>
                 )}
@@ -375,16 +431,16 @@ export default function CalendarPage() {
       </Paper>
 
       {selectedObject && (
-        <Paper sx={{ width: 520, minWidth: 400, bgcolor: '#1a1c1f', border: '1px solid rgba(255,255,255,0.09)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
+        <Paper sx={{ width: 520, minWidth: 400, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              {selectedType === 'daily-note' ? '📓 Daily Note'
-                : selectedType === 'habit' ? '🔁 Habit'
-                : selectedType === 'project' ? '📁 Project'
-                : selectedType === 'ref-material' ? '📚 Reference Material'
-                : '📝 Topic Note'}
+              {selectedType === 'daily-note' ? 'Daily Note'
+                : selectedType === 'habit' ? 'Habit'
+                : selectedType === 'project' ? 'Project'
+                : selectedType === 'ref-material' ? 'Reference Material'
+                : 'Topic Note'}
             </Typography>
-            <IconButton size="small" onClick={handleCloseModal}>
+            <IconButton size="small" onClick={handleCloseModal} sx={{ color: 'text.secondary' }}>
               <CloseIcon fontSize="small" />
             </IconButton>
           </Stack>
@@ -407,6 +463,18 @@ export default function CalendarPage() {
         onClose={() => setContextMenu(null)}
         anchorReference="anchorPosition"
         anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: 'surface.elevated',
+              border: '1px solid',
+              borderColor: 'border.subtle',
+            },
+          },
+          list: {
+            dense: true,
+          },
+        }}
       >
         <MenuItem
           onClick={() => {

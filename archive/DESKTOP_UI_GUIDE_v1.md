@@ -1,8 +1,8 @@
-# Dropith Desktop UI - Design & Implementation
+# PuzzlePKM Desktop UI - Design & Implementation
 
 ## Overview
 
-The Dropith desktop interface is a comprehensive knowledge management GUI built with React, Material-UI, and TypeScript. It provides three main functional areas: Calendar (for daily notes), File Browser (for projects and reference materials), and an Object Editor with @ mention support for creating and editing content.
+The PuzzlePKM desktop interface is a comprehensive knowledge management GUI built with React, Material-UI, and TypeScript. It provides three main functional areas: Calendar (for daily notes), File Browser (for projects and reference materials), and an Object Editor with @ mention support for creating and editing content.
 
 ## UI Architecture
 
@@ -73,12 +73,12 @@ interface CalendarViewProps {
 
 ### 3. FileExplorer (`components/FileExplorer.tsx`)
 
-Directory browser for Dropbox-backed content:
+Directory browser for sync-backed content:
 - Lists projects and reference materials as folders
 - Navigation via folder double-click or name click
 - Back button to parent directory
 - Folder/file icons for visual differentiation
-- Mock data structure (will connect to CLI via Dropbox API)
+- Mock data structure (will connect to CLI sync listings)
 
 **Features:**
 - Hierarchical folder browsing
@@ -246,7 +246,7 @@ Content updated with embedded link
 ## Service Layer (`lib/cliService.ts`)
 
 Async functions that invoke the Tauri CLI bridge:
-- `runDropithCli(args)` - Execute CLI command
+- `runPuzzlePKMCli(args)` - Execute CLI command
 - `listObjects(type)` - Get list of objects
 - `getObject(type, id)` - Fetch single object
 - `updateObject(type, id, data)` - Update object
@@ -282,7 +282,7 @@ Async functions that invoke the Tauri CLI bridge:
 
 🔄 **In Progress:**
 - Connect CLI to load real data
-- Full Dropbox integration
+- Full sync integration
 - Sync daemon indicators
 
 ⏳ **Planned:**

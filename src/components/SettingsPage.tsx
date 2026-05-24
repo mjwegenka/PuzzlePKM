@@ -20,7 +20,7 @@ import CloudIcon from '@mui/icons-material/Cloud'
 import InfoIcon from '@mui/icons-material/Info'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
-import { runDropithCli } from '../lib/cliService'
+import { runPuzzlePKMCli } from '../lib/cliService'
 
 interface ConfigState {
   dbPath?: string
@@ -56,14 +56,14 @@ function hasControlCharacters(value: string): boolean {
 
 function getSyncRootValidationError(value: string): string | null {
   const normalized = normalizeSyncRootInput(value)
-  if (!normalized) return 'Sync root folder path is required (example: /Dropith).'
+  if (!normalized) return 'Sync root folder path is required (example: /PuzzlePKM).'
   if (hasControlCharacters(normalized)) return 'Path cannot contain control characters.'
-  if (normalized === '/') return 'Root folder cannot be "/". Use a dedicated folder like /Dropith.'
+  if (normalized === '/') return 'Root folder cannot be "/". Use a dedicated folder like /PuzzlePKM.'
   const isAbsoluteUnix = normalized.startsWith('/')
   const isHomeRelative = normalized === '~' || normalized.startsWith('~/')
   const isAbsoluteWindows = WINDOWS_ABSOLUTE_PATH.test(normalized)
   if (!isAbsoluteUnix && !isHomeRelative && !isAbsoluteWindows) {
-    return 'Use an absolute path such as /Dropith, ~/Dropith, or C:/Dropith.'
+    return 'Use an absolute path such as /PuzzlePKM, ~/PuzzlePKM, or C:/PuzzlePKM.'
   }
   return null
 }
@@ -80,7 +80,7 @@ export default function SettingsPage() {
     const checkCli = async () => {
       try {
         // `--version` is not supported by this CLI; use `help` as a reachability probe.
-        const res = await runDropithCli(['help'])
+        const res = await runPuzzlePKMCli(['help'])
         if (res.exitCode === 0) {
           setCliStatus({
             ok: true,
@@ -97,17 +97,17 @@ export default function SettingsPage() {
 
     const loadConfig = async () => {
       try {
-        const res = await runDropithCli(['settings', 'show'])
+        const res = await runPuzzlePKMCli(['settings', 'show'])
         if (res.exitCode === 0) {
           const parsed = JSON.parse(res.stdout)
           setConfig({
             dbPath: parsed?.dbPath,
-            syncRootFolder: parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder,
-            effectiveSyncRootFolder: parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder,
+            syncRootFolder: parsed?.sync?.rootFolder ?? parsed?.sync?.rootFolder,
+            effectiveSyncRootFolder: parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.sync?.rootFolder,
             resolvedSyncRootFolder: parsed?.sync?.resolvedRootFolder,
             loaded: true,
           })
-          setSyncRoot(parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.dropbox?.rootFolder ?? '')
+          setSyncRoot(parsed?.sync?.effectiveRootFolder ?? parsed?.sync?.rootFolder ?? parsed?.sync?.rootFolder ?? '')
         } else {
           setConfig({ loaded: true, error: 'Could not load config — using defaults' })
         }
@@ -130,7 +130,7 @@ export default function SettingsPage() {
     setSaving(true)
     setSaveResult(null)
     try {
-      const res = await runDropithCli(['settings', 'set', 'root-folder', normalizedRoot])
+      const res = await runPuzzlePKMCli(['settings', 'set', 'root-folder', normalizedRoot])
       if (res.exitCode === 0) {
         const parsed = JSON.parse(res.stdout)
         setSaveResult({ ok: true, msg: 'Sync root folder saved.' })
@@ -283,7 +283,7 @@ export default function SettingsPage() {
                       wordBreak: 'break-all',
                     }}
                   >
-                    {config.dbPath || '(platform default; legacy dropith app-data folder)'}
+                    {config.dbPath || '(platform default puzzlepkm app-data folder)'}
                   </Typography>
                 }
               />
@@ -331,8 +331,7 @@ export default function SettingsPage() {
 
         <Typography component="div" variant="body2" sx={{ color: '#b0cce0', mb: 2 }}>
           Projects and Reference Materials are discovered under your configured sync folder.
-          Set the root folder path below. The legacy <code>/Dropith</code> virtual root remains supported
-          for compatibility.
+          Set the root folder path below.
         </Typography>
 
         <Stack spacing={1.5}>
@@ -342,8 +341,8 @@ export default function SettingsPage() {
             label="Sync root folder"
             value={syncRoot}
             onChange={(e) => setSyncRoot(e.target.value)}
-            placeholder="/Dropith"
-            helperText={syncRootValidationError || 'Folder path used by sync (legacy default /Dropith remains supported)'}
+            placeholder="/PuzzlePKM"
+            helperText={syncRootValidationError || 'Folder path used by sync'}
             error={Boolean(syncRootValidationError)}
             variant="outlined"
           />
@@ -445,7 +444,7 @@ export default function SettingsPage() {
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
             ['Storage', 'Local SQLite via node:sqlite'],
             ['Sync', 'Local folder'],
-            ['Compatibility', 'dropith CLI/data paths still supported'],
+            ['Compatibility', 'puzzlepkm CLI/data paths still supported'],
           ].map(([label, value]) => (
             <ListItem key={label} disablePadding sx={{ py: 0.4 }}>
               <ListItemText

@@ -9,7 +9,7 @@ interface FilterChipProps {
   label: string
   selected?: boolean
   showCaret?: boolean
-  onToggle?: () => void
+  onToggle?: (event?: React.MouseEvent<HTMLElement>) => void
   onDismiss?: () => void
 }
 
@@ -26,7 +26,7 @@ export default function FilterChip({
       size="small"
       icon={icon}
       clickable={Boolean(onToggle)}
-      onClick={onToggle}
+      onClick={(event) => onToggle?.(event)}
       onDelete={onDismiss}
       deleteIcon={onDismiss ? <CloseIcon sx={{ fontSize: 14, color: 'text.disabled !important' }} /> : undefined}
       label={(

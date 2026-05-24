@@ -1,35 +1,31 @@
 #!/usr/bin/env node
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { createServer } from 'node:http';
+import { Buffer } from 'node:buffer';
 import { homedir, platform, tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { stdin, stdout } from 'node:process';
+import process, { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { URL, pathToFileURL } from 'node:url';
 
-const KEYCHAIN_ACCESS_TOKEN = 'dropbox_access_token';
-const KEYCHAIN_REFRESH_TOKEN = 'dropbox_refresh_token';
-const KEYCHAIN_ACCOUNT_EMAIL = 'dropbox_account_email';
-const KEYCHAIN_ROOT_FOLDER = 'dropbox_root_folder';
-const KEYCHAIN_APP_KEY = 'dropbox_app_key';
-const KEYCHAIN_APP_SECRET = 'dropbox_app_secret';
+const KEYCHAIN_ACCESS_TOKEN = 'sync_access_token';
+const KEYCHAIN_REFRESH_TOKEN = 'sync_refresh_token';
+const KEYCHAIN_ACCOUNT_EMAIL = 'sync_account_email';
+const KEYCHAIN_ROOT_FOLDER = 'sync_root_folder';
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MAX_NOTE_TITLE_LENGTH = 120;
 const MAX_HABIT_TEXT_LENGTH = 255;
 const PRIMARY_PRODUCT_NAME = 'PuzzlePKM';
 const PRIMARY_CLI_COMMAND = 'puzzlepkm';
-const LEGACY_CLI_COMMAND = 'dropith';
 const PRIMARY_DB_ENV_VAR = 'PUZZLEPKM_DB_PATH';
-const LEGACY_DB_ENV_VAR = 'DROPITH_DB_PATH';
 const HABIT_STATUS_PLANNED = 'planned';
 const HABIT_STATUS_ACCOMPLISHED = 'accomplished';
 const HABIT_STATUSES = new Set([HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED]);
 const SHELL_HISTORY_SIZE = 200;
-const DEFAULT_NOTES_ROOT = '/Dropith';
+const DEFAULT_NOTES_ROOT = '/PuzzlePKM';
 const DAILY_NOTES_SUBFOLDER = 'daily-notes';
 const TOPIC_NOTES_SUBFOLDER = 'topic-notes';
 const PROJECTS_SUBFOLDER = 'projects';
@@ -38,16 +34,15 @@ const HABITS_SUBFOLDER = 'habits';
 const MOBILE_INBOX_SUBFOLDER = 'mobile-inbox';
 const MOBILE_INBOX_DAILY_NOTES_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/daily-notes`;
 const MOBILE_INBOX_HABITS_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/habits`;
-const OAUTH_REDIRECT_URI = 'http://localhost:42813/callback';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const INBOX_TAG_NAME = 'Inbox';
 const SCRIPTURE_TYPE = 'scripture';
-const ROOT_RELATIVE_APP_PATTERN = /^(?:dropith|puzzlepkm)\//i;
+const ROOT_RELATIVE_APP_PATTERN = /^puzzlepkm\//i;
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
-  ? join(homedir(), 'Library', 'CloudStorage', 'Dropbox')
-  : join(homedir(), 'Dropbox');
+  ? join(homedir(), 'Library', 'CloudStorage', 'Sync')
+  : join(homedir(), 'Sync');
 
 function resolveLocalSyncPath(syncPath) {
   const raw = normalize(syncPath) || DEFAULT_NOTES_ROOT;
@@ -71,19 +66,23 @@ function normalizeSyncRootFolderInput(rootFolder) {
 function validateSyncRootFolderInput(rootFolder) {
   const normalized = normalizeSyncRootFolderInput(rootFolder);
   if (!normalized) {
-    throw new Error('Root folder path is required (for example: /Dropith).');
+    throw new Error('Root folder path is required (for example: /PuzzlePKM).');
   }
-  if (/[\u0000-\u001f]/.test(normalized)) {
+  const hasControlChars = Array.from(normalized).some((char) => {
+    const code = char.charCodeAt(0);
+    return code <= 31;
+  });
+  if (hasControlChars) {
     throw new Error('Root folder path cannot contain control characters.');
   }
   if (normalized === '/') {
-    throw new Error('Root folder cannot be "/". Choose a dedicated folder (for example: /Dropith).');
+    throw new Error('Root folder cannot be "/". Choose a dedicated folder (for example: /PuzzlePKM).');
   }
   const isAbsoluteUnix = normalized.startsWith('/');
   const isHomeRelative = normalized === '~' || normalized.startsWith('~/');
   const isAbsoluteWindows = /^[a-zA-Z]:\//.test(normalized);
   if (!isAbsoluteUnix && !isHomeRelative && !isAbsoluteWindows) {
-    throw new Error('Root folder must be absolute. Use /Dropith, ~/path, or an absolute drive path.');
+    throw new Error('Root folder must be absolute. Use /PuzzlePKM, ~/path, or an absolute drive path.');
   }
   return normalized;
 }
@@ -96,7 +95,7 @@ const schema = `
     content TEXT NOT NULL DEFAULT '{}',
     content_markdown TEXT NOT NULL DEFAULT '',
     linked_object_ids TEXT NOT NULL DEFAULT '[]',
-    dropbox_path TEXT NOT NULL DEFAULT '',
+    sync_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -107,7 +106,7 @@ const schema = `
     content TEXT NOT NULL DEFAULT '{}',
     content_markdown TEXT NOT NULL DEFAULT '',
     linked_object_ids TEXT NOT NULL DEFAULT '[]',
-    dropbox_path TEXT NOT NULL DEFAULT '',
+    sync_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -115,7 +114,7 @@ const schema = `
   CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    dropbox_path TEXT NOT NULL DEFAULT '',
+    sync_path TEXT NOT NULL DEFAULT '',
     start_date TEXT,
     end_date TEXT,
     created_at TEXT NOT NULL,
@@ -126,7 +125,7 @@ const schema = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     author TEXT,
-    dropbox_path TEXT NOT NULL DEFAULT '',
+    sync_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -136,7 +135,7 @@ const schema = `
     text TEXT NOT NULL,
     date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'accomplished')),
-    dropbox_path TEXT NOT NULL DEFAULT '',
+    sync_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -214,36 +213,36 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_scriptures_book_order ON scriptures(book_order, reference);
  `;
 
- // DEC-20: Ensure schema is migrated for new dropbox_path columns (DEC-21)
+ // DEC-20: Ensure schema is migrated for new sync_path columns (DEC-21)
  function ensureSchemaMigrations(db) {
    try {
-     // Add dropbox_path column to topic_notes if it doesn't exist
+     // Add sync_path column to topic_notes if it doesn't exist
      const topicColumnsCheck = db.prepare("PRAGMA table_info(topic_notes)").all();
      if (!topicColumnsCheck.some(c => c.name === 'date')) {
        db.prepare("ALTER TABLE topic_notes ADD COLUMN date TEXT NOT NULL DEFAULT ''").run();
      }
-     if (!topicColumnsCheck.some(c => c.name === 'dropbox_path')) {
-       db.prepare("ALTER TABLE topic_notes ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+     if (!topicColumnsCheck.some(c => c.name === 'sync_path')) {
+       db.prepare("ALTER TABLE topic_notes ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
      }
    } catch (e) {
      // Column may already exist or table doesn't exist yet
    }
 
    try {
-     // Add dropbox_path column to daily_notes if it doesn't exist
+     // Add sync_path column to daily_notes if it doesn't exist
      const dailyColumnsCheck = db.prepare("PRAGMA table_info(daily_notes)").all();
-     if (!dailyColumnsCheck.some(c => c.name === 'dropbox_path')) {
-       db.prepare("ALTER TABLE daily_notes ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+     if (!dailyColumnsCheck.some(c => c.name === 'sync_path')) {
+       db.prepare("ALTER TABLE daily_notes ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
      }
    } catch (e) {
      // Column may already exist or table doesn't exist yet
    }
 
     try {
-      // Add dropbox_path column to habits if it doesn't exist
+      // Add sync_path column to habits if it doesn't exist
       const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
-      if (!habitsColumnsCheck.some(c => c.name === 'dropbox_path')) {
-        db.prepare("ALTER TABLE habits ADD COLUMN dropbox_path TEXT NOT NULL DEFAULT ''").run();
+      if (!habitsColumnsCheck.some(c => c.name === 'sync_path')) {
+        db.prepare("ALTER TABLE habits ADD COLUMN sync_path TEXT NOT NULL DEFAULT ''").run();
       }
       if (!habitsColumnsCheck.some(c => c.name === 'status')) {
         db.prepare(`ALTER TABLE habits ADD COLUMN status TEXT NOT NULL DEFAULT '${HABIT_STATUS_ACCOMPLISHED}'`).run();
@@ -272,9 +271,9 @@ const schema = `
 
 function defaultAppDataDir() {
   const home = homedir();
-  if (platform() === 'darwin') return join(home, 'Library', 'Application Support', 'dropith');
-  if (platform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'dropith');
-  return join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'dropith');
+  if (platform() === 'darwin') return join(home, 'Library', 'Application Support', 'puzzlepkm');
+  if (platform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'puzzlepkm');
+  return join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'puzzlepkm');
 }
 
 const appDataDir = defaultAppDataDir();
@@ -283,7 +282,7 @@ function secretsFilePath() {
   return join(appDataDir, 'secrets.json');
 }
 
-const dbFile = process.env[PRIMARY_DB_ENV_VAR] ?? process.env[LEGACY_DB_ENV_VAR] ?? join(appDataDir, 'dropith.sqlite');
+const dbFile = process.env[PRIMARY_DB_ENV_VAR] ?? join(appDataDir, 'puzzlepkm.sqlite');
 
 function getIsoNow() {
   return new Date().toISOString();
@@ -493,7 +492,7 @@ const SCRIPTURE_BOOK_ALIASES = new Map([
 ]);
 const SCRIPTURE_BOOK_MATCH_PATTERN = '(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs?|Ecclesiastes|Songs? of Solomon|Song of Songs|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Wisdom|Maccabees|Sirach|Judith|Tobit|Matthew|Mark|Luke|John|Acts?|Acts of the Apostles|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation(?:s?)?|Gen|Ex|Exo|Lev|Num|Nmb|Deut?|Dt|Josh?|Judg?|Jdg|Rut|Sam|Ki|Kin|Kn|Kgs|Chr(?:on?)?|Ezr|Neh|Est|Jb|Psa?|Pr(?:ov?)?|Eccl?|Song?|Isa|Is|Jer|Lam|Eze|Da?n|Hos|Joe|Amo?|Oba|Jon|Mic|Nah|Hab|Zeph?|Hag|Zech?|Mal|Wis|Sir|Mac|Macc|Jud|Tob|M(?:at)?t|Mr?k|Lu?k|Jh?n|Jo|Act|Rom|Cor|Gal|Eph|Col|Phi(?:l?)?|The?|Thess?|Ti?m|Tit|Phile|Heb|Ja?m|Pe?t|Pt|Ju|Rev)\\.?';
 const SCRIPTURE_PASSAGE_REGEX = new RegExp(`\\b(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)`, 'gi');
-const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
+const MARKDOWN_LINK_REGEX = /\[([^]]+)]\(([^)]+)\)/g;
 
 function normalizeScriptureVolume(volumeRaw) {
   const normalized = normalize(volumeRaw).toLowerCase().replace(/\./g, '');
@@ -827,7 +826,7 @@ function openDb() {
   mkdirSync(dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
   ensureSchema(db);
-  backfillMissingDropboxPaths(db);
+  backfillMissingSyncPaths(db);
   backfillNoteBlocks(db);
   repairNoteBlocksIntegrity(db);
   return db;
@@ -837,54 +836,54 @@ function ensureSchema(db) {
   for (const statement of schema.split(';').map((part) => part.trim()).filter(Boolean)) {
     db.prepare(statement).run();
   }
-  // DEC-20, DEC-21: Ensure schema is migrated for new dropbox_path columns
+  // DEC-20, DEC-21: Ensure schema is migrated for new sync_path columns
   ensureSchemaMigrations(db);
 }
 
-function isMissingDropboxPath(path) {
+function isMissingSyncPath(path) {
   const value = String(path ?? '').trim();
   return value === '' || value === '(no path)';
 }
 
-function backfillMissingDropboxPaths(db) {
+function backfillMissingSyncPaths(db) {
   const rootFolder = getSyncRootFolder();
 
-  const missingDaily = db.prepare("SELECT id, date, dropbox_path FROM daily_notes WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  const missingDaily = db.prepare("SELECT id, date, sync_path FROM daily_notes WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingDaily) {
-    db.prepare('UPDATE daily_notes SET dropbox_path = ? WHERE id = ?').run(dailyNoteDropboxPath(rootFolder, row.date), row.id);
+    db.prepare('UPDATE daily_notes SET sync_path = ? WHERE id = ?').run(dailyNoteSyncPath(rootFolder, row.date), row.id);
   }
 
-  const missingTopic = db.prepare("SELECT id, title, dropbox_path FROM topic_notes WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  const missingTopic = db.prepare("SELECT id, title, sync_path FROM topic_notes WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingTopic) {
-    db.prepare('UPDATE topic_notes SET dropbox_path = ? WHERE id = ?').run(topicNoteDropboxPath(rootFolder, row.title, row.id), row.id);
+    db.prepare('UPDATE topic_notes SET sync_path = ? WHERE id = ?').run(topicNoteSyncPath(rootFolder, row.title, row.id), row.id);
   }
 
-  const missingProject = db.prepare("SELECT id, name, dropbox_path FROM projects WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  const missingProject = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingProject) {
     const slug = slugify(row.name || row.id);
-    db.prepare('UPDATE projects SET dropbox_path = ? WHERE id = ?').run(projectDirectoryPath(rootFolder, slug), row.id);
+    db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(projectDirectoryPath(rootFolder, slug), row.id);
   }
 
-  const missingRefMat = db.prepare("SELECT id, name, dropbox_path FROM ref_materials WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  const missingRefMat = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingRefMat) {
     const slug = slugify(row.name || row.id);
-    db.prepare('UPDATE ref_materials SET dropbox_path = ? WHERE id = ?').run(refMaterialDirectoryPath(rootFolder, slug), row.id);
+    db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(refMaterialDirectoryPath(rootFolder, slug), row.id);
   }
 
-  const missingHabit = db.prepare("SELECT id, date, dropbox_path FROM habits WHERE TRIM(COALESCE(dropbox_path, '')) = ''").all();
+  const missingHabit = db.prepare("SELECT id, date, sync_path FROM habits WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingHabit) {
     const tags = getTagDisplayNames(db, row.id);
-    db.prepare('UPDATE habits SET dropbox_path = ? WHERE id = ?').run(habitDropboxPath(rootFolder, row.id, row.date, tags), row.id);
+    db.prepare('UPDATE habits SET sync_path = ? WHERE id = ?').run(habitSyncPath(rootFolder, row.id, row.date, tags), row.id);
   }
 
   // Safety pass for any legacy placeholder value persisted from older flows.
   for (const table of ['daily_notes', 'topic_notes', 'projects', 'ref_materials', 'habits']) {
-    const rows = db.prepare(`SELECT id, dropbox_path FROM ${table} WHERE dropbox_path = '(no path)'`).all();
+    const rows = db.prepare(`SELECT id, sync_path FROM ${table} WHERE sync_path = '(no path)'`).all();
     if (!rows.length) continue;
     for (const row of rows) {
-      if (!isMissingDropboxPath(row.dropbox_path)) continue;
+      if (!isMissingSyncPath(row.sync_path)) continue;
       // Placeholder gets rewritten by type-specific pass on next open.
-      db.prepare(`UPDATE ${table} SET dropbox_path = '' WHERE id = ?`).run(row.id);
+      db.prepare(`UPDATE ${table} SET sync_path = '' WHERE id = ?`).run(row.id);
     }
   }
 }
@@ -1288,15 +1287,15 @@ function syncObjectTags(db, objectId, objectType, tagNames) {
 function listLinkableObjectRefs(db) {
   return db.prepare(`
     SELECT id, type, sync_path FROM (
-      SELECT id, 'topic-note' AS type, dropbox_path AS sync_path FROM topic_notes
+      SELECT id, 'topic-note' AS type, sync_path AS sync_path FROM topic_notes
       UNION ALL
-      SELECT id, 'daily-note' AS type, dropbox_path AS sync_path FROM daily_notes
+      SELECT id, 'daily-note' AS type, sync_path AS sync_path FROM daily_notes
       UNION ALL
-      SELECT id, 'project' AS type, dropbox_path AS sync_path FROM projects
+      SELECT id, 'project' AS type, sync_path AS sync_path FROM projects
       UNION ALL
-      SELECT id, 'ref-material' AS type, dropbox_path AS sync_path FROM ref_materials
+      SELECT id, 'ref-material' AS type, sync_path AS sync_path FROM ref_materials
       UNION ALL
-      SELECT id, 'habit' AS type, dropbox_path AS sync_path FROM habits
+      SELECT id, 'habit' AS type, sync_path AS sync_path FROM habits
     )
   `).all().map((row) => ({
     id: row.id,
@@ -1309,15 +1308,15 @@ function lookupObjectSummary(db, id, typeHint) {
   const lookupType = normalize(typeHint).toLowerCase();
   const row = db.prepare(`
     SELECT id, type, label, date, sync_path FROM (
-      SELECT id, 'topic-note' AS type, title AS label, date, dropbox_path AS sync_path FROM topic_notes
+      SELECT id, 'topic-note' AS type, title AS label, date, sync_path AS sync_path FROM topic_notes
       UNION ALL
-      SELECT id, 'daily-note' AS type, date AS label, date, dropbox_path AS sync_path FROM daily_notes
+      SELECT id, 'daily-note' AS type, date AS label, date, sync_path AS sync_path FROM daily_notes
       UNION ALL
-      SELECT id, 'project' AS type, name AS label, '' AS date, dropbox_path AS sync_path FROM projects
+      SELECT id, 'project' AS type, name AS label, '' AS date, sync_path AS sync_path FROM projects
       UNION ALL
-      SELECT id, 'ref-material' AS type, name AS label, '' AS date, dropbox_path AS sync_path FROM ref_materials
+      SELECT id, 'ref-material' AS type, name AS label, '' AS date, sync_path AS sync_path FROM ref_materials
       UNION ALL
-      SELECT id, 'habit' AS type, text AS label, date, dropbox_path AS sync_path FROM habits
+      SELECT id, 'habit' AS type, text AS label, date, sync_path AS sync_path FROM habits
       UNION ALL
       SELECT id, 'scripture' AS type, reference AS label, '' AS date, '' AS sync_path FROM scriptures
     )
@@ -1338,7 +1337,7 @@ function lookupObjectSummary(db, id, typeHint) {
 
 function parseMarkdownLinkHrefs(contentMarkdown) {
   const markdown = String(contentMarkdown ?? '');
-  const matches = markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g);
+  const matches = markdown.matchAll(/\[[^]]+]\(([^)]+)\)/g);
   const seen = new Set();
   const hrefs = [];
   for (const match of matches) {
@@ -1524,7 +1523,7 @@ function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdow
           refs.push({
             id: dailyNote.id,
             type: 'daily-note',
-            syncPath: dailyNote.dropboxPath || dailyNoteDropboxPath(getSyncRootFolder(), dateLink),
+            syncPath: dailyNote.syncPath || dailyNoteSyncPath(getSyncRootFolder(), dateLink),
           });
         }
       }
@@ -1599,7 +1598,7 @@ function getTopicNote(db, id) {
     type: 'topic-note',
     title: row.title,
     date: row.date || '',
-    dropboxPath: row.dropbox_path || '',
+    syncPath: row.sync_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown,
     blocks,
@@ -1613,7 +1612,7 @@ function getTopicNote(db, id) {
 }
 
 function listTopicNotes(db) {
-  const rows = db.prepare('SELECT id, title, date, content_markdown, dropbox_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
+  const rows = db.prepare('SELECT id, title, date, content_markdown, sync_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
   const contentByNoteId = getCanonicalNoteContentMap(db, rows);
   const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
   return rows.map((row) => {
@@ -1622,7 +1621,7 @@ function listTopicNotes(db) {
       id: row.id,
       title: row.title,
       date: row.date || '',
-      dropboxPath: row.dropbox_path || '',
+      syncPath: row.sync_path || '',
       preview: contentMarkdown.slice(0, 80),
       tags: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
@@ -1635,7 +1634,7 @@ function createTopicNoteRecord(db, input) {
   return withTransaction(db, () => {
     const now = input.createdAt ?? getIsoNow();
     const rootFolder = getSyncRootFolder();
-    const dropboxPath = normalizeSyncPath(input.dropboxPath) || topicNoteDropboxPath(rootFolder, input.title, input.id);
+    const syncPath = normalizeSyncPath(input.syncPath) || topicNoteSyncPath(rootFolder, input.title, input.id);
     // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
     const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
       ? input.blocks
@@ -1646,12 +1645,12 @@ function createTopicNoteRecord(db, input) {
     const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
     const normalizedBlocks = normalizedScripture.blocks;
     const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
-    const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, normalizedContentMarkdown);
+    const derivedLinks = deriveNoteLinksFromContent(db, input.id, syncPath, normalizedContentMarkdown);
     const dateLinks = collectDateLinkTargets(db, [input.date]);
     const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
     const mergedLinks = mergeLinkTargets(derivedLinks, dateLinks, scriptureLinks);
     db.prepare(`
-      INSERT INTO topic_notes (id, title, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
+      INSERT INTO topic_notes (id, title, date, content, linked_object_ids, sync_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
@@ -1659,7 +1658,7 @@ function createTopicNoteRecord(db, input) {
       input.date || '',
       JSON.stringify(input.content ?? {}),
       JSON.stringify(mergedLinks.map((target) => target.id)),
-      dropboxPath,
+      syncPath,
       input.createdAt,
       input.updatedAt,
     );
@@ -1678,9 +1677,9 @@ function updateTopicNoteRecord(db, id, input) {
   const fields = ['updated_at = ?'];
   const values = [updatedAt];
   const nextTitle = input.title ?? existing.title;
-  const nextDropboxPath =
-    normalizeSyncPath(input.dropboxPath !== undefined ? input.dropboxPath : existing.dropboxPath)
-    || topicNoteDropboxPath(rootFolder, nextTitle, id);
+  const nextSyncPath =
+    normalizeSyncPath(input.syncPath !== undefined ? input.syncPath : existing.syncPath)
+    || topicNoteSyncPath(rootFolder, nextTitle, id);
   const nextDate = input.date !== undefined ? (input.date || '') : (existing.date || '');
   let derivedLinks;
 
@@ -1716,7 +1715,7 @@ function updateTopicNoteRecord(db, id, input) {
     const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
     updatedBlocks = normalizedScripture.blocks;
     const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
-    const contentLinks = deriveNoteLinksFromContent(db, id, nextDropboxPath, normalizedContentMarkdown);
+    const contentLinks = deriveNoteLinksFromContent(db, id, nextSyncPath, normalizedContentMarkdown);
     const dateLinks = collectDateLinkTargets(db, [nextDate]);
     const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
     derivedLinks = mergeLinkTargets(contentLinks, dateLinks, scriptureLinks);
@@ -1727,9 +1726,9 @@ function updateTopicNoteRecord(db, id, input) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
   }
-  if (input.dropboxPath !== undefined || !normalizeSyncPath(existing.dropboxPath)) {
-    fields.push('dropbox_path = ?');
-    values.push(nextDropboxPath);
+  if (input.syncPath !== undefined || !normalizeSyncPath(existing.syncPath)) {
+    fields.push('sync_path = ?');
+    values.push(nextSyncPath);
   }
 
   values.push(id);
@@ -1843,7 +1842,7 @@ function mapDailyNote(db, row) {
     id: row.id,
     type: 'daily-note',
     date: row.date,
-    dropboxPath: row.dropbox_path || '',
+    syncPath: row.sync_path || '',
     content: safeJsonParse(row.content, {}),
     contentMarkdown,
     blocks,
@@ -1870,7 +1869,7 @@ function listDailyNotes(db) {
     return {
       id: row.id,
       date: row.date,
-      dropboxPath: row.dropbox_path || '',
+      syncPath: row.sync_path || '',
       preview: contentMarkdown.slice(0, 80),
       tags: tagNamesByObjectId.get(row.id) ?? [],
       createdAt: row.created_at,
@@ -1882,7 +1881,7 @@ function listDailyNotes(db) {
 function createDailyNoteRecordInternal(db, input) {
   const now = input.createdAt ?? getIsoNow();
   const rootFolder = getSyncRootFolder();
-  const dropboxPath = normalizeSyncPath(input.dropboxPath) || dailyNoteDropboxPath(rootFolder, input.date);
+  const syncPath = normalizeSyncPath(input.syncPath) || dailyNoteSyncPath(rootFolder, input.date);
   // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
   const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
     ? input.blocks
@@ -1893,18 +1892,18 @@ function createDailyNoteRecordInternal(db, input) {
   const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
   const normalizedBlocks = normalizedScripture.blocks;
   const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
-  const derivedLinks = deriveNoteLinksFromContent(db, input.id, dropboxPath, normalizedContentMarkdown);
+  const derivedLinks = deriveNoteLinksFromContent(db, input.id, syncPath, normalizedContentMarkdown);
   const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
   const mergedLinks = mergeLinkTargets(derivedLinks, scriptureLinks);
   db.prepare(`
-      INSERT INTO daily_notes (id, date, content, linked_object_ids, dropbox_path, created_at, updated_at)
+      INSERT INTO daily_notes (id, date, content, linked_object_ids, sync_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
     input.id,
     input.date,
     JSON.stringify(input.content ?? {}),
     JSON.stringify(mergedLinks.map((target) => target.id)),
-    dropboxPath,
+    syncPath,
     input.createdAt,
     input.updatedAt,
   );
@@ -1937,9 +1936,9 @@ function updateDailyNoteRecord(db, reference, input) {
   const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
   const values = [updatedAt];
-  const nextDropboxPath =
-    normalizeSyncPath(input.dropboxPath !== undefined ? input.dropboxPath : existing.dropbox_path)
-    || dailyNoteDropboxPath(rootFolder, nextDate);
+  const nextSyncPath =
+    normalizeSyncPath(input.syncPath !== undefined ? input.syncPath : existing.sync_path)
+    || dailyNoteSyncPath(rootFolder, nextDate);
   let derivedLinks;
 
   if (input.date !== undefined) {
@@ -1966,7 +1965,7 @@ function updateDailyNoteRecord(db, reference, input) {
     const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
     updatedBlocks = normalizedScripture.blocks;
     const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
-    const contentLinks = deriveNoteLinksFromContent(db, existing.id, nextDropboxPath, normalizedContentMarkdown);
+    const contentLinks = deriveNoteLinksFromContent(db, existing.id, nextSyncPath, normalizedContentMarkdown);
     const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
     derivedLinks = mergeLinkTargets(contentLinks, scriptureLinks);
     fields.push('linked_object_ids = ?');
@@ -1976,9 +1975,9 @@ function updateDailyNoteRecord(db, reference, input) {
     fields.push('linked_object_ids = ?');
     values.push(JSON.stringify(input.linkedObjectIds));
   }
-  if (input.dropboxPath !== undefined || !normalizeSyncPath(existing.dropbox_path)) {
-    fields.push('dropbox_path = ?');
-    values.push(nextDropboxPath);
+  if (input.syncPath !== undefined || !normalizeSyncPath(existing.sync_path)) {
+    fields.push('sync_path = ?');
+    values.push(nextSyncPath);
   }
 
   values.push(existing.id);
@@ -2017,7 +2016,7 @@ function getProject(db, id) {
     id: row.id,
     type: 'project',
     name: row.name,
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
     tags: getTagDisplayNames(db, row.id),
@@ -2032,7 +2031,7 @@ function listProjects(db) {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
     tags: tagNamesByObjectId.get(row.id) ?? [],
@@ -2044,9 +2043,9 @@ function listProjects(db) {
 function createProjectRecord(db, input) {
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO projects (id, name, dropbox_path, start_date, end_date, created_at, updated_at)
+      INSERT INTO projects (id, name, sync_path, start_date, end_date, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.name, input.dropboxPath, input.startDate || null, input.endDate || null, input.createdAt, input.updatedAt);
+    `).run(input.id, input.name, input.syncPath, input.startDate || null, input.endDate || null, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'project', input.tags ?? []);
     syncNoteObjectLinks(db, input.id, 'project', collectDateLinkTargets(db, [input.startDate, input.endDate]));
     return getProject(db, input.id);
@@ -2063,9 +2062,9 @@ function updateProjectRecord(db, id, input) {
     fields.push('name = ?');
     values.push(input.name);
   }
-  if (input.dropboxPath !== undefined) {
-    fields.push('dropbox_path = ?');
-    values.push(input.dropboxPath);
+  if (input.syncPath !== undefined) {
+    fields.push('sync_path = ?');
+    values.push(input.syncPath);
   }
   if (input.startDate !== undefined) {
     fields.push('start_date = ?');
@@ -2114,7 +2113,7 @@ function getRefMat(db, id) {
     type: 'ref-material',
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2128,7 +2127,7 @@ function listRefMats(db) {
     id: row.id,
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     tags: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2138,9 +2137,9 @@ function listRefMats(db) {
 function createRefMatRecord(db, input) {
   return withTransaction(db, () => {
     db.prepare(`
-      INSERT INTO ref_materials (id, name, author, dropbox_path, created_at, updated_at)
+      INSERT INTO ref_materials (id, name, author, sync_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.name, input.author ?? null, input.dropboxPath, input.createdAt, input.updatedAt);
+    `).run(input.id, input.name, input.author ?? null, input.syncPath, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'ref-material', input.tags ?? []);
     return getRefMat(db, input.id);
   });
@@ -2160,9 +2159,9 @@ function updateRefMatRecord(db, id, input) {
     fields.push('author = ?');
     values.push(input.author || null);
   }
-  if (input.dropboxPath !== undefined) {
-    fields.push('dropbox_path = ?');
-    values.push(input.dropboxPath);
+  if (input.syncPath !== undefined) {
+    fields.push('sync_path = ?');
+    values.push(input.syncPath);
   }
 
   values.push(id);
@@ -2196,7 +2195,7 @@ function getHabit(db, id) {
     text: row.text,
     date: row.date,
     status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-    dropboxPath: row.dropbox_path || '',
+    syncPath: row.sync_path || '',
     tags,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2211,7 +2210,7 @@ function listHabits(db) {
     text: row.text,
     date: row.date,
     status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-    dropboxPath: row.dropbox_path || '',
+    syncPath: row.sync_path || '',
     tags: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2229,12 +2228,12 @@ function createHabitRecord(db, input) {
   const tags = normalizeHabitTagNames(input.tags);
   const status = normalizeHabitStatus(input.status, HABIT_STATUS_PLANNED);
   return withTransaction(db, () => {
-    // DEC-21: Calculate dropboxPath from dropbox_path parameter or generate from date/tags/id
-    const dropboxPath = input.dropboxPath || '';
+    // DEC-21: Calculate syncPath from sync_path parameter or generate from date/tags/id
+    const syncPath = input.syncPath || '';
     db.prepare(`
-      INSERT INTO habits (id, text, date, status, dropbox_path, created_at, updated_at)
+      INSERT INTO habits (id, text, date, status, sync_path, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.id, sanitized.text, input.date, status, dropboxPath, input.createdAt, input.updatedAt);
+    `).run(input.id, sanitized.text, input.date, status, syncPath, input.createdAt, input.updatedAt);
     syncObjectTags(db, input.id, 'habit', tags);
     syncNoteObjectLinks(db, input.id, 'habit', collectDateLinkTargets(db, [input.date]));
     return { ...getHabit(db, input.id), truncated: sanitized.truncated };
@@ -2262,9 +2261,9 @@ function updateHabitRecord(db, id, input) {
     fields.push('status = ?');
     values.push(normalizeHabitStatus(input.status, existing.status));
   }
-  if (input.dropboxPath !== undefined) {
-    fields.push('dropbox_path = ?');
-    values.push(input.dropboxPath);
+  if (input.syncPath !== undefined) {
+    fields.push('sync_path = ?');
+    values.push(input.syncPath);
   }
 
   values.push(id);
@@ -2547,22 +2546,22 @@ function printRecords(type, rows) {
   for (const row of rows) {
     switch (type) {
       case 'topic-note':
-        console.log(`${row.id}\t${row.updatedAt}\t${listField(row.title)}\t${row.dropboxPath || '(no path)'}\t${row.date || ''}\t${listField(row.preview)}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+        console.log(`${row.id}\t${row.updatedAt}\t${listField(row.title)}\t${row.syncPath || '(no path)'}\t${row.date || ''}\t${listField(row.preview)}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'daily-note':
-        console.log(`${row.id}\t${row.date}\t${listField(row.preview)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+        console.log(`${row.id}\t${row.date}\t${listField(row.preview)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'project':
-        console.log(`${row.id}\t${listField(row.name)}\t${row.dropboxPath || '(no path)'}\t${row.startDate || ''}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${row.syncPath || '(no path)'}\t${row.startDate || ''}`);
         break;
       case 'ref-material':
-        console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.dropboxPath || '(no path)'}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.syncPath || '(no path)'}`);
         break;
       case 'scripture':
         console.log(`${row.id}\t${listField(row.reference)}\t${row.passageUrl}\t${row.noteCount ?? 0}`);
         break;
        case 'habit':
-         console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.dropboxPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+         console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
          break;
        case 'tag':
          console.log(`${row.id}\t${row.displayName}\t${row.objectCount} objects`);
@@ -2752,16 +2751,6 @@ function decodeUnencryptedSecret(entry) {
   }
 }
 
-function getDropboxAccessToken() {
-  const store = readSecretStore();
-  return decodeUnencryptedSecret(store.values[KEYCHAIN_ACCESS_TOKEN]) ?? null;
-}
-
-function getDropboxRefreshToken() {
-  const store = readSecretStore();
-  return decodeUnencryptedSecret(store.values[KEYCHAIN_REFRESH_TOKEN]) ?? null;
-}
-
 function getSyncRootFolder() {
   const store = readSecretStore();
   const configured = decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]);
@@ -2769,7 +2758,7 @@ function getSyncRootFolder() {
   return normalized === '/' ? DEFAULT_NOTES_ROOT : (normalized || DEFAULT_NOTES_ROOT);
 }
 
-function saveDropboxToken(accessToken, email, refreshToken) {
+function saveSyncToken(accessToken, email, refreshToken) {
   const store = readSecretStore();
   store.values[KEYCHAIN_ACCESS_TOKEN] = encodeUnencryptedSecret(accessToken);
   if (email) store.values[KEYCHAIN_ACCOUNT_EMAIL] = encodeUnencryptedSecret(email);
@@ -2804,7 +2793,7 @@ function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'untitled';
 }
 
-/** Convert a Dropbox folder slug (e.g. "my-project-name") to a display title ("My Project Name"). */
+/** Convert a Sync folder slug (e.g. "my-project-name") to a display title ("My Project Name"). */
 function folderNameToTitle(slug) {
   return (slug || '')
     .replace(/[-_]+/g, ' ')
@@ -2812,12 +2801,12 @@ function folderNameToTitle(slug) {
     .trim() || 'Untitled';
 }
 
-function dailyNoteDropboxPath(rootFolder, date) {
+function dailyNoteSyncPath(rootFolder, date) {
   const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
   return `${root}/${DAILY_NOTES_SUBFOLDER}/${date}.md`;
 }
 
-function topicNoteDropboxPath(rootFolder, title, id) {
+function topicNoteSyncPath(rootFolder, title, id) {
   const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
   const slug = slugify(title || 'untitled');
   const shortId = id.slice(0, 8);
@@ -2872,7 +2861,7 @@ function habitFilename(id, date, tagNames) {
   return `${date}-${firstTag}-${shortId}.md`;
 }
 
-function habitDropboxPath(rootFolder, id, date, tagNames) {
+function habitSyncPath(rootFolder, id, date, tagNames) {
   const filename = habitFilename(id, date, tagNames);
   return `${habitsFolderPath(rootFolder)}/${filename}`;
 }
@@ -2943,7 +2932,7 @@ function dailyNoteToMarkdown(fields) {
     id: fields.id,
     type: 'daily-note',
     date: fields.date,
-    syncPath: fields.dropboxPath || '',
+    syncPath: fields.syncPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -2963,7 +2952,7 @@ function topicNoteToMarkdown(fields) {
     type: 'topic-note',
     title: fields.title,
     date: fields.date || '',
-    syncPath: fields.dropboxPath || '',
+    syncPath: fields.syncPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -2977,26 +2966,11 @@ function topicNoteToMarkdown(fields) {
   return body ? `${fm}\n\n${body}` : `${fm}\n`;
 }
 
-function projectToMarkdown(fields) {
-  const fm = serializeFrontMatter({
-    id: fields.id,
-    type: 'project',
-    name: fields.name,
-    syncPath: fields.dropboxPath,
-    startDate: fields.startDate || '',
-    endDate: fields.endDate || '',
-    tags: fields.tagNames,
-    createdAt: fields.createdAt,
-    updatedAt: fields.updatedAt,
-  });
-  return `${fm}\n`;
-}
-
 function projectToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
-    syncPath: fields.dropboxPath,
+    syncPath: fields.syncPath,
     startDate: fields.startDate,
     endDate: fields.endDate,
     tags: fields.tagNames,
@@ -3005,26 +2979,12 @@ function projectToMetaYaml(fields) {
   });
 }
 
-function refMaterialToMarkdown(fields) {
-  const fm = serializeFrontMatter({
-    id: fields.id,
-    type: 'ref-material',
-    name: fields.name,
-    ...(fields.author ? { author: fields.author } : {}),
-    syncPath: fields.dropboxPath,
-    tags: fields.tagNames,
-    createdAt: fields.createdAt,
-    updatedAt: fields.updatedAt,
-  });
-  return `${fm}\n`;
-}
-
 function refMaterialToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
     author: fields.author,
-    syncPath: fields.dropboxPath,
+    syncPath: fields.syncPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
@@ -3038,7 +2998,7 @@ function habitToMarkdown(fields) {
     text: fields.text,
     date: fields.date,
     status: normalizeHabitStatus(fields.status, HABIT_STATUS_PLANNED),
-    syncPath: fields.dropboxPath || '',
+    syncPath: fields.syncPath || '',
     tags: normalizeHabitTagNames(fields.tagNames),
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
@@ -3048,7 +3008,7 @@ function habitToMarkdown(fields) {
 
 function readSyncPathField(data) {
   if (typeof data.syncPath === 'string') return data.syncPath;
-  if (typeof data.dropboxPath === 'string') return data.dropboxPath;
+  if (typeof data.syncPath === 'string') return data.syncPath;
   return '';
 }
 
@@ -3061,7 +3021,7 @@ function parseDailyNoteMarkdown(content) {
   return {
     id: data.id,
     date: data.date,
-    dropboxPath: readSyncPathField(data),
+    syncPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -3081,27 +3041,11 @@ function parseTopicNoteMarkdown(content) {
     id: data.id,
     title: data.title,
     date: typeof data.date === 'string' ? data.date : '',
-    dropboxPath: readSyncPathField(data),
+    syncPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     linkedObjectIds: Array.isArray(data.linkedObjectIds) ? data.linkedObjectIds.map(String) : [],
-    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
-    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
-  };
-}
-
-function parseProjectMarkdown(content) {
-  const { data } = parseFrontMatter(content);
-  if (typeof data.id !== 'string' || !data.id) return null;
-  if (typeof data.name !== 'string') return null;
-  return {
-    id: data.id,
-    name: data.name,
-    dropboxPath: readSyncPathField(data),
-    startDate: typeof data.startDate === 'string' ? data.startDate : '',
-    endDate: typeof data.endDate === 'string' ? data.endDate : '',
-    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
   };
@@ -3114,24 +3058,9 @@ function parseProjectMetaYaml(content) {
   return {
     id: data.id,
     name: data.name,
-    dropboxPath: readSyncPathField(data),
+    syncPath: readSyncPathField(data),
     startDate: typeof data.startDate === 'string' ? data.startDate : '',
     endDate: typeof data.endDate === 'string' ? data.endDate : '',
-    tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
-    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
-    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
-  };
-}
-
-function parseRefMaterialMarkdown(content) {
-  const { data } = parseFrontMatter(content);
-  if (typeof data.id !== 'string' || !data.id) return null;
-  if (typeof data.name !== 'string') return null;
-  return {
-    id: data.id,
-    name: data.name,
-    author: typeof data.author === 'string' ? data.author : '',
-    dropboxPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -3146,7 +3075,7 @@ function parseRefMaterialMetaYaml(content) {
     id: data.id,
     name: data.name,
     author: typeof data.author === 'string' ? data.author : '',
-    dropboxPath: readSyncPathField(data),
+    syncPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -3163,7 +3092,7 @@ function parseHabitMarkdown(content) {
     text: data.text,
     date: data.date,
     status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
-    dropboxPath: readSyncPathField(data),
+    syncPath: readSyncPathField(data),
     tagNames: normalizeHabitTagNames(Array.isArray(data.tags) ? data.tags.map(String) : []),
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -3250,7 +3179,7 @@ function shouldApplyRemoteProject(existing, remote) {
   if (remoteUpdatedAt > localUpdatedAt) return true;
   if (remoteUpdatedAt < localUpdatedAt) return false;
   if ((remote.name ?? '') !== (existing.name ?? '')) return true;
-  if ((remote.dropboxPath ?? '') !== (existing.dropboxPath ?? '')) return true;
+  if ((remote.syncPath ?? '') !== (existing.syncPath ?? '')) return true;
   if ((remote.startDate ?? '') !== (existing.startDate ?? '')) return true;
   if ((remote.endDate ?? '') !== (existing.endDate ?? '')) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
@@ -3265,7 +3194,7 @@ function shouldApplyRemoteRefMaterial(existing, remote) {
   if (remoteUpdatedAt < localUpdatedAt) return false;
   if ((remote.name ?? '') !== (existing.name ?? '')) return true;
   if ((remote.author ?? '') !== (existing.author ?? '')) return true;
-  if ((remote.dropboxPath ?? '') !== (existing.dropboxPath ?? '')) return true;
+  if ((remote.syncPath ?? '') !== (existing.syncPath ?? '')) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
   return false;
 }
@@ -3356,10 +3285,6 @@ async function listSyncFolders(folderPath) {
   };
 }
 
-async function getLegacyDropboxAccountEmail(token) {
-  return '';
-}
-
 // ── Sync: note list helpers (include full content for upload) ─────────────────
 
 function listDailyNotesForSync(db) {
@@ -3371,7 +3296,7 @@ function listDailyNotesForSync(db) {
     return {
       id: row.id,
       date: row.date,
-      dropboxPath: row.dropbox_path || '',
+      syncPath: row.sync_path || '',
       contentMarkdown: canonical.contentMarkdown,
       blocks: canonical.blocks,
       linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
@@ -3392,7 +3317,7 @@ function listTopicNotesForSync(db) {
       id: row.id,
       title: row.title,
       date: row.date || '',
-      dropboxPath: row.dropbox_path || '',
+      syncPath: row.sync_path || '',
       contentMarkdown: canonical.contentMarkdown,
       blocks: canonical.blocks,
       linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
@@ -3409,7 +3334,7 @@ function listProjectsForSync(db) {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
     tagNames: tagNamesByObjectId.get(row.id) ?? [],
@@ -3425,7 +3350,7 @@ function listRefMaterialsForSync(db) {
     id: row.id,
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
-    dropboxPath: row.dropbox_path,
+    syncPath: row.sync_path,
     tagNames: tagNamesByObjectId.get(row.id) ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -3442,7 +3367,7 @@ function listHabitsForSync(db) {
       text: row.text,
       date: row.date,
       status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-      dropboxPath: row.dropbox_path || '',
+      syncPath: row.sync_path || '',
       tagNames: normalizeHabitTagNames(tags),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -3590,7 +3515,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
            content: {},
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
-           dropboxPath: fields.dropboxPath || dailyNoteDropboxPath(rootFolder, fields.date),
+           syncPath: fields.syncPath || dailyNoteSyncPath(rootFolder, fields.date),
            tags: addInboxTag(fields.tagNames),
            createdAt: fields.createdAt,
            updatedAt: fields.updatedAt,
@@ -3600,7 +3525,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
          updateDailyNoteRecord(db, existing.id, {
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
-           dropboxPath: fields.dropboxPath || dailyNoteDropboxPath(rootFolder, existing.date),
+           syncPath: fields.syncPath || dailyNoteSyncPath(rootFolder, existing.date),
            tags: fields.tagNames,
            updatedAt: fields.updatedAt,
          });
@@ -3616,7 +3541,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
    if (!folderFound) {
       await ensureSyncFolder(dailyNotesFolderPath(rootFolder));
      if (localNotes.length > 0) {
-        result.warnings.push('Dropbox daily-notes folder was missing and has been created; skipped remote-deletion reconciliation for local daily notes.');
+        result.warnings.push('Sync daily-notes folder was missing and has been created; skipped remote-deletion reconciliation for local daily notes.');
      }
      return result;
    }
@@ -3630,7 +3555,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
            }
          } else {
            await ensureSyncFolder(dailyNotesFolderPath(rootFolder));
-           await syncUploadText(dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+           await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note));
            markRemotePresence(db, 'daily-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -3638,14 +3563,14 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
          result.errors.push(`daily-note reconcile ${note.date}: ${String(e)}`);
        }
      } else {
-       // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
+       // Note exists in both local and Sync; upload if local is newer (DEC-37)
        const remoteNote = syncByDate.get(note.date);
        if (remoteNote) {
          const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await syncUploadText(dailyNoteDropboxPath(rootFolder, note.date), dailyNoteToMarkdown(note));
+             await syncUploadText(dailyNoteSyncPath(rootFolder, note.date), dailyNoteToMarkdown(note));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`daily-note upload ${note.date}: ${String(e)}`);
@@ -3675,7 +3600,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
            content: {},
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
-           dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
+           syncPath: fields.syncPath || topicNoteSyncPath(rootFolder, fields.title, fields.id),
            tags: addInboxTag(fields.tagNames),
            createdAt: fields.createdAt,
            updatedAt: fields.updatedAt,
@@ -3687,7 +3612,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
            date: fields.date || '',
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
-           dropboxPath: fields.dropboxPath || topicNoteDropboxPath(rootFolder, fields.title, fields.id),
+           syncPath: fields.syncPath || topicNoteSyncPath(rootFolder, fields.title, fields.id),
            tags: fields.tagNames,
            updatedAt: fields.updatedAt,
          });
@@ -3703,7 +3628,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
    if (!folderFound) {
       await ensureSyncFolder(topicNotesFolderPath(rootFolder));
      if (localNotes.length > 0) {
-        result.warnings.push('Dropbox topic-notes folder was missing and has been created; skipped remote-deletion reconciliation for local topic notes.');
+        result.warnings.push('Sync topic-notes folder was missing and has been created; skipped remote-deletion reconciliation for local topic notes.');
      }
      return result;
    }
@@ -3717,7 +3642,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
            }
          } else {
            await ensureSyncFolder(topicNotesFolderPath(rootFolder));
-           await syncUploadText(topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+           await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
            markRemotePresence(db, 'topic-note', note.id, getIsoNow());
            result.uploaded++;
          }
@@ -3725,14 +3650,14 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
          result.errors.push(`topic-note reconcile ${note.id}: ${String(e)}`);
        }
      } else {
-       // Note exists in both local and Dropbox; upload if local is newer (DEC-37)
+       // Note exists in both local and Sync; upload if local is newer (DEC-37)
        const remoteNote = syncById.get(note.id);
        if (remoteNote) {
          const remoteTime = new Date(remoteNote.updatedAt ?? 0).getTime();
          const localTime = new Date(note.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await syncUploadText(topicNoteDropboxPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
+             await syncUploadText(topicNoteSyncPath(rootFolder, note.title, note.id), topicNoteToMarkdown(note));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`topic-note upload ${note.id}: ${String(e)}`);
@@ -3758,7 +3683,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         createProjectRecord(db, {
           id: fields.id,
           name: fields.name,
-          dropboxPath: fields.dropboxPath,
+          syncPath: fields.syncPath,
           startDate: fields.startDate,
           endDate: fields.endDate,
           tags: addInboxTag(fields.tagNames),
@@ -3769,7 +3694,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
       } else if (shouldApplyRemoteProject(existing, fields)) {
         updateProjectRecord(db, existing.id, {
           name: fields.name,
-          dropboxPath: fields.dropboxPath,
+          syncPath: fields.syncPath,
           startDate: fields.startDate,
           endDate: fields.endDate,
           tags: fields.tagNames,
@@ -3783,11 +3708,11 @@ async function reconcileProjectsDb(db, token, rootFolder) {
     }
   }
 
-  // Auto-create records for Dropbox folders that have no meta.yaml yet
+  // Auto-create records for Sync folders that have no meta.yaml yet
   for (const stub of stubs) {
     try {
       // Avoid duplicates: skip if a project already tracks this folder path
-      const existing = db.prepare('SELECT id FROM projects WHERE dropbox_path = ?').get(stub.folderPath);
+      const existing = db.prepare('SELECT id FROM projects WHERE sync_path = ?').get(stub.folderPath);
       if (existing) {
         // Make sure the existing project is in syncById so it isn't deleted
         if (!syncById.has(existing.id)) {
@@ -3799,7 +3724,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
       const newProject = createProjectRecord(db, {
         id: randomUUID(),
         name: folderNameToTitle(stub.slug),
-        dropboxPath: stub.folderPath,
+        syncPath: stub.folderPath,
         startDate: null,
         endDate: null,
         tags: [INBOX_TAG_NAME],
@@ -3810,7 +3735,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
       await syncUploadText(projectMetaPath(rootFolder, stub.slug), projectToMetaYaml({
         id: newProject.id,
         name: newProject.name,
-        dropboxPath: newProject.dropboxPath,
+        syncPath: newProject.syncPath,
         startDate: newProject.startDate,
         endDate: newProject.endDate,
         tagNames: [],
@@ -3830,7 +3755,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
   if (!folderFound) {
     await ensureSyncFolder(projectsFolderPath(rootFolder));
     if (localItems.length > 0) {
-      result.warnings.push('Dropbox projects folder was missing and has been created; skipped remote-deletion reconciliation for local projects.');
+      result.warnings.push('Sync projects folder was missing and has been created; skipped remote-deletion reconciliation for local projects.');
     }
     return result;
   }
@@ -3892,7 +3817,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           id: fields.id,
           name: fields.name,
           author: fields.author,
-          dropboxPath: fields.dropboxPath,
+          syncPath: fields.syncPath,
           tags: addInboxTag(fields.tagNames),
           createdAt: fields.createdAt,
           updatedAt: fields.updatedAt,
@@ -3902,7 +3827,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         updateRefMatRecord(db, existing.id, {
           name: fields.name,
           author: fields.author,
-          dropboxPath: fields.dropboxPath,
+          syncPath: fields.syncPath,
           tags: fields.tagNames,
           updatedAt: fields.updatedAt,
         });
@@ -3914,10 +3839,10 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
     }
   }
 
-  // Auto-create records for Dropbox folders that have no meta.yaml yet
+  // Auto-create records for Sync folders that have no meta.yaml yet
   for (const stub of stubs) {
     try {
-      const existing = db.prepare('SELECT id FROM ref_materials WHERE dropbox_path = ?').get(stub.folderPath);
+      const existing = db.prepare('SELECT id FROM ref_materials WHERE sync_path = ?').get(stub.folderPath);
       if (existing) {
         if (!syncById.has(existing.id)) {
           syncById.set(existing.id, { id: existing.id });
@@ -3929,7 +3854,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         id: randomUUID(),
         name: folderNameToTitle(stub.slug),
         author: '',
-        dropboxPath: stub.folderPath,
+        syncPath: stub.folderPath,
         tags: [INBOX_TAG_NAME],
         createdAt: now,
         updatedAt: now,
@@ -3938,7 +3863,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         id: newRefMat.id,
         name: newRefMat.name,
         author: newRefMat.author,
-        dropboxPath: newRefMat.dropboxPath,
+        syncPath: newRefMat.syncPath,
         tagNames: [],
         createdAt: newRefMat.createdAt,
         updatedAt: newRefMat.updatedAt,
@@ -3956,7 +3881,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
   if (!folderFound) {
     await ensureSyncFolder(refMaterialsFolderPath(rootFolder));
     if (localItems.length > 0) {
-      result.warnings.push('Dropbox ref-materials folder was missing and has been created; skipped remote-deletion reconciliation for local reference materials.');
+      result.warnings.push('Sync ref-materials folder was missing and has been created; skipped remote-deletion reconciliation for local reference materials.');
     }
     return result;
   }
@@ -4019,7 +3944,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
             text: fields.text,
             date: fields.date,
             status: fields.status,
-            dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+            syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.id, fields.date, fields.tagNames),
             tags: addInboxTagForHabit(fields.tagNames),
             createdAt: fields.createdAt,
             updatedAt: fields.updatedAt,
@@ -4030,7 +3955,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
             text: fields.text,
             date: fields.date,
             status: fields.status,
-            dropboxPath: fields.dropboxPath || habitDropboxPath(rootFolder, fields.id, fields.date, fields.tagNames),
+            syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.id, fields.date, fields.tagNames),
             tags: fields.tagNames,
             updatedAt: fields.updatedAt,
           });
@@ -4046,7 +3971,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
   if (!folderFound) {
     await ensureSyncFolder(habitsFolderPath(rootFolder));
     if (localItems.length > 0) {
-      result.warnings.push('Dropbox habits folder was missing and has been created; skipped remote-deletion reconciliation for local habits.');
+      result.warnings.push('Sync habits folder was missing and has been created; skipped remote-deletion reconciliation for local habits.');
     }
     return result;
   }
@@ -4059,7 +3984,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
              result.deleted++;
            }
          } else {
-           await syncUploadText(habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+           await syncUploadText(habitSyncPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
            markRemotePresence(db, 'habit', item.id, getIsoNow());
            result.uploaded++;
          }
@@ -4073,7 +3998,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
          const localTime = new Date(item.updatedAt ?? 0).getTime();
          if (localTime > remoteTime) {
            try {
-             await syncUploadText(habitDropboxPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
+             await syncUploadText(habitSyncPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
              result.uploaded++;
            } catch (e) {
              result.errors.push(`habit upload ${item.id}: ${String(e)}`);
@@ -4119,7 +4044,7 @@ async function reconcileMobileInboxDailyNotes(db, rootFolder) {
         // Re-upload the merged note so the sync folder reflects the appended content.
         const updated = getDailyNote(db, parsed.date);
         if (updated) {
-          await syncUploadText(dailyNoteDropboxPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated));
+          await syncUploadText(dailyNoteSyncPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated));
         }
         result.appended++;
       } else {
@@ -4129,7 +4054,7 @@ async function reconcileMobileInboxDailyNotes(db, rootFolder) {
           content: {},
           contentMarkdown: parsed.contentMarkdown,
           linkedObjectIds: [],
-          dropboxPath: dailyNoteDropboxPath(rootFolder, parsed.date),
+          syncPath: dailyNoteSyncPath(rootFolder, parsed.date),
           tags: [],
           createdAt: parsed.writtenAt,
           updatedAt: parsed.writtenAt,
@@ -4171,7 +4096,7 @@ async function reconcileMobileInboxHabits(db, rootFolder) {
         text: parsed.text,
         date: parsed.date,
         status: parsed.status,
-        dropboxPath: habitDropboxPath(rootFolder, newId, parsed.date, tagNames),
+        syncPath: habitSyncPath(rootFolder, newId, parsed.date, tagNames),
         tags: tagNames,
         createdAt: parsed.writtenAt,
         updatedAt: parsed.writtenAt,
@@ -4217,6 +4142,25 @@ async function runSync() {
   });
 }
 
+async function runSyncWatch(intervalMinutes) {
+  const safeIntervalMinutes = Number.isFinite(intervalMinutes) && intervalMinutes > 0
+    ? intervalMinutes
+    : SYNC_INTERVAL_MINUTES_DEFAULT;
+  const intervalMs = safeIntervalMinutes * MILLISECONDS_PER_MINUTE;
+  console.log(`Starting sync watch mode (${safeIntervalMinutes} minute interval). Press Ctrl+C to stop.`);
+  while (!process.exitCode) {
+    const result = await runSync();
+    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+    if (result.warnings.length > 0) {
+      for (const warning of result.warnings) console.warn(`  [warning] ${warning}`);
+    }
+    if (result.errors.length > 0) {
+      for (const error of result.errors) console.error(`  [error] ${error}`);
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, intervalMs));
+  }
+}
+
 async function prompt(rl, label, options = {}) {
   const suffix = options.showDefault && hasNonEmptyValue(options.defaultValue) ? ` [${options.defaultValue}]` : '';
   const hint = options.allowClear ? ' (blank keeps current, - clears)' : '';
@@ -4257,7 +4201,7 @@ async function promptYesNo(rl, label, defaultValue = false) {
 
 function openInEditor(currentContent = '') {
   const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
-  const tmpFile = join(tmpdir(), `dropith-edit-${randomUUID()}.md`);
+  const tmpFile = join(tmpdir(), `puzzlepkm-edit-${randomUUID()}.md`);
   try {
     writeFileSync(tmpFile, currentContent, 'utf8');
     const result = spawnSync(editor, [tmpFile], { stdio: 'inherit' });
@@ -4283,7 +4227,7 @@ async function promptMultiline(rl, label, currentValue = null) {
 
   console.log(`${label} (finish with a single '.' on its own line)`);
   const lines = [];
-  while (true) {
+  for (;;) {
     const line = await rl.question('... ');
     if (line === '.') break;
     lines.push(line);
@@ -4334,14 +4278,14 @@ async function createObjectInteractive(type, rl) {
       }
       case 'project': {
         const name = await prompt(rl, 'Name', { required: true });
-        const dropboxPath = await prompt(rl, 'Sync path');
+        const syncPath = await prompt(rl, 'Sync path');
         const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)');
         const endDate = await prompt(rl, 'End date (YYYY-MM-DD)');
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
         return createProjectRecord(db, {
           id: randomUUID(),
           name,
-          dropboxPath,
+          syncPath,
           startDate,
           endDate,
           tags,
@@ -4352,13 +4296,13 @@ async function createObjectInteractive(type, rl) {
       case 'ref-material': {
         const name = await prompt(rl, 'Name', { required: true });
         const author = await prompt(rl, 'Author (optional)', { allowClear: true });
-        const dropboxPath = await prompt(rl, 'Sync path');
+        const syncPath = await prompt(rl, 'Sync path');
         const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
         return createRefMatRecord(db, {
           id: randomUUID(),
           name,
           author,
-          dropboxPath,
+          syncPath,
           tags,
           createdAt,
           updatedAt,
@@ -4448,13 +4392,13 @@ async function updateObjectInteractive(type, reference, rl) {
         const existing = getProject(db, reference);
         if (!existing) return null;
         const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
-        const dropboxPath = await prompt(rl, 'Sync path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
+        const syncPath = await prompt(rl, 'Sync path', { defaultValue: existing.syncPath, showDefault: Boolean(existing.syncPath), allowClear: true });
         const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)', { defaultValue: existing.startDate, showDefault: Boolean(existing.startDate), allowClear: true });
         const endDate = await prompt(rl, 'End date (YYYY-MM-DD)', { defaultValue: existing.endDate, showDefault: Boolean(existing.endDate), allowClear: true });
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
         return updateProjectRecord(db, existing.id, {
           name,
-          dropboxPath,
+          syncPath,
           startDate,
           endDate,
           tags,
@@ -4466,12 +4410,12 @@ async function updateObjectInteractive(type, reference, rl) {
         if (!existing) return null;
         const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
         const author = await prompt(rl, 'Author (optional)', { defaultValue: existing.author ?? '', showDefault: Boolean(existing.author), allowClear: true });
-        const dropboxPath = await prompt(rl, 'Sync path', { defaultValue: existing.dropboxPath, showDefault: Boolean(existing.dropboxPath), allowClear: true });
+        const syncPath = await prompt(rl, 'Sync path', { defaultValue: existing.syncPath, showDefault: Boolean(existing.syncPath), allowClear: true });
         const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
         return updateRefMatRecord(db, existing.id, {
           name,
           author,
-          dropboxPath,
+          syncPath,
           tags,
           updatedAt: getIsoNow(),
         });
@@ -4512,25 +4456,25 @@ Usage:
   ${PRIMARY_CLI_COMMAND} help            Show help
   ${PRIMARY_CLI_COMMAND} add <text>      Quick-create a topic note
   ${PRIMARY_CLI_COMMAND} list [type]     List topic notes or another object type
-  ${PRIMARY_CLI_COMMAND} get <type> <id> Show one object as JSON
-  ${PRIMARY_CLI_COMMAND} create <type>   Create an object with guided prompts
-  ${PRIMARY_CLI_COMMAND} import <type> <dir>
+  ${PRIMARY_CLI_COMMAND} get [type] [id] Show one object as JSON
+  ${PRIMARY_CLI_COMMAND} create [type]   Create an object with guided prompts
+  ${PRIMARY_CLI_COMMAND} import [type] [dir]
                            Batch import Markdown notes from a directory
-  ${PRIMARY_CLI_COMMAND} update <type> <id-or-date>
+  ${PRIMARY_CLI_COMMAND} update [type] [id-or-date]
                            Update an object with guided prompts
-  ${PRIMARY_CLI_COMMAND} delete <type> <id-or-date>
+  ${PRIMARY_CLI_COMMAND} delete [type] [id-or-date]
                            Delete an object
   ${PRIMARY_CLI_COMMAND} browse [target] Browse notes, directories, files, or all objects
 
 Sync:
   ${PRIMARY_CLI_COMMAND} sync            Sync notes, habits, and directories to local sync folder (one-shot)
   ${PRIMARY_CLI_COMMAND} sync --watch    Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
-    [--interval <minutes>]    Override sync interval in minutes
+    [--interval [minutes]]    Override sync interval in minutes
 
 Settings:
   ${PRIMARY_CLI_COMMAND} settings show   Show CLI-visible app settings
-  ${PRIMARY_CLI_COMMAND} settings set root-folder <path>
-                             Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/Dropith)
+  ${PRIMARY_CLI_COMMAND} settings set root-folder [path]
+                             Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/PuzzlePKM)
 
 Object types:
   topic-note, daily-note, project, ref-material, habit, scripture, tag, link
@@ -4543,13 +4487,8 @@ Shell shortcuts:
   Note content editing      Opens in $EDITOR (default: vi); use VIM commands
                              to edit (:w to save, :q to quit, :q! to discard)
 
-Compatibility:
-  ${LEGACY_CLI_COMMAND}                   Legacy CLI alias still works
-  Existing app data stays in legacy "${LEGACY_CLI_COMMAND}" folders for now
-
 Environment:
   ${PRIMARY_DB_ENV_VAR}      Optional absolute path to a ${PRIMARY_PRODUCT_NAME} SQLite database
-  ${LEGACY_DB_ENV_VAR}       Legacy alias for ${PRIMARY_DB_ENV_VAR}
 `);
 }
 
@@ -4565,7 +4504,7 @@ async function runSettings(args, rl) {
   if (action === 'set' && target === 'root-folder') {
     let folder = normalize(args[2]);
     if (!folder && rl) {
-      folder = await prompt(rl, 'Sync root folder path (e.g. /Dropith)', { required: true });
+      folder = await prompt(rl, 'Sync root folder path (e.g. /PuzzlePKM)', { required: true });
     }
     if (!folder) throw new Error('Root folder path is required.');
     saveSyncRootFolder(folder);
@@ -4697,7 +4636,7 @@ async function executeTokens(tokens, context = {}) {
           if (id && getProject(db, id)) {
             return updateProjectRecord(db, id, {
               name: input.name,
-              dropboxPath: input.dropboxPath,
+              syncPath: input.syncPath,
               startDate: input.startDate,
               endDate: input.endDate,
               tags: input.tags,
@@ -4707,7 +4646,7 @@ async function executeTokens(tokens, context = {}) {
           return createProjectRecord(db, {
             id: id ?? randomUUID(),
             name: input.name ?? 'Untitled',
-            dropboxPath: input.dropboxPath ?? '',
+            syncPath: input.syncPath ?? '',
             startDate: input.startDate ?? null,
             endDate: input.endDate ?? null,
             tags: input.tags ?? [],
@@ -4721,7 +4660,7 @@ async function executeTokens(tokens, context = {}) {
             return updateRefMatRecord(db, id, {
               name: input.name,
               author: input.author,
-              dropboxPath: input.dropboxPath,
+              syncPath: input.syncPath,
               tags: input.tags,
               updatedAt: now,
             });
@@ -4730,7 +4669,7 @@ async function executeTokens(tokens, context = {}) {
             id: id ?? randomUUID(),
             name: input.name ?? 'Untitled',
             author: input.author ?? '',
-            dropboxPath: input.dropboxPath ?? '',
+            syncPath: input.syncPath ?? '',
             tags: input.tags ?? [],
             createdAt: now,
             updatedAt: now,
@@ -4834,7 +4773,7 @@ async function executeTokens(tokens, context = {}) {
             throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
           }
           return {
-            path: existing.dropboxPath || dailyNoteDropboxPath(rootFolder, existing.date),
+            path: existing.syncPath || dailyNoteSyncPath(rootFolder, existing.date),
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'daily-note', existing.id),
           };
         }
@@ -4842,7 +4781,7 @@ async function executeTokens(tokens, context = {}) {
           const existing = getTopicNote(db, reference);
           if (!existing) return null;
           return {
-            path: existing.dropboxPath || topicNoteDropboxPath(rootFolder, existing.title, existing.id),
+            path: existing.syncPath || topicNoteSyncPath(rootFolder, existing.title, existing.id),
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'topic-note', existing.id),
           };
         }
@@ -4850,7 +4789,7 @@ async function executeTokens(tokens, context = {}) {
           const existing = getHabit(db, reference);
           if (!existing) return null;
           return {
-            path: existing.dropboxPath || habitDropboxPath(rootFolder, existing.id, existing.date, existing.tags ?? []),
+            path: existing.syncPath || habitSyncPath(rootFolder, existing.id, existing.date, existing.tags ?? []),
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'habit', existing.id),
           };
         }
@@ -4858,7 +4797,7 @@ async function executeTokens(tokens, context = {}) {
           const existing = getProject(db, reference);
           if (!existing) return null;
           return {
-            path: existing.dropboxPath || '',
+            path: existing.syncPath || '',
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'project', existing.id),
           };
         }
@@ -4866,7 +4805,7 @@ async function executeTokens(tokens, context = {}) {
           const existing = getRefMat(db, reference);
           if (!existing) return null;
           return {
-            path: existing.dropboxPath || '',
+            path: existing.syncPath || '',
             requiresRemoteDelete: hasKnownRemoteCopy(db, 'ref-material', existing.id),
           };
         }
@@ -4953,7 +4892,7 @@ async function startShell() {
   console.log('Type help for commands. Exit with Ctrl+C or Ctrl+D.');
 
   try {
-    while (true) {
+    for (;;) {
       let line;
       try {
         line = await rl.question(`${PRIMARY_CLI_COMMAND}> `);
@@ -5000,7 +4939,7 @@ const isDirectExecution = process.argv[1]
 export const __testing = {
   openDb,
   runSync,
-  saveDropboxToken,
+  saveSyncToken,
   saveSyncRootFolder,
   createDailyNoteRecord,
   createTopicNoteRecord,
