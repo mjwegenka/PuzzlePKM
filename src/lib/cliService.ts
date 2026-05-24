@@ -343,7 +343,10 @@ function parseListOutput(
 
   return stdout
     .split('\n')
-    .filter(Boolean)
+    .map((line) => line.trim())
+    // CLI emits human-readable status lines (e.g. "No <type> found.") when empty.
+    // Those lines are not tabular rows and should never be parsed as objects.
+    .filter((line) => Boolean(line) && line.includes('\t'))
     .map((line) => {
       const parts = line.split('\t');
       const id = parts[0] ?? '';
@@ -413,7 +416,8 @@ export async function listDailyNoteMeta(): Promise<
     const stdout = await listObjects('daily-note');
     return stdout
       .split('\n')
-      .filter(Boolean)
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && line.includes('\t'))
       .map((line) => {
         const parts = line.split('\t');
         const rawTags = parts[4] ?? '';
@@ -444,7 +448,8 @@ export async function listTopicNoteMeta(): Promise<
     const stdout = await listObjects('topic-note');
     return stdout
       .split('\n')
-      .filter(Boolean)
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && line.includes('\t'))
       .map((line) => {
         const parts = line.split('\t');
         const rawTags = parts[6] ?? '';
@@ -478,7 +483,8 @@ export async function listHabitMeta(): Promise<
     const stdout = await listObjects('habit');
     return stdout
       .split('\n')
-      .filter(Boolean)
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && line.includes('\t'))
       .map((line) => {
         const parts = line.split('\t');
         const rawTags = parts[5] ?? '';
@@ -513,7 +519,7 @@ export async function listFileMeta(): Promise<
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
-      for (const line of stdout.split('\n').filter(Boolean)) {
+      for (const line of stdout.split('\n').map((entry) => entry.trim()).filter((entry) => Boolean(entry) && entry.includes('\t'))) {
         const parts = line.split('\t');
         const rawTags = parts[4] ?? '';
         const tags = rawTags
@@ -545,7 +551,8 @@ export async function listScriptureMeta(): Promise<
     const stdout = await listObjects('scripture');
     return stdout
       .split('\n')
-      .filter(Boolean)
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && line.includes('\t'))
       .map((line) => {
         const parts = line.split('\t');
         return {
