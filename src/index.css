@@ -55,8 +55,32 @@ body {
   margin-top: 0.72em;
 }
 
+/* Paragraph rows should not stack extra top margin between each other. */
+.ProseMirror > p + p {
+  margin-top: 0;
+}
+
+/* Keep rhythm when transitioning between paragraph and non-paragraph blocks. */
+.ProseMirror > p + :not(p),
+.ProseMirror > :not(p) + p {
+  margin-top: 0.72em;
+}
+
 .ProseMirror p {
   margin: 0;
+  line-height: 1.7;
+  min-height: 1.7em;
+}
+
+/* Keep blank paragraphs from introducing extra vertical gaps after reload. */
+.ProseMirror > p[data-puzzlepkm-blank-line='true'],
+.ProseMirror > p:has(> br.ProseMirror-trailingBreak):not(:has(> :not(br))) {
+  margin-top: 0;
+}
+
+.ProseMirror > p[data-puzzlepkm-blank-line='true'] + *,
+.ProseMirror > p:has(> br.ProseMirror-trailingBreak):not(:has(> :not(br))) + * {
+  margin-top: 0;
 }
 
 .ProseMirror h1 {
