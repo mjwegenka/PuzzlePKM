@@ -123,6 +123,8 @@ puzzlepkm sync --watch --interval 5
 - **Projects**: `{rootFolder}/projects/{slug}/meta.yaml` (directory can contain user files)
 - **Reference Materials**: `{rootFolder}/ref-materials/{slug}/meta.yaml` (directory can contain user files)
 
+Internal links remain canonical UUID hrefs in storage/editor surfaces (`DEC-57`), while sync serialization applies `DEC-56` resolver precedence to produce BibleGateway scripture URLs or safe relative filesystem paths when possible.
+
 When a project or reference material name changes, its directory is renamed to match the new slug. Sync directory names are automatically determined by the project/reference material title.
 
 If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, PuzzlePKM recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
@@ -262,6 +264,8 @@ public/            Static assets for the web shell
 ios/               iOS companion app (Swift / SwiftUI)
 ```
 
+CLI modular ownership follows `DEC-53`/`DEC-54`: command routing lives under `cli/commands/`, while per-object boundaries live under `cli/objects/<object-type>/` with `definition.mjs`, `repository.mjs`, and `service.mjs`.
+
 ## iOS Companion App
 
 The `ios/` directory contains a write-only iPhone app for capturing daily notes and habits on the go. Entries are written to a `mobile-inbox/` sub-folder inside your Dropbox sync root and merged into the desktop app on the next `puzzlepkm sync`.
@@ -278,6 +282,11 @@ puzzlepkm sync
 - Core product scope is implemented and stable for local-first use.
 - v1 release-readiness verification is the active delivery gate.
 - iOS companion app is implemented and integrated with desktop sync.
+
+## Implementation Notes (CLI modularization + link model docs slice)
+
+- Roadmap wiring for this docs-alignment slice is tracked in `DEC-59` (depends on #195, #198, #199, #200, #201; unblocks none).
+- Relevant behavior decisions for this slice: `DEC-53`, `DEC-54`, `DEC-55`, `DEC-56`, `DEC-57`, `DEC-58`, `DEC-59`.
 
 ## v1 Release Readiness Checklist
 
