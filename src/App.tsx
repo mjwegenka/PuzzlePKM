@@ -37,6 +37,14 @@ const SECTION_LABELS: Record<Section, string> = {
   settings: 'Settings',
 }
 
+function resolveSectionAlias(section: string): Section {
+  if (section === 'scripture' || section === 'tags') return 'library'
+  if (section === 'calendar' || section === 'library' || section === 'files' || section === 'graph' || section === 'settings') {
+    return section
+  }
+  return 'library'
+}
+
 function getObjectTabTitle(type: WorkspaceObjectType, object: Record<string, unknown>): string {
   if (type === 'daily-note') {
     const value = String(object.date ?? '').trim()
@@ -170,7 +178,7 @@ export default function App() {
   }, [activeTabId])
 
   const handleNavigate = (section: string) => {
-    ensureSectionTab(section as Section)
+    ensureSectionTab(resolveSectionAlias(section))
   }
 
   const handleNavigateToPinned = useCallback(async (target: PinnedTarget) => {
