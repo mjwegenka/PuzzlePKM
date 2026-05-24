@@ -41,7 +41,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **File Browser** – Browse and manage projects and reference materials
 - **Object Editor** – Create and edit notes with rich text support
 - **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-46`](./IMPLEMENTATION_DECISIONS.md))
-- **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (see [`DEC-34`](./IMPLEMENTATION_DECISIONS.md))
+- **@ Mentions** – Link to other objects by typing `@` in note content; uses UUID-keyed internal hrefs and supports block-level targets via `objectId#blockId` (see [`DEC-34`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-57`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`, which are the canonical persisted source for note content (see [`DEC-38`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
 - **Sidebar Navigation** – Primary destinations are Library, Calendar, and Graph (plus Settings). Scripture discovery/listing is in existing Library/object-detail surfaces rather than a standalone page (see [`DEC-55`](./IMPLEMENTATION_DECISIONS.md))
