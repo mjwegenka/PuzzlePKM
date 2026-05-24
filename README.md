@@ -4,7 +4,7 @@
   <img src="./public/icons/icon-128.png" alt="PuzzlePKM icon" width="128" height="128" />
 </p>
 
-A local-first knowledge management app with folder-based sync. The core product surface is the CLI in `cli.mjs`, with a desktop wrapper powered by Tauri.
+A local-first knowledge management app with folder-based sync. The core product surface is the CLI (`cli.mjs` entrypoint + `cli/` modules), with a desktop wrapper powered by Tauri.
 
 ## Features
 
@@ -203,6 +203,12 @@ Lint the codebase:
 npm run lint
 ```
 
+Run CLI smoke coverage (create/get/list/update/delete/sync paths):
+
+```bash
+npm run test:smoke
+```
+
 Run the SQLite scale benchmark harness:
 
 ```bash
@@ -246,7 +252,8 @@ Recommendation: stay on SQLite for the current product scope (thousands of objec
 ## Project Structure
 
 ```
-cli.mjs            Standalone CLI (no build step — runs directly with Node.js 22+)
+cli.mjs            Standalone CLI entrypoint (no build step — runs directly with Node.js 22+)
+cli/               Modular CLI command/domain implementation
 src/               Lightweight companion web shell (React / TypeScript)
 src-tauri/         Desktop wrapper host (Tauri config + Rust commands)
 public/            Static assets for the web shell

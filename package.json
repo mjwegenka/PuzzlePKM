@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:all": "npm run build",
+    "test:smoke": "node --test ./scripts/cli_smoke.test.mjs",
     "benchmark:sqlite": "node ./scripts/sqlite_benchmark.mjs",
     "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
     "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",
