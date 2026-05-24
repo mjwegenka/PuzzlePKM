@@ -16,6 +16,7 @@ import {
   Alert,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -23,6 +24,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format, isValid, parseISO } from 'date-fns';
 import type { MentionOption } from './MentionPopup';
 import RichMarkdownEditor from './RichMarkdownEditor';
+import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../lib/cliService';
 import { formatDatePretty, getTodayDate } from '../lib/dateUtils';
 import { useSyncStatus } from '../lib/syncContext';
@@ -220,6 +222,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [content, setContent] = useState('');
   const [noteBlocks, setNoteBlocks] = useState<NoteBlock[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [isTitleEditing, setIsTitleEditing] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -266,6 +269,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setTags(nextTags);
     setSaveError(null);
     setIsDirty(false);
+    setIsTitleEditing(false);
     setPendingNavigation(null);
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
@@ -534,18 +538,23 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   }, [date, onDateChange, type]);
 
   const isNoteType = type === 'topic-note' || type === 'daily-note';
-  const forwardLinks = isNoteType && Array.isArray(object?.links)
+  const isFileObject = type === 'project' || type === 'ref-material';
+  const forwardLinks = Array.isArray(object?.links)
     ? (object.links as Array<Record<string, unknown>>)
     : [];
-  const backlinkLinks = isNoteType && Array.isArray(object?.backlinks)
+  const backlinkLinks = Array.isArray(object?.backlinks)
     ? (object.backlinks as Array<Record<string, unknown>>)
     : [];
   const relationLabel = (relation: Record<string, unknown>) => {
     const rawTitle = String(relation.title ?? '').trim();
+    const rawName = String(relation.name ?? '').trim();
+    const rawText = String(relation.text ?? '').trim();
     const rawDate = String(relation.date ?? '').trim();
     const relationType = String(relation.type ?? '').trim();
     if (relationType === 'daily-note' && rawDate) return rawDate;
     if (rawTitle) return rawTitle;
+    if (rawName) return rawName;
+    if (rawText) return rawText;
     if (rawDate) return rawDate;
     return String(relation.id ?? '');
   };
@@ -619,16 +628,93 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     </>
   );
 
+  const handleSaveTitleEdit = async () => {
+    try {
+      const saved = await persistCurrentObject();
+      onSave?.(saved);
+      setIsTitleEditing(false);
+    } catch {
+      // persistCurrentObject already sets saveError
+    }
+  };
+
+  const handleCancelTitleEdit = () => {
+    setTitle(initialRef.current.title);
+    setIsTitleEditing(false);
+  };
+
+  const relationshipsSection = (
+    <Stack spacing={1.5} sx={{ mb: 2 }}>
+      <Box>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+          Links
+        </Typography>
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          {forwardLinks.length === 0 ? (
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+              No links
+            </Typography>
+          ) : (
+            forwardLinks.map((relation) => (
+              <Chip
+                key={`forward-${String(relation.id)}`}
+                label={relationLabel(relation)}
+                size="small"
+                clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                onClick={(event) => { void handleRelationClick(relation, event); }}
+                sx={{
+                  bgcolor: 'action.selected',
+                  border: '1px solid',
+                  borderColor: 'accent.selected',
+                  color: 'text.secondary',
+                  height: 22,
+                }}
+              />
+            ))
+          )}
+        </Stack>
+      </Box>
+      <Box>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+          Backlinks
+        </Typography>
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          {backlinkLinks.length === 0 ? (
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+              No backlinks
+            </Typography>
+          ) : (
+            backlinkLinks.map((relation) => (
+              <Chip
+                key={`backlink-${String(relation.id)}`}
+                label={relationLabel(relation)}
+                size="small"
+                clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                onClick={(event) => { void handleRelationClick(relation, event); }}
+                sx={{
+                  bgcolor: 'success.dark',
+                  border: '1px solid',
+                  borderColor: 'success.main',
+                  color: 'success.light',
+                  height: 22,
+                }}
+              />
+            ))
+          )}
+        </Stack>
+      </Box>
+    </Stack>
+  );
+
   return (
     <Paper
       sx={{
         p: 3,
         bgcolor: 'surface.elevated',
-        border: '1px solid',
+        border: flatTop ? 'none' : '1px solid',
         borderColor: 'border.subtle',
         borderTopLeftRadius: flatTop ? 0 : undefined,
         borderTopRightRadius: flatTop ? 0 : undefined,
-        borderTop: flatTop ? 'none' : undefined,
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
@@ -636,179 +722,252 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         overflow: 'hidden',
       }}
     >
-      <Stack sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 0, overflow: 'hidden' }}>
-        {/* ── TOP: Title and Date (always first) ── */}
-        <Box sx={{ mb: 2, flexShrink: 0 }}>
-          {type === 'daily-note' && (
-            <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
-              {date ? `Daily Note — ${formatDatePretty(date)}` : 'Daily Note'}
-            </Typography>
-          )}
-
-          {showTitle && (
-            <TextField
-              fullWidth
-              label={type === 'topic-note' ? 'Title' : 'Name'}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              variant="standard"
-              placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
-              sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
-            />
-          )}
-          {type === 'ref-material' && (
-            <TextField
-              fullWidth
-              label="Author (optional)"
-              value={author}
-              onChange={(e) => setAuthor(e.target.value)}
-              variant="standard"
-              placeholder="Author name…"
-              sx={{ mb: 1.5 }}
-            />
-          )}
-
-          {isHabit && (
-            <Box sx={{ mb: 1.5 }}>
-              {tagsEditor}
-            </Box>
-          )}
-
-          {showDate && (
-            <Box sx={{ mb: 1.5 }}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <Stack direction="row" spacing={1} alignItems="flex-start">
-                  <Box sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}>
-                    <MUIDatePicker
-                      label={type === 'project' ? 'Start Date' : 'Date'}
-                      value={selectedDate}
-                      format="MMMM d, yyyy"
-                      onChange={(nextValue) => {
-                        if (!nextValue || !isValid(nextValue)) {
-                          setDate('');
-                          return;
-                        }
-                        setDate(format(nextValue, 'yyyy-MM-dd'));
-                      }}
-                      slotProps={{
-                        textField: {
-                          variant: 'standard',
-                          helperText: !date && isOptionalDate ? 'No date set' : undefined,
-                          sx: {
-                            width: '100%',
-                            '& .MuiInputBase-root': {
-                              pr: 0.5,
-                            },
-                          },
-                        },
-                      }}
-                    />
-                  </Box>
-                  {isOptionalDate && date && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => setDate('')}
-                      sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
-                    >
-                      Clear
+      <Stack sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 0, overflow: isFileObject ? 'visible' : 'hidden' }}>
+        {isFileObject ? (
+          <Stack sx={{ flex: 1, minHeight: 0, gap: 2, overflow: 'visible' }}>
+            <Box sx={{ flexShrink: 0 }}>
+              {isTitleEditing ? (
+                <Stack
+                  direction="column"
+                  spacing={1}
+                  sx={{ mb: 1.5 }}
+                >
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    label={type === 'project' ? 'Project name' : 'Reference name'}
+                    placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
+                  />
+                  <Stack direction="row" spacing={1}>
+                    <Button variant="contained" size="small" onClick={() => { void handleSaveTitleEdit(); }} disabled={saving || !title.trim()}>
+                      Save
                     </Button>
-                  )}
+                    <Button variant="text" size="small" onClick={handleCancelTitleEdit} disabled={saving}>
+                      Cancel
+                    </Button>
+                  </Stack>
                 </Stack>
-              </LocalizationProvider>
+              ) : (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    mb: 1.5,
+                    '&:hover .title-edit-button': { opacity: 1 },
+                  }}
+                >
+                  <IconButton
+                    className="title-edit-button"
+                    size="small"
+                    onClick={() => setIsTitleEditing(true)}
+                    sx={{
+                      position: 'absolute',
+                      left: -34,
+                      top: -2,
+                      opacity: 0,
+                      transition: 'opacity 120ms ease',
+                      color: 'text.secondary',
+                    }}
+                  >
+                    <EditIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                  <Typography variant="h4" sx={{ fontSize: '1.8rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}>
+                    {title.trim() || (type === 'project' ? 'Untitled Project' : 'Untitled Reference Material')}
+                  </Typography>
+                </Box>
+              )}
+
+              {tagsEditor}
+
+              {showDate && (
+                <Box sx={{ mt: 1.75 }}>
+                  <LocalizationProvider dateAdapter={AdapterDateFns}>
+                    <Stack direction="row" spacing={1} alignItems="flex-start">
+                      <Box sx={{ width: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
+                        <MUIDatePicker
+                          label={type === 'project' ? 'Start Date' : 'Date'}
+                          value={selectedDate}
+                          format="MMMM d, yyyy"
+                          onChange={(nextValue) => {
+                            if (!nextValue || !isValid(nextValue)) {
+                              setDate('');
+                              return;
+                            }
+                            setDate(format(nextValue, 'yyyy-MM-dd'));
+                          }}
+                          slotProps={{
+                            textField: {
+                              variant: 'standard',
+                              helperText: !date && isOptionalDate ? 'No date set' : undefined,
+                              sx: {
+                                width: '100%',
+                                '& .MuiInputBase-root': {
+                                  pr: 0.5,
+                                },
+                              },
+                            },
+                          }}
+                        />
+                      </Box>
+                      {isOptionalDate && date && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => setDate('')}
+                          sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Stack>
+                  </LocalizationProvider>
+                </Box>
+              )}
+
+              {type === 'ref-material' && (
+                <TextField
+                  fullWidth
+                  label="Author (optional)"
+                  value={author}
+                  onChange={(event) => setAuthor(event.target.value)}
+                  variant="standard"
+                  placeholder="Author name…"
+                  sx={{ mt: 1.75 }}
+                />
+              )}
             </Box>
-          )}
-        </Box>
 
-        {/* ── MIDDLE: Main content (fills remaining space) ── */}
-        {showContent && (
-          <Box sx={{ flex: 1, minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
-            <RichMarkdownEditor
-              label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
-              value={content}
-              onChange={setContent}
-              placeholder={
-                isNoteType
-                  ? 'Write your note… type @ to link another object'
-                  : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
-              }
-              mentionEnabled={isNoteType}
-              resolveMentionHref={resolveMentionHref}
-              blocks={isNoteType ? noteBlocks : undefined}
-              onBlocksChange={isNoteType ? setNoteBlocks : undefined}
-              maxLength={type === 'habit' ? 255 : undefined}
-              onShiftClickLink={handleShiftClickLink}
-            />
-          </Box>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <ObjectDirectoryBrowser object={object} type={type} embedded />
+            </Box>
+
+            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2, flexShrink: 0 }}>
+              {relationshipsSection}
+            </Box>
+          </Stack>
+        ) : (
+          <>
+            {/* ── TOP: Title and Date (always first) ── */}
+            <Box sx={{ mb: 2, flexShrink: 0 }}>
+              {type === 'daily-note' && (
+                <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
+                  {date ? `Daily Note — ${formatDatePretty(date)}` : 'Daily Note'}
+                </Typography>
+              )}
+
+              {showTitle && (
+                <TextField
+                  fullWidth
+                  label={type === 'topic-note' ? 'Title' : 'Name'}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  variant="standard"
+                  placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
+                  sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
+                />
+              )}
+              {type === 'ref-material' && (
+                <TextField
+                  fullWidth
+                  label="Author (optional)"
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                  variant="standard"
+                  placeholder="Author name…"
+                  sx={{ mb: 1.5 }}
+                />
+              )}
+
+              {isHabit && (
+                <Box sx={{ mb: 1.5 }}>
+                  {tagsEditor}
+                </Box>
+              )}
+
+              {showDate && (
+                <Box sx={{ mb: 1.5 }}>
+                  <LocalizationProvider dateAdapter={AdapterDateFns}>
+                    <Stack direction="row" spacing={1} alignItems="flex-start">
+                      <Box sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}>
+                        <MUIDatePicker
+                          label={type === 'project' ? 'Start Date' : 'Date'}
+                          value={selectedDate}
+                          format="MMMM d, yyyy"
+                          onChange={(nextValue) => {
+                            if (!nextValue || !isValid(nextValue)) {
+                              setDate('');
+                              return;
+                            }
+                            setDate(format(nextValue, 'yyyy-MM-dd'));
+                          }}
+                          slotProps={{
+                            textField: {
+                              variant: 'standard',
+                              helperText: !date && isOptionalDate ? 'No date set' : undefined,
+                              sx: {
+                                width: '100%',
+                                '& .MuiInputBase-root': {
+                                  pr: 0.5,
+                                },
+                              },
+                            },
+                          }}
+                        />
+                      </Box>
+                      {isOptionalDate && date && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => setDate('')}
+                          sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </Stack>
+                  </LocalizationProvider>
+                </Box>
+              )}
+            </Box>
+
+            {/* ── MIDDLE: Main content (fills remaining space) ── */}
+            {showContent && (
+              <Box sx={{ flex: 1, minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
+                <RichMarkdownEditor
+                  label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
+                  value={content}
+                  onChange={setContent}
+                  placeholder={
+                    isNoteType
+                      ? 'Write your note… type @ to link another object'
+                      : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
+                  }
+                  mentionEnabled={isNoteType}
+                  resolveMentionHref={resolveMentionHref}
+                  blocks={isNoteType ? noteBlocks : undefined}
+                  onBlocksChange={isNoteType ? setNoteBlocks : undefined}
+                  maxLength={type === 'habit' ? 255 : undefined}
+                  onShiftClickLink={handleShiftClickLink}
+                />
+              </Box>
+            )}
+
+            {/* ── BOTTOM: Relationships + Tags ── */}
+            <Box
+              sx={{
+                borderTop: '1px solid',
+                borderColor: 'border.subtle',
+                pt: 2,
+                flexShrink: 0,
+                minHeight: 0,
+              }}
+            >
+              {isNoteType && relationshipsSection}
+              {!isHabit && tagsEditor}
+            </Box>
+          </>
         )}
-
-        {/* ── BOTTOM: Relationships + Tags ── */}
-        <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2, flexShrink: 0, minHeight: 0 }}>
-          {isNoteType && (
-            <Stack spacing={1.5} sx={{ mb: 2 }}>
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
-                  Links
-                </Typography>
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                  {forwardLinks.length === 0 ? (
-                    <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                      No links
-                    </Typography>
-                  ) : (
-                    forwardLinks.map((relation) => (
-                      <Chip
-                        key={`forward-${String(relation.id)}`}
-                        label={relationLabel(relation)}
-                        size="small"
-                        clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
-                        onClick={(event) => { void handleRelationClick(relation, event); }}
-                        sx={{
-                          bgcolor: 'action.selected',
-                          border: '1px solid',
-                          borderColor: 'accent.selected',
-                          color: 'text.secondary',
-                          height: 22,
-                        }}
-                      />
-                    ))
-                  )}
-                </Stack>
-              </Box>
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
-                  Backlinks
-                </Typography>
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                  {backlinkLinks.length === 0 ? (
-                    <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-                      No backlinks
-                    </Typography>
-                  ) : (
-                    backlinkLinks.map((relation) => (
-                      <Chip
-                        key={`backlink-${String(relation.id)}`}
-                        label={relationLabel(relation)}
-                        size="small"
-                        clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
-                        onClick={(event) => { void handleRelationClick(relation, event); }}
-                        sx={{
-                          bgcolor: 'success.dark',
-                          border: '1px solid',
-                          borderColor: 'success.main',
-                          color: 'success.light',
-                          height: 22,
-                        }}
-                      />
-                    ))
-                  )}
-                </Stack>
-              </Box>
-            </Stack>
-          )}
-
-          {!isHabit && tagsEditor}
-        </Box>
 
         {/* ── Action buttons ── */}
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2, flexShrink: 0 }}>

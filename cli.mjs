@@ -1556,6 +1556,7 @@ function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdow
 function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   const targetIds = new Set(targets.map((target) => target.id));
   const removedDailyTargetIds = [];
+  const removedScriptureTargetIds = [];
   const existingLinks = db
     .prepare('SELECT source_id, target_id, target_type FROM object_links WHERE source_id = ? AND source_type = ?')
     .all(sourceId, sourceType);
@@ -1564,6 +1565,9 @@ function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
       db.prepare('DELETE FROM object_links WHERE source_id = ? AND target_id = ?').run(link.source_id, link.target_id);
       if (link.target_type === 'daily-note') {
         removedDailyTargetIds.push(link.target_id);
+      }
+      if (link.target_type === SCRIPTURE_TYPE) {
+        removedScriptureTargetIds.push(link.target_id);
       }
     }
   }
@@ -1576,7 +1580,34 @@ function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   for (const target of targets) {
     insert.run(randomUUID(), sourceId, target.id, sourceType, target.type, getIsoNow());
   }
+  cleanupScripturesIfEligible(db, removedScriptureTargetIds);
   return removedDailyTargetIds;
+}
+
+function isScriptureDeleteEligible(db, scriptureId) {
+  const row = db.prepare('SELECT id FROM scriptures WHERE id = ?').get(scriptureId);
+  if (!row?.id) return false;
+  if (db.prepare('SELECT 1 FROM object_links WHERE target_id = ? AND target_type = ? LIMIT 1').get(scriptureId, SCRIPTURE_TYPE)) {
+    return false;
+  }
+  return true;
+}
+
+function autoDeleteScriptureIfEligible(db, scriptureId) {
+  const id = normalize(scriptureId);
+  if (!id || !isScriptureDeleteEligible(db, id)) return false;
+  const result = db.prepare('DELETE FROM scriptures WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+function cleanupScripturesIfEligible(db, scriptureIds) {
+  const seen = new Set();
+  for (const scriptureId of scriptureIds ?? []) {
+    const id = normalize(scriptureId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    autoDeleteScriptureIfEligible(db, id);
+  }
 }
 
 function sortRelatedObjectsStable(items) {
@@ -1773,12 +1804,17 @@ function deleteTopicNoteRecord(db, id) {
       .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
       .all(id)
       .map((row) => row.target_id);
+    const linkedScriptureIds = db
+      .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
+      .all(id, SCRIPTURE_TYPE)
+      .map((row) => row.target_id);
     db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
     db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
     clearSyncState(db, 'topic-note', id);
     const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
     cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
+    cleanupScripturesIfEligible(db, linkedScriptureIds);
     return result.changes > 0;
   });
 }
@@ -2018,7 +2054,13 @@ function deleteDailyNoteRecord(db, reference) {
     throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
   }
   return withTransaction(db, () => {
-    return forceDeleteDailyNoteRecord(db, existing.id);
+    const linkedScriptureIds = db
+      .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
+      .all(existing.id, SCRIPTURE_TYPE)
+      .map((row) => row.target_id);
+    const deleted = forceDeleteDailyNoteRecord(db, existing.id);
+    cleanupScripturesIfEligible(db, linkedScriptureIds);
+    return deleted;
   });
 }
 
@@ -2032,6 +2074,8 @@ function getProject(db, id) {
     syncPath: row.sync_path,
     startDate: row.start_date ?? '',
     endDate: row.end_date ?? '',
+    links: getRelatedObjects(db, row.id, 'forward'),
+    backlinks: getRelatedObjects(db, row.id, 'backward'),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2127,6 +2171,8 @@ function getRefMat(db, id) {
     name: row.name,
     author: typeof row.author === 'string' ? row.author : '',
     syncPath: row.sync_path,
+    links: getRelatedObjects(db, row.id, 'forward'),
+    backlinks: getRelatedObjects(db, row.id, 'backward'),
     tags: getTagDisplayNames(db, row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2311,18 +2357,23 @@ function deleteHabitRecord(db, id) {
 function getTag(db, reference) {
   const row = db.prepare('SELECT * FROM tags WHERE id = ? OR name = ?').get(reference, reference.toLowerCase());
   if (!row) return null;
+  const objects = db.prepare(`
+      SELECT object_id, object_type
+      FROM object_tags
+      WHERE tag_id = ?
+      ORDER BY object_type ASC, object_id ASC
+    `).all(row.id).map((entry) => {
+      const summary = lookupObjectSummary(db, entry.object_id, entry.object_type);
+      if (summary) return summary;
+      return { id: entry.object_id, type: entry.object_type, title: '', date: '', syncPath: '' };
+    });
   return {
     id: row.id,
     type: 'tag',
     name: row.name,
     displayName: row.display_name,
     createdAt: row.created_at,
-    objects: db.prepare(`
-      SELECT object_id, object_type
-      FROM object_tags
-      WHERE tag_id = ?
-      ORDER BY object_type ASC, object_id ASC
-    `).all(row.id).map((entry) => ({ id: entry.object_id, type: entry.object_type })),
+    objects,
   };
 }
 
@@ -2415,7 +2466,11 @@ function createLinkRecord(db, input) {
 }
 
 function deleteLinkRecord(db, id) {
+  const row = db.prepare('SELECT target_id, target_type FROM object_links WHERE id = ?').get(id);
   const result = db.prepare('DELETE FROM object_links WHERE id = ?').run(id);
+  if (result.changes > 0 && row?.target_type === SCRIPTURE_TYPE) {
+    cleanupScripturesIfEligible(db, [row.target_id]);
+  }
   return result.changes > 0;
 }
 
