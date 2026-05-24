@@ -44,7 +44,7 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 - **@ Mentions** – Link to other objects by typing `@` in note content; supports block-level link targets using `syncPath#blockId` format (see [`DEC-34`](./IMPLEMENTATION_DECISIONS.md))
 - **Block-backed note content** – Note bodies are authored from ordered `note_blocks`, which are the canonical persisted source for note content (see [`DEC-38`](./IMPLEMENTATION_DECISIONS.md))
 - **Tag Management** – Organize content with tags (bottom of editor)
-- **Sidebar Navigation** – Quick access to all views with Collections-based layout (see [`DEC-47`](./IMPLEMENTATION_DECISIONS.md))
+- **Sidebar Navigation** – Primary destinations are Library, Calendar, and Graph (plus Settings). Scripture discovery/listing is in existing Library/object-detail surfaces rather than a standalone page (see [`DEC-55`](./IMPLEMENTATION_DECISIONS.md))
 - **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally (see [`DEC-45`](./IMPLEMENTATION_DECISIONS.md))
 
 See the `Desktop UI Contract Work (In Progress)` section in this README for the current desktop UI implementation roadmap.
