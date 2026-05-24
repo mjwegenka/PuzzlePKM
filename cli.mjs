@@ -1945,11 +1945,10 @@ function updateDailyNoteRecord(db, reference, input) {
   const existing = findDailyNoteRow(db, reference);
   if (!existing) return null;
   const rootFolder = getSyncRootFolder();
-  const nextDate = input.date ?? existing.date;
-  const duplicate = db.prepare('SELECT id FROM daily_notes WHERE date = ? AND id != ?').get(nextDate, existing.id);
-  if (duplicate?.id) {
-    throw new Error(`A daily note already exists for ${nextDate}`);
+  if (input.date !== undefined && input.date !== existing.date) {
+    throw new Error(`Daily Note date is immutable (${existing.date}); create or edit the note for ${input.date} instead.`);
   }
+  const nextDate = existing.date;
 
   const updatedAt = input.updatedAt ?? getIsoNow();
   const fields = ['updated_at = ?'];
@@ -1959,10 +1958,6 @@ function updateDailyNoteRecord(db, reference, input) {
     || dailyNoteSyncPath(rootFolder, nextDate);
   let derivedLinks;
 
-  if (input.date !== undefined) {
-    fields.push('date = ?');
-    values.push(input.date);
-  }
   if (input.content !== undefined) {
     fields.push('content = ?');
     values.push(JSON.stringify(input.content));
@@ -3026,7 +3021,9 @@ function habitToMarkdown(fields) {
 
 function readSyncPathField(data) {
   if (typeof data.syncPath === 'string') return data.syncPath;
-  if (typeof data.syncPath === 'string') return data.syncPath;
+  if (typeof data.sync_path === 'string') return data.sync_path;
+  if (typeof data.dropboxPath === 'string') return data.dropboxPath;
+  if (typeof data.dropbox_path === 'string') return data.dropbox_path;
   return '';
 }
 
