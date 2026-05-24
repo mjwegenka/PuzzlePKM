@@ -15,10 +15,10 @@
     "jsx": "react-jsx",
 
     /* Path aliases */
-    "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
     "paths": {
-      "@/*": ["src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["./src/shared/*"]
     },
 
     /* Linting */
@@ -30,4 +30,3 @@
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
-

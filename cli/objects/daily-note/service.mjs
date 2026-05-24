@@ -76,7 +76,15 @@ export function createDailyNoteService(deps) {
     if (!isDailyNoteDeleteEligible(db, existing.id)) {
       throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
     }
-    return withTransaction(db, () => forceDeleteDailyNoteRecord(db, existing.id));
+    return withTransaction(db, () => {
+      const linkedScriptureIds = db
+        .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
+        .all(existing.id, deps.SCRIPTURE_TYPE)
+        .map((row) => row.target_id);
+      const deleted = forceDeleteDailyNoteRecord(db, existing.id);
+      deps.cleanupScripturesIfEligible(db, linkedScriptureIds);
+      return deleted;
+    });
   }
 
   async function createDailyNoteInteractive(db, rl) {

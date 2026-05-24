@@ -32,11 +32,11 @@ export interface MentionSearchResult {
 
 export interface ResolvedObjectRef {
   id: string;
-  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
   syncPath: string;
 }
 
-type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture';
+type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
 
 type CliObjectByType = {
   'topic-note': TopicNote;
@@ -45,6 +45,7 @@ type CliObjectByType = {
   'ref-material': ReferenceMaterial;
   habit: Habit;
   scripture: Scripture;
+  tag: Record<string, unknown>;
 };
 
 function normalizeSyncPath(path: string): string {
@@ -579,30 +580,42 @@ export async function getScriptureById(id: string): Promise<Scripture | null> {
 
 /**
  * Browse directory contents for a project or ref-material.
- * Returns list of files and folders (excluding meta.yaml).
+ * Returns list of files and folders (excluding internal/system metadata files).
  * CLI format: kind \t name (where kind is 'dir' or 'file')
  */
 export async function browseDirectory(
   path: string,
 ): Promise<{ directoryPath: string; entries: Array<{ kind: 'dir' | 'file'; name: string }> }> {
-  const localPath = await resolveSyncPathToLocal(path);
-  const result = await runPuzzlePKMCli(['browse', 'files', localPath]);
-  if (result.exitCode !== 0) throw new Error(result.stderr || 'browse failed');
+  const candidates = await resolveSyncPathCandidates(path);
+  let lastError: string | null = null;
 
-  const lines = result.stdout.split('\n').filter(Boolean);
-  const directoryPath = lines[0] ?? localPath;
-  const entries = lines
-    .slice(1)
-    .map((line) => {
-      const parts = line.split('\t');
-      return {
-        kind: (parts[0] === 'dir' ? 'dir' : 'file') as 'dir' | 'file',
-        name: parts[1] ?? '',
-      };
-    })
-    .filter((entry) => entry.name && entry.name !== 'meta.yaml');
+  for (const candidate of candidates) {
+    const result = await runPuzzlePKMCli(['browse', 'files', candidate]);
+    if (result.exitCode !== 0) {
+      lastError = result.stderr || 'browse failed';
+      continue;
+    }
 
-  return { directoryPath, entries };
+    const lines = result.stdout.split('\n').filter(Boolean);
+    const directoryPath = lines[0] ?? candidate;
+    const entries = lines
+      .slice(1)
+      .map((line) => {
+        const parts = line.split('\t');
+        return {
+          kind: (parts[0] === 'dir' ? 'dir' : 'file') as 'dir' | 'file',
+          name: parts[1] ?? '',
+        };
+      })
+      .filter((entry) => {
+        const normalizedName = entry.name.trim().toLowerCase();
+        return Boolean(normalizedName) && normalizedName !== 'meta.yaml' && normalizedName !== '.ds_store';
+      });
+
+    return { directoryPath, entries };
+  }
+
+  throw new Error(lastError || 'browse failed');
 }
 
 export async function openPathInDefaultApp(path: string): Promise<void> {
@@ -628,30 +641,74 @@ function joinPath(base: string, ...parts: string[]): string {
   return suffix ? `${cleanedBase}/${suffix}` : cleanedBase;
 }
 
-async function resolveSyncPathToLocal(path: string): Promise<string> {
-  const raw = String(path ?? '').trim();
-  if (!raw) throw new Error('Browse path is required');
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const path of paths) {
+    const normalized = path.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    next.push(normalized);
+  }
+  return next;
+}
 
-  // Already an absolute local filesystem path.
-  if (/^(\/|[A-Za-z]:[\\/])/.test(raw) && !raw.startsWith('/PuzzlePKM')) {
-    return raw;
+function getRootRelativeSuffix(path: string, rootFolder: string): string {
+  const rawSegments = path.replace(/^\/+/, '').split('/').filter(Boolean);
+  if (rawSegments.length === 0) return '';
+
+  const knownObjectFolders = new Set([
+    'topic-notes',
+    'daily-notes',
+    'habits',
+    'projects',
+    'ref-materials',
+    'scriptures',
+    'tags',
+  ]);
+
+  const rootName = rootFolder.split(/[/\\]/).filter(Boolean).at(-1)?.toLowerCase();
+  const firstSegment = rawSegments[0]?.toLowerCase();
+
+  if (firstSegment === 'puzzlepkm' || (rootName && firstSegment === rootName)) {
+    return rawSegments.slice(1).join('/');
   }
 
-  if (!raw.startsWith('/PuzzlePKM')) {
-    return raw;
+  const folderAnchorIndex = rawSegments.findIndex((segment) => knownObjectFolders.has(segment.toLowerCase()));
+  if (folderAnchorIndex >= 0) {
+    return rawSegments.slice(folderAnchorIndex).join('/');
   }
 
+  return rawSegments.join('/');
+}
+
+async function getSyncRootFolder(): Promise<string | null> {
   const settings = await runPuzzlePKMCli(['settings', 'show']);
-  if (settings.exitCode !== 0) {
-    throw new Error(settings.stderr || 'Could not resolve sync root folder');
-  }
+  if (settings.exitCode !== 0) return null;
 
   const parsed = JSON.parse(settings.stdout) as {
     sync?: { resolvedRootFolder?: string; effectiveRootFolder?: string; rootFolder?: string };
   };
-  const root = parsed.sync?.resolvedRootFolder ?? parsed.sync?.effectiveRootFolder ?? parsed.sync?.rootFolder;
-  if (!root) throw new Error('Sync root folder is not configured');
 
-  const suffix = raw.replace(/^\/PuzzlePKM\/?/, '');
-  return joinPath(root, suffix);
+  return parsed.sync?.resolvedRootFolder ?? parsed.sync?.effectiveRootFolder ?? parsed.sync?.rootFolder ?? null;
+}
+
+async function resolveSyncPathCandidates(path: string): Promise<string[]> {
+  const raw = String(path ?? '').trim();
+  if (!raw) throw new Error('Browse path is required');
+
+  const candidates = [raw];
+  const isAbsoluteLike = /^(\/|[A-Za-z]:[\\/])/.test(raw);
+  if (!isAbsoluteLike) return uniquePaths(candidates);
+
+  const root = await getSyncRootFolder();
+  if (!root) return uniquePaths(candidates);
+
+  // Keep direct absolute paths first, then try root-relative mappings.
+  if (raw.startsWith('/')) {
+    const suffix = getRootRelativeSuffix(raw, root);
+    candidates.push(joinPath(root, suffix));
+  }
+
+  return uniquePaths(candidates);
 }

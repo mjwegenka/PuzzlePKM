@@ -38,6 +38,7 @@ import LabelIcon from '@mui/icons-material/Label'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import SwapVertIcon from '@mui/icons-material/SwapVert'
 import ObjectEditor from './ObjectEditor'
+import ObjectMetaDetailPanel from './ObjectMetaDetailPanel'
 import EditorErrorBoundary from './EditorErrorBoundary'
 import FilterChip from './ui/FilterChip'
 import { NoteCard } from './ui/NoteCard'
@@ -58,7 +59,7 @@ function normalizePathForLookup(path?: string): string {
 }
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
-type EditorObjectType = NoteType | 'project' | 'ref-material'
+type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'tag'
 
 interface NotesPageProps {
   onSaved?: () => void
@@ -718,7 +719,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
   }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, activeFilterChips, visibleObjectTypeSet])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
-  const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material'
+  const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material' || activeTab?.type === 'scripture' || activeTab?.type === 'tag'
     ? activeTab.type
     : null
   const activeNoteId = activeNoteType ? activeTab?.objectId ?? null : null
@@ -736,6 +737,13 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     }
     if (tab.type === 'ref-material') {
       return (tab.object.name as string | undefined)?.trim() || 'Reference Material'
+    }
+    if (tab.type === 'scripture') {
+      return (tab.object.reference as string | undefined)?.trim() || 'Scripture'
+    }
+    if (tab.type === 'tag') {
+      const display = (tab.object.displayName as string | undefined)?.trim() || (tab.object.name as string | undefined)?.trim()
+      return display ? `#${display}` : 'Tag'
     }
     return (tab.object.title as string | undefined)?.trim() || 'Topic Note'
   }
@@ -1016,7 +1024,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                   }}
                 >
                   {(() => {
-                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material'
+                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
                     return (
                   <NoteCard
                     card={card}
@@ -1033,9 +1041,25 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
        </Box>
 
       {activeTab && (
-        <Paper sx={{ width: 560, minWidth: 420, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Paper
+          sx={{
+            width: 560,
+            minWidth: 420,
+            bgcolor: 'surface.elevated',
+            border: '1px solid',
+            borderColor: 'border.subtle',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+          }}
+        >
          <>
-            <Stack direction="row" alignItems="center" gap={0.5} sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              gap={0.5}
+              sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}
+            >
              <Tabs
                value={activeTab?.tabId ?? false}
                onChange={(_, value: string) => setActiveTabId(value)}
@@ -1124,21 +1148,30 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
              {activeTab ? (
                <EditorErrorBoundary>
-                 <ObjectEditor
-                   key={activeTab.tabId}
-                   object={activeTab.object}
-                   type={activeTab.type}
-                    flatTop
-                   onSave={handleSaveEdit}
-                   onCancel={handleCloseEditor}
-                   onDirty={(isDirty) => {
-                     if (!activeTabId) return
-                     setOpenTabs((prev) => prev.map((tab) => (
-                       tab.tabId === activeTabId ? { ...tab, isDirty } : tab
-                     )))
-                   }}
-                   onNavigateToObject={handleNavigateToObject}
-                 />
+                  {activeTab.type === 'scripture' || activeTab.type === 'tag' ? (
+                    <ObjectMetaDetailPanel
+                      object={activeTab.object}
+                      type={activeTab.type}
+                      flatTop
+                      onNavigateToObject={handleNavigateToObject}
+                    />
+                  ) : (
+                    <ObjectEditor
+                      key={activeTab.tabId}
+                      object={activeTab.object}
+                      type={activeTab.type}
+                       flatTop
+                      onSave={handleSaveEdit}
+                      onCancel={handleCloseEditor}
+                      onDirty={(isDirty) => {
+                        if (!activeTabId) return
+                        setOpenTabs((prev) => prev.map((tab) => (
+                          tab.tabId === activeTabId ? { ...tab, isDirty } : tab
+                        )))
+                      }}
+                      onNavigateToObject={handleNavigateToObject}
+                    />
+                  )}
                </EditorErrorBoundary>
              ) : null}
            </Box>

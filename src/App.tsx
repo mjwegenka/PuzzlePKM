@@ -8,7 +8,7 @@ import ObjectEditor from './components/ObjectEditor'
 import NotesPage from './components/NotesPage'
 import GraphPage from './components/GraphPage'
 import SettingsPage from './components/SettingsPage'
-import ObjectDirectoryBrowser from './components/ObjectDirectoryBrowser'
+import ObjectMetaDetailPanel from './components/ObjectMetaDetailPanel'
 import { getObject, listHabitMeta } from './lib/cliService'
 import type { ResolvedObjectRef } from './lib/cliService'
 import { formatDatePretty } from './lib/dateUtils'
@@ -16,7 +16,8 @@ import { formatDatePretty } from './lib/dateUtils'
 type Section = 'calendar' | 'library' | 'files' | 'graph' | 'settings'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
-type WorkspaceObjectType = NotesObjType | FileObjType
+type MetaObjType = 'scripture' | 'tag'
+type WorkspaceObjectType = NotesObjType | FileObjType | MetaObjType
 type PinnedObjType = NotesObjType | FileObjType
 
 type WorkspaceTab =
@@ -52,6 +53,14 @@ function getObjectTabTitle(type: WorkspaceObjectType, object: Record<string, unk
   if (type === 'ref-material') {
     const value = String(object.name ?? '').trim()
     return value || 'Reference Material'
+  }
+  if (type === 'scripture') {
+    const value = String(object.reference ?? '').trim()
+    return value || 'Scripture'
+  }
+  if (type === 'tag') {
+    const display = String(object.displayName ?? object.name ?? '').trim()
+    return display ? `#${display}` : 'Tag'
   }
   const value = String(object.title ?? '').trim()
   return value || 'Topic Note'
@@ -269,7 +278,7 @@ export default function App() {
       />
 
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 0.5, bgcolor: 'surface.app' }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 2, bgcolor: 'surface.app' }}>
           <Box
             sx={{
               flex: 1,
@@ -363,19 +372,21 @@ export default function App() {
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <CircularProgress size={24} />
                 </Box>
+              ) : activeTab.objectType === 'scripture' || activeTab.objectType === 'tag' ? (
+                <ObjectMetaDetailPanel
+                  object={activeTab.object}
+                  type={activeTab.objectType}
+                  flatTop={showWorkspaceTabBar}
+                  onNavigateToObject={handleNavigateFromEditor}
+                />
               ) : (
-                <Stack spacing={0} sx={{ flex: 1, minHeight: 0 }}>
-                  <ObjectEditor
-                    object={activeTab.object}
-                    type={activeTab.objectType}
-                    flatTop={showWorkspaceTabBar}
-                    onSave={(saved) => handleObjectSave(activeTab.id, activeTab.objectType, saved)}
-                    onNavigateToObject={handleNavigateFromEditor}
-                  />
-                  {(activeTab.objectType === 'project' || activeTab.objectType === 'ref-material') && (
-                    <ObjectDirectoryBrowser object={activeTab.object} type={activeTab.objectType} />
-                  )}
-                </Stack>
+                <ObjectEditor
+                  object={activeTab.object}
+                  type={activeTab.objectType}
+                  flatTop={showWorkspaceTabBar}
+                  onSave={(saved) => handleObjectSave(activeTab.id, activeTab.objectType, saved)}
+                  onNavigateToObject={handleNavigateFromEditor}
+                />
               )
             ) : null}
           </Box>

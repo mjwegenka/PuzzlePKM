@@ -1548,6 +1548,7 @@ function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdow
 function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   const targetIds = new Set(targets.map((target) => target.id));
   const removedDailyTargetIds = [];
+  const removedScriptureTargetIds = [];
   const existingLinks = db
     .prepare('SELECT source_id, target_id, target_type FROM object_links WHERE source_id = ? AND source_type = ?')
     .all(sourceId, sourceType);
@@ -1556,6 +1557,9 @@ function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
       db.prepare('DELETE FROM object_links WHERE source_id = ? AND target_id = ?').run(link.source_id, link.target_id);
       if (link.target_type === 'daily-note') {
         removedDailyTargetIds.push(link.target_id);
+      }
+      if (link.target_type === SCRIPTURE_TYPE) {
+        removedScriptureTargetIds.push(link.target_id);
       }
     }
   }
@@ -1568,7 +1572,34 @@ function syncNoteObjectLinks(db, sourceId, sourceType, targets) {
   for (const target of targets) {
     insert.run(randomUUID(), sourceId, target.id, sourceType, target.type, getIsoNow());
   }
+  cleanupScripturesIfEligible(db, removedScriptureTargetIds);
   return removedDailyTargetIds;
+}
+
+function isScriptureDeleteEligible(db, scriptureId) {
+  const row = db.prepare('SELECT id FROM scriptures WHERE id = ?').get(scriptureId);
+  if (!row?.id) return false;
+  if (db.prepare('SELECT 1 FROM object_links WHERE target_id = ? AND target_type = ? LIMIT 1').get(scriptureId, SCRIPTURE_TYPE)) {
+    return false;
+  }
+  return true;
+}
+
+function autoDeleteScriptureIfEligible(db, scriptureId) {
+  const id = normalize(scriptureId);
+  if (!id || !isScriptureDeleteEligible(db, id)) return false;
+  const result = db.prepare('DELETE FROM scriptures WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+function cleanupScripturesIfEligible(db, scriptureIds) {
+  const seen = new Set();
+  for (const scriptureId of scriptureIds ?? []) {
+    const id = normalize(scriptureId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    autoDeleteScriptureIfEligible(db, id);
+  }
 }
 
 function sortRelatedObjectsStable(items) {
@@ -1642,6 +1673,7 @@ const dailyNoteRepository = createDailyNoteRepository({
 });
 dailyNoteService = createDailyNoteService({
   clearSyncState,
+  cleanupScripturesIfEligible,
   createDailyNoteRecord: dailyNoteRepository.createDailyNoteRecord,
   createDailyNoteRecordInternal: dailyNoteRepository.createDailyNoteRecordInternal,
   findDailyNoteRow: dailyNoteRepository.findDailyNoteRow,
@@ -1655,6 +1687,7 @@ dailyNoteService = createDailyNoteService({
   promptList,
   promptMultiline,
   randomUUID,
+  SCRIPTURE_TYPE,
   updateDailyNoteRecord: dailyNoteRepository.updateDailyNoteRecord,
   withTransaction,
 });
@@ -1679,6 +1712,7 @@ const {
 const topicNoteRepository = createTopicNoteRepository({
   assembleMarkdownFromBlocks,
   cleanupDailyNotesIfEligible,
+  cleanupScripturesIfEligible,
   clearSyncState,
   collectDateLinkTargets,
   collectScriptureLinkTargets,
@@ -1696,6 +1730,7 @@ const topicNoteRepository = createTopicNoteRepository({
   parseBlocksFromMarkdown,
   persistNoteBlocks,
   safeJsonParse,
+  SCRIPTURE_TYPE,
   syncNoteObjectLinks,
   syncObjectTags,
   topicNoteSyncPath,

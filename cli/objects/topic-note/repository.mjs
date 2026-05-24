@@ -22,6 +22,7 @@ export function createTopicNoteRepository(deps) {
     topicNoteSyncPath,
     withTransaction,
     cleanupDailyNotesIfEligible,
+    cleanupScripturesIfEligible,
   } = deps;
 
   function getTopicNote(db, id) {
@@ -188,12 +189,17 @@ export function createTopicNoteRepository(deps) {
         .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
         .all(id)
         .map((row) => row.target_id);
+      const linkedScriptureIds = db
+        .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
+        .all(id, deps.SCRIPTURE_TYPE)
+        .map((row) => row.target_id);
       db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
       db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
       db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
       deps.clearSyncState(db, 'topic-note', id);
       const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
       cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
+      cleanupScripturesIfEligible(db, linkedScriptureIds);
       return result.changes > 0;
     });
   }
