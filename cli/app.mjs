@@ -14,6 +14,23 @@ import { handleNotesCommand } from './commands/notes.mjs';
 import { handleObjectsCommand } from './commands/objects.mjs';
 import { handleSettingsCommand } from './commands/settings.mjs';
 import { handleSyncCommand } from './commands/sync.mjs';
+import { createDailyNoteRepository } from './objects/daily-note/repository.mjs';
+import { createDailyNoteService } from './objects/daily-note/service.mjs';
+import { createHabitRepository } from './objects/habit/repository.mjs';
+import { createHabitService } from './objects/habit/service.mjs';
+import { createObjectTypeAliasMap } from './objects/index.mjs';
+import { createLinkRepository } from './objects/link/repository.mjs';
+import { createLinkService } from './objects/link/service.mjs';
+import { createProjectRepository } from './objects/project/repository.mjs';
+import { createProjectService } from './objects/project/service.mjs';
+import { createRefMaterialRepository } from './objects/ref-material/repository.mjs';
+import { createRefMaterialService } from './objects/ref-material/service.mjs';
+import { createScriptureRepository } from './objects/scripture/repository.mjs';
+import { createScriptureService } from './objects/scripture/service.mjs';
+import { createTagRepository } from './objects/tag/repository.mjs';
+import { createTagService } from './objects/tag/service.mjs';
+import { createTopicNoteRepository } from './objects/topic-note/repository.mjs';
+import { createTopicNoteService } from './objects/topic-note/service.mjs';
 
 const KEYCHAIN_ACCESS_TOKEN = 'sync_access_token';
 const KEYCHAIN_REFRESH_TOKEN = 'sync_refresh_token';
@@ -1500,35 +1517,6 @@ function collectDateLinkTargets(db, dates) {
   return targets;
 }
 
-function ensureScriptureRecord(db, scriptureRef) {
-  const existing = db.prepare('SELECT id FROM scriptures WHERE reference = ?').get(scriptureRef.reference);
-  if (existing?.id) {
-    db.prepare(`
-      UPDATE scriptures
-      SET book_name = ?, book_order = ?, passage_url = ?, updated_at = ?
-      WHERE id = ?
-    `).run(scriptureRef.bookName, scriptureRef.bookOrder, scriptureRef.passageUrl, getIsoNow(), existing.id);
-    return existing.id;
-  }
-  const now = getIsoNow();
-  const id = randomUUID();
-  db.prepare(`
-    INSERT INTO scriptures (id, reference, book_name, book_order, passage_url, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, scriptureRef.reference, scriptureRef.bookName, scriptureRef.bookOrder, scriptureRef.passageUrl, now, now);
-  return id;
-}
-
-function collectScriptureLinkTargets(db, scriptureRefs) {
-  const targets = [];
-  for (const scriptureRef of scriptureRefs ?? []) {
-    const id = ensureScriptureRecord(db, scriptureRef);
-    if (!id) continue;
-    targets.push({ id, type: SCRIPTURE_TYPE });
-  }
-  return targets;
-}
-
 function deriveNoteLinksFromContent(db, sourceId, sourceSyncPath, contentMarkdown) {
   const refs = listLinkableObjectRefs(db);
   const hrefs = parseMarkdownLinkHrefs(contentMarkdown);
@@ -1611,877 +1599,271 @@ function getRelatedObjects(db, noteId, direction) {
   return sortRelatedObjectsStable(related);
 }
 
-function getTopicNote(db, id) {
-  const row = db.prepare('SELECT * FROM topic_notes WHERE id = ?').get(id);
-  if (!row) return null;
-  const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
-  return {
-    id: row.id,
-    type: 'topic-note',
-    title: row.title,
-    date: row.date || '',
-    syncPath: row.sync_path || '',
-    content: safeJsonParse(row.content, {}),
-    contentMarkdown,
-    blocks,
-    linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-    links: getRelatedObjects(db, row.id, 'forward'),
-    backlinks: getRelatedObjects(db, row.id, 'backward'),
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function listTopicNotes(db) {
-  const rows = db.prepare('SELECT id, title, date, content_markdown, sync_path, created_at, updated_at FROM topic_notes ORDER BY updated_at DESC').all();
-  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => {
-    const contentMarkdown = contentByNoteId.get(row.id)?.contentMarkdown ?? (row.content_markdown ?? '');
-    return {
-      id: row.id,
-      title: row.title,
-      date: row.date || '',
-      syncPath: row.sync_path || '',
-      preview: contentMarkdown.slice(0, 80),
-      tags: tagNamesByObjectId.get(row.id) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
-}
-
-function createTopicNoteRecord(db, input) {
-  return withTransaction(db, () => {
-    const now = input.createdAt ?? getIsoNow();
-    const rootFolder = getSyncRootFolder();
-    const syncPath = normalizeSyncPath(input.syncPath) || topicNoteSyncPath(rootFolder, input.title, input.id);
-    // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
-    const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
-      ? input.blocks
-      : parseBlocksFromMarkdown(input.contentMarkdown);
-    const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
-      ? assembleMarkdownFromBlocks(blocks)
-      : (input.contentMarkdown ?? '');
-    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
-    const normalizedBlocks = normalizedScripture.blocks;
-    const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
-    const derivedLinks = deriveNoteLinksFromContent(db, input.id, syncPath, normalizedContentMarkdown);
-    const dateLinks = collectDateLinkTargets(db, [input.date]);
-    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
-    const mergedLinks = mergeLinkTargets(derivedLinks, dateLinks, scriptureLinks);
-    db.prepare(`
-      INSERT INTO topic_notes (id, title, date, content, linked_object_ids, sync_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.id,
-      input.title,
-      input.date || '',
-      JSON.stringify(input.content ?? {}),
-      JSON.stringify(mergedLinks.map((target) => target.id)),
-      syncPath,
-      input.createdAt,
-      input.updatedAt,
-    );
-    syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
-    persistNoteBlocks(db, input.id, 'topic-note', normalizedBlocks, now);
-    syncNoteObjectLinks(db, input.id, 'topic-note', mergedLinks);
-    return getTopicNote(db, input.id);
-  });
-}
-
-function updateTopicNoteRecord(db, id, input) {
-  const existing = getTopicNote(db, id);
-  if (!existing) return null;
-  const rootFolder = getSyncRootFolder();
-  const updatedAt = input.updatedAt ?? getIsoNow();
-  const fields = ['updated_at = ?'];
-  const values = [updatedAt];
-  const nextTitle = input.title ?? existing.title;
-  const nextSyncPath =
-    normalizeSyncPath(input.syncPath !== undefined ? input.syncPath : existing.syncPath)
-    || topicNoteSyncPath(rootFolder, nextTitle, id);
-  const nextDate = input.date !== undefined ? (input.date || '') : (existing.date || '');
-  let derivedLinks;
-
-  if (input.title !== undefined) {
-    fields.push('title = ?');
-    values.push(input.title);
-  }
-  if (input.date !== undefined) {
-    fields.push('date = ?');
-    values.push(input.date || '');
-  }
-  if (input.content !== undefined) {
-    fields.push('content = ?');
-    values.push(JSON.stringify(input.content));
-  }
-  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
-  let updatedBlocks;
-  if (Array.isArray(input.blocks) && input.blocks.length > 0) {
-    updatedBlocks = input.blocks;
-  } else if (input.contentMarkdown !== undefined) {
-    updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
-  } else if (Array.isArray(input.blocks) && input.blocks.length === 0) {
-    updatedBlocks = [];
-  }
-  if (updatedBlocks !== undefined || input.date !== undefined) {
-    const contentMarkdown = updatedBlocks !== undefined
-      ? (
-        Array.isArray(updatedBlocks) && updatedBlocks.length > 0
-          ? assembleMarkdownFromBlocks(updatedBlocks)
-          : (input.contentMarkdown ?? '')
-      )
-      : existing.contentMarkdown;
-    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
-    updatedBlocks = normalizedScripture.blocks;
-    const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
-    const contentLinks = deriveNoteLinksFromContent(db, id, nextSyncPath, normalizedContentMarkdown);
-    const dateLinks = collectDateLinkTargets(db, [nextDate]);
-    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
-    derivedLinks = mergeLinkTargets(contentLinks, dateLinks, scriptureLinks);
-    fields.push('linked_object_ids = ?');
-    values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
-  }
-  if (derivedLinks === undefined && input.linkedObjectIds !== undefined) {
-    fields.push('linked_object_ids = ?');
-    values.push(JSON.stringify(input.linkedObjectIds));
-  }
-  if (input.syncPath !== undefined || !normalizeSyncPath(existing.syncPath)) {
-    fields.push('sync_path = ?');
-    values.push(nextSyncPath);
-  }
-
-  values.push(id);
-
-  return withTransaction(db, () => {
-    db.prepare(`UPDATE topic_notes SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (input.tags !== undefined) {
-      syncObjectTags(db, id, 'topic-note', input.tags);
-    }
-    if (updatedBlocks !== undefined) {
-      persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt);
-    }
-    if (derivedLinks !== undefined) {
-      const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'topic-note', derivedLinks);
-      cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-    }
-    return getTopicNote(db, id);
-  });
-}
-
-function deleteTopicNoteRecord(db, id) {
-  return withTransaction(db, () => {
-    const linkedDailyNoteIds = db
-      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
-      .all(id)
-      .map((row) => row.target_id);
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
-    db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
-    db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
-    clearSyncState(db, 'topic-note', id);
-    const result = db.prepare('DELETE FROM topic_notes WHERE id = ?').run(id);
-    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
-    return result.changes > 0;
-  });
-}
-
-function findDailyNoteRow(db, reference) {
-  return db.prepare('SELECT * FROM daily_notes WHERE id = ? OR date = ?').get(reference, reference) ?? null;
-}
-
-function ensureDailyNoteForDate(db, date) {
-  const normalizedDate = normalize(date);
-  if (!isLocalDateString(normalizedDate)) return null;
-  const existing = getDailyNote(db, normalizedDate);
-  if (existing) return existing;
-  const now = getIsoNow();
-  return createDailyNoteRecordInternal(db, {
-    id: randomUUID(),
-    date: normalizedDate,
-    content: {},
-    contentMarkdown: '',
-    blocks: [],
-    linkedObjectIds: [],
-    tags: [],
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
-function stripEmbeddedBlockComments(markdown) {
-  return String(markdown ?? '')
-    .replace(/\s*<!--\s*blk-[a-f0-9]{12}\s*-->\s*$/gim, '')
-    .trim();
-}
-
-function hasNonEmptyDailyNoteContent(db, row) {
-  const blocks = getNoteBlocks(db, row.id);
-  if (blocks.length > 0) {
-    return blocks.some((block) => normalize(block.contentMarkdown));
-  }
-  return Boolean(stripEmbeddedBlockComments(row.content_markdown));
-}
-
-function isDailyNoteDeleteEligible(db, dailyNoteId) {
-  const row = findDailyNoteRow(db, dailyNoteId);
-  if (!row) return false;
-  if (hasNonEmptyDailyNoteContent(db, row)) return false;
-  if (db.prepare('SELECT 1 FROM object_tags WHERE object_id = ? LIMIT 1').get(row.id)) return false;
-  if (db.prepare('SELECT 1 FROM object_links WHERE source_id = ? OR target_id = ? LIMIT 1').get(row.id, row.id)) return false;
-  return true;
-}
-
-function forceDeleteDailyNoteRecord(db, dailyNoteId) {
-  db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(dailyNoteId);
-  db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(dailyNoteId, dailyNoteId);
-  db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(dailyNoteId);
-  clearSyncState(db, 'daily-note', dailyNoteId);
-  const result = db.prepare('DELETE FROM daily_notes WHERE id = ?').run(dailyNoteId);
-  return result.changes > 0;
-}
-
-function autoDeleteDailyNoteIfEligible(db, dailyNoteId) {
-  const row = findDailyNoteRow(db, dailyNoteId);
-  if (!row?.id || !isDailyNoteDeleteEligible(db, row.id)) return false;
-  return forceDeleteDailyNoteRecord(db, row.id);
-}
-
-function cleanupDailyNotesIfEligible(db, dailyNoteIds) {
-  const seen = new Set();
-  for (const dailyNoteId of dailyNoteIds ?? []) {
-    const id = normalize(dailyNoteId);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    autoDeleteDailyNoteIfEligible(db, id);
-  }
-}
-
-function mapDailyNote(db, row) {
-  const { blocks, contentMarkdown } = getCanonicalNoteContent(db, row.id, row.content_markdown);
-  return {
-    id: row.id,
-    type: 'daily-note',
-    date: row.date,
-    syncPath: row.sync_path || '',
-    content: safeJsonParse(row.content, {}),
-    contentMarkdown,
-    blocks,
-    linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-    links: getRelatedObjects(db, row.id, 'forward'),
-    backlinks: getRelatedObjects(db, row.id, 'backward'),
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function getDailyNote(db, reference) {
-  const row = findDailyNoteRow(db, reference);
-  return row ? mapDailyNote(db, row) : null;
-}
-
-function listDailyNotes(db) {
-  const rows = db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all();
-  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => {
-    const contentMarkdown = contentByNoteId.get(row.id)?.contentMarkdown ?? (row.content_markdown ?? '');
-    return {
-      id: row.id,
-      date: row.date,
-      syncPath: row.sync_path || '',
-      preview: contentMarkdown.slice(0, 80),
-      tags: tagNamesByObjectId.get(row.id) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
-}
-
-function createDailyNoteRecordInternal(db, input) {
-  const now = input.createdAt ?? getIsoNow();
-  const rootFolder = getSyncRootFolder();
-  const syncPath = normalizeSyncPath(input.syncPath) || dailyNoteSyncPath(rootFolder, input.date);
-  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
-  const blocks = Array.isArray(input.blocks) && input.blocks.length > 0
-    ? input.blocks
-    : parseBlocksFromMarkdown(input.contentMarkdown);
-  const contentMarkdown = Array.isArray(blocks) && blocks.length > 0
-    ? assembleMarkdownFromBlocks(blocks)
-    : (input.contentMarkdown ?? '');
-  const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
-  const normalizedBlocks = normalizedScripture.blocks;
-  const normalizedContentMarkdown = normalizedBlocks.length > 0 ? assembleMarkdownFromBlocks(normalizedBlocks) : '';
-  const derivedLinks = deriveNoteLinksFromContent(db, input.id, syncPath, normalizedContentMarkdown);
-  const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
-  const mergedLinks = mergeLinkTargets(derivedLinks, scriptureLinks);
-  db.prepare(`
-      INSERT INTO daily_notes (id, date, content, linked_object_ids, sync_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-    input.id,
-    input.date,
-    JSON.stringify(input.content ?? {}),
-    JSON.stringify(mergedLinks.map((target) => target.id)),
-    syncPath,
-    input.createdAt,
-    input.updatedAt,
-  );
-  syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
-  persistNoteBlocks(db, input.id, 'daily-note', normalizedBlocks, now);
-  const removedDailyNoteIds = syncNoteObjectLinks(db, input.id, 'daily-note', mergedLinks);
-  cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-  return getDailyNote(db, input.id);
-}
-
-function createDailyNoteRecord(db, input) {
-  const existing = db.prepare('SELECT id FROM daily_notes WHERE date = ?').get(input.date);
-  if (existing?.id) {
-    throw new Error(`A daily note already exists for ${input.date}`);
-  }
-
-  return withTransaction(db, () => createDailyNoteRecordInternal(db, input));
-}
-
-function updateDailyNoteRecord(db, reference, input) {
-  const existing = findDailyNoteRow(db, reference);
-  if (!existing) return null;
-  const rootFolder = getSyncRootFolder();
-  if (input.date !== undefined && input.date !== existing.date) {
-    throw new Error(`Daily Note date is immutable (${existing.date}); create or edit the note for ${input.date} instead.`);
-  }
-  const nextDate = existing.date;
-
-  const updatedAt = input.updatedAt ?? getIsoNow();
-  const fields = ['updated_at = ?'];
-  const values = [updatedAt];
-  const nextSyncPath =
-    normalizeSyncPath(input.syncPath !== undefined ? input.syncPath : existing.sync_path)
-    || dailyNoteSyncPath(rootFolder, nextDate);
-  let derivedLinks;
-
-  if (input.content !== undefined) {
-    fields.push('content = ?');
-    values.push(JSON.stringify(input.content));
-  }
-  // DEC-36, DEC-37, DEC-38: Use pre-parsed blocks if provided; otherwise parse from contentMarkdown.
-  let updatedBlocks;
-  if (Array.isArray(input.blocks) && input.blocks.length > 0) {
-    updatedBlocks = input.blocks;
-  } else if (input.contentMarkdown !== undefined) {
-    updatedBlocks = parseBlocksFromMarkdown(input.contentMarkdown);
-  } else if (Array.isArray(input.blocks) && input.blocks.length === 0) {
-    updatedBlocks = [];
-  }
-  if (updatedBlocks !== undefined) {
-    const contentMarkdown = Array.isArray(updatedBlocks) && updatedBlocks.length > 0
-      ? assembleMarkdownFromBlocks(updatedBlocks)
-      : (input.contentMarkdown ?? '');
-    const normalizedScripture = normalizeScriptureBlocks(parseBlocksFromMarkdown(contentMarkdown));
-    updatedBlocks = normalizedScripture.blocks;
-    const normalizedContentMarkdown = updatedBlocks.length > 0 ? assembleMarkdownFromBlocks(updatedBlocks) : '';
-    const contentLinks = deriveNoteLinksFromContent(db, existing.id, nextSyncPath, normalizedContentMarkdown);
-    const scriptureLinks = collectScriptureLinkTargets(db, normalizedScripture.references);
-    derivedLinks = mergeLinkTargets(contentLinks, scriptureLinks);
-    fields.push('linked_object_ids = ?');
-    values.push(JSON.stringify(derivedLinks.map((target) => target.id)));
-  }
-  if (derivedLinks === undefined && input.linkedObjectIds !== undefined) {
-    fields.push('linked_object_ids = ?');
-    values.push(JSON.stringify(input.linkedObjectIds));
-  }
-  if (input.syncPath !== undefined || !normalizeSyncPath(existing.sync_path)) {
-    fields.push('sync_path = ?');
-    values.push(nextSyncPath);
-  }
-
-  values.push(existing.id);
-
-  return withTransaction(db, () => {
-    db.prepare(`UPDATE daily_notes SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (input.tags !== undefined) {
-      syncObjectTags(db, existing.id, 'daily-note', input.tags);
-    }
-    if (updatedBlocks !== undefined) {
-      persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt);
-    }
-    if (derivedLinks !== undefined) {
-      const removedDailyNoteIds = syncNoteObjectLinks(db, existing.id, 'daily-note', derivedLinks);
-      cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-    }
-    return getDailyNote(db, existing.id);
-  });
-}
-
-function deleteDailyNoteRecord(db, reference) {
-  const existing = findDailyNoteRow(db, reference);
-  if (!existing) return false;
-  if (!isDailyNoteDeleteEligible(db, existing.id)) {
-    throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
-  }
-  return withTransaction(db, () => {
-    return forceDeleteDailyNoteRecord(db, existing.id);
-  });
-}
-
-function getProject(db, id) {
-  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
-  if (!row) return null;
-  return {
-    id: row.id,
-    type: 'project',
-    name: row.name,
-    syncPath: row.sync_path,
-    startDate: row.start_date ?? '',
-    endDate: row.end_date ?? '',
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function listProjects(db) {
-  const rows = db.prepare('SELECT * FROM projects ORDER BY name ASC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    syncPath: row.sync_path,
-    startDate: row.start_date ?? '',
-    endDate: row.end_date ?? '',
-    tags: tagNamesByObjectId.get(row.id) ?? [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-function createProjectRecord(db, input) {
-  return withTransaction(db, () => {
-    db.prepare(`
-      INSERT INTO projects (id, name, sync_path, start_date, end_date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.name, input.syncPath, input.startDate || null, input.endDate || null, input.createdAt, input.updatedAt);
-    syncObjectTags(db, input.id, 'project', input.tags ?? []);
-    syncNoteObjectLinks(db, input.id, 'project', collectDateLinkTargets(db, [input.startDate, input.endDate]));
-    return getProject(db, input.id);
-  });
-}
-
-function updateProjectRecord(db, id, input) {
-  const existing = getProject(db, id);
-  if (!existing) return null;
-  const fields = ['updated_at = ?'];
-  const values = [input.updatedAt ?? getIsoNow()];
-
-  if (input.name !== undefined) {
-    fields.push('name = ?');
-    values.push(input.name);
-  }
-  if (input.syncPath !== undefined) {
-    fields.push('sync_path = ?');
-    values.push(input.syncPath);
-  }
-  if (input.startDate !== undefined) {
-    fields.push('start_date = ?');
-    values.push(input.startDate || null);
-  }
-  if (input.endDate !== undefined) {
-    fields.push('end_date = ?');
-    values.push(input.endDate || null);
-  }
-
-  values.push(id);
-
-  return withTransaction(db, () => {
-    db.prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (input.tags !== undefined) {
-      syncObjectTags(db, id, 'project', input.tags);
-    }
-    const nextStartDate = input.startDate !== undefined ? input.startDate : existing.startDate;
-    const nextEndDate = input.endDate !== undefined ? input.endDate : existing.endDate;
-    const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'project', collectDateLinkTargets(db, [nextStartDate, nextEndDate]));
-    cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-    return getProject(db, id);
-  });
-}
-
-function deleteProjectRecord(db, id) {
-  return withTransaction(db, () => {
-    const linkedDailyNoteIds = db
-      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
-      .all(id)
-      .map((row) => row.target_id);
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
-    db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
-    clearSyncState(db, 'project', id);
-    const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
-    return result.changes > 0;
-  });
-}
-
-function getRefMat(db, id) {
-  const row = db.prepare('SELECT * FROM ref_materials WHERE id = ?').get(id);
-  if (!row) return null;
-  return {
-    id: row.id,
-    type: 'ref-material',
-    name: row.name,
-    author: typeof row.author === 'string' ? row.author : '',
-    syncPath: row.sync_path,
-    tags: getTagDisplayNames(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function listRefMats(db) {
-  const rows = db.prepare('SELECT * FROM ref_materials ORDER BY name ASC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    author: typeof row.author === 'string' ? row.author : '',
-    syncPath: row.sync_path,
-    tags: tagNamesByObjectId.get(row.id) ?? [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-function createRefMatRecord(db, input) {
-  return withTransaction(db, () => {
-    db.prepare(`
-      INSERT INTO ref_materials (id, name, author, sync_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(input.id, input.name, input.author ?? null, input.syncPath, input.createdAt, input.updatedAt);
-    syncObjectTags(db, input.id, 'ref-material', input.tags ?? []);
-    return getRefMat(db, input.id);
-  });
-}
-
-function updateRefMatRecord(db, id, input) {
-  const existing = getRefMat(db, id);
-  if (!existing) return null;
-  const fields = ['updated_at = ?'];
-  const values = [input.updatedAt ?? getIsoNow()];
-
-  if (input.name !== undefined) {
-    fields.push('name = ?');
-    values.push(input.name);
-  }
-  if (input.author !== undefined) {
-    fields.push('author = ?');
-    values.push(input.author || null);
-  }
-  if (input.syncPath !== undefined) {
-    fields.push('sync_path = ?');
-    values.push(input.syncPath);
-  }
-
-  values.push(id);
-
-  return withTransaction(db, () => {
-    db.prepare(`UPDATE ref_materials SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (input.tags !== undefined) {
-      syncObjectTags(db, id, 'ref-material', input.tags);
-    }
-    return getRefMat(db, id);
-  });
-}
-
-function deleteRefMatRecord(db, id) {
-  return withTransaction(db, () => {
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
-    db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
-    clearSyncState(db, 'ref-material', id);
-    const result = db.prepare('DELETE FROM ref_materials WHERE id = ?').run(id);
-    return result.changes > 0;
-  });
-}
-
-function getHabit(db, id) {
-  const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
-  if (!row) return null;
-  const tags = getTagDisplayNames(db, row.id);
-  return {
-    id: row.id,
-    type: 'habit',
-    text: row.text,
-    date: row.date,
-    status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-    syncPath: row.sync_path || '',
-    tags,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function listHabits(db) {
-  const rows = db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => ({
-    id: row.id,
-    text: row.text,
-    date: row.date,
-    status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-    syncPath: row.sync_path || '',
-    tags: tagNamesByObjectId.get(row.id) ?? [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-function sanitizeHabitText(text) {
-  return text.length > MAX_HABIT_TEXT_LENGTH
-    ? { text: text.slice(0, MAX_HABIT_TEXT_LENGTH), truncated: true }
-    : { text, truncated: false };
-}
-
-function createHabitRecord(db, input) {
-  const sanitized = sanitizeHabitText(input.text);
-  const tags = normalizeHabitTagNames(input.tags);
-  const status = normalizeHabitStatus(input.status, HABIT_STATUS_PLANNED);
-  return withTransaction(db, () => {
-    // DEC-21: Calculate syncPath from sync_path parameter or generate from date/tags/id
-    const syncPath = input.syncPath || '';
-    db.prepare(`
-      INSERT INTO habits (id, text, date, status, sync_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.id, sanitized.text, input.date, status, syncPath, input.createdAt, input.updatedAt);
-    syncObjectTags(db, input.id, 'habit', tags);
-    syncNoteObjectLinks(db, input.id, 'habit', collectDateLinkTargets(db, [input.date]));
-    return { ...getHabit(db, input.id), truncated: sanitized.truncated };
-  });
-}
-
-function updateHabitRecord(db, id, input) {
-  const existing = getHabit(db, id);
-  if (!existing) return null;
-  const fields = ['updated_at = ?'];
-  const values = [input.updatedAt ?? getIsoNow()];
-  let truncated = false;
-
-  if (input.text !== undefined) {
-    const sanitized = sanitizeHabitText(input.text);
-    truncated = sanitized.truncated;
-    fields.push('text = ?');
-    values.push(sanitized.text);
-  }
-  if (input.date !== undefined) {
-    fields.push('date = ?');
-    values.push(input.date);
-  }
-  if (input.status !== undefined) {
-    fields.push('status = ?');
-    values.push(normalizeHabitStatus(input.status, existing.status));
-  }
-  if (input.syncPath !== undefined) {
-    fields.push('sync_path = ?');
-    values.push(input.syncPath);
-  }
-
-  values.push(id);
-
-  return withTransaction(db, () => {
-    db.prepare(`UPDATE habits SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (input.tags !== undefined) {
-      syncObjectTags(db, id, 'habit', normalizeHabitTagNames(input.tags));
-    }
-    const nextDate = input.date ?? existing.date;
-    const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'habit', collectDateLinkTargets(db, [nextDate]));
-    cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-    return { ...getHabit(db, id), truncated };
-  });
-}
-
-function deleteHabitRecord(db, id) {
-  return withTransaction(db, () => {
-    const linkedDailyNoteIds = db
-      .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
-      .all(id)
-      .map((row) => row.target_id);
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
-    db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
-    clearSyncState(db, 'habit', id);
-    const result = db.prepare('DELETE FROM habits WHERE id = ?').run(id);
-    cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
-    return result.changes > 0;
-  });
-}
-
-function getTag(db, reference) {
-  const row = db.prepare('SELECT * FROM tags WHERE id = ? OR name = ?').get(reference, reference.toLowerCase());
-  if (!row) return null;
-  return {
-    id: row.id,
-    type: 'tag',
-    name: row.name,
-    displayName: row.display_name,
-    createdAt: row.created_at,
-    objects: db.prepare(`
-      SELECT object_id, object_type
-      FROM object_tags
-      WHERE tag_id = ?
-      ORDER BY object_type ASC, object_id ASC
-    `).all(row.id).map((entry) => ({ id: entry.object_id, type: entry.object_type })),
-  };
-}
-
-function listTags(db) {
-  return db.prepare(`
-    SELECT t.id, t.name, t.display_name, t.created_at, COALESCE(ot_counts.object_count, 0) AS object_count
-    FROM tags t
-    LEFT JOIN (
-      SELECT tag_id, COUNT(*) AS object_count
-      FROM object_tags
-      GROUP BY tag_id
-    ) ot_counts ON ot_counts.tag_id = t.id
-    ORDER BY t.name ASC
-  `).all().map((row) => ({
-    id: row.id,
-    name: row.name,
-    displayName: row.display_name,
-    createdAt: row.created_at,
-    objectCount: row.object_count ?? 0,
-  }));
-}
-
-function createTagRecord(db, displayName) {
-  const name = normalize(displayName).toLowerCase();
-  if (!name) throw new Error('Tag display name is required');
-  const existing = db.prepare('SELECT id FROM tags WHERE name = ?').get(name);
-  if (existing?.id) return getTag(db, existing.id);
-  const id = randomUUID();
-  db.prepare(`
-    INSERT INTO tags (id, name, display_name, created_at)
-    VALUES (?, ?, ?, ?)
-  `).run(id, name, displayName.trim(), getIsoNow());
-  return getTag(db, id);
-}
-
-function updateTagRecord(db, reference, input) {
-  const existing = getTag(db, reference);
-  if (!existing) return null;
-  const nextDisplayName = normalize(input.displayName);
-  if (!nextDisplayName) throw new Error('Tag display name is required');
-  const duplicate = db.prepare('SELECT id FROM tags WHERE name = ? AND id != ?').get(nextDisplayName.toLowerCase(), existing.id);
-  if (duplicate?.id) throw new Error(`Another tag already uses ${nextDisplayName}`);
-  db.prepare('UPDATE tags SET name = ?, display_name = ? WHERE id = ?').run(nextDisplayName.toLowerCase(), nextDisplayName, existing.id);
-  return getTag(db, existing.id);
-}
-
-function deleteTagRecord(db, reference) {
-  const existing = getTag(db, reference);
-  if (!existing) return false;
-  return withTransaction(db, () => {
-    db.prepare('DELETE FROM object_tags WHERE tag_id = ?').run(existing.id);
-    const result = db.prepare('DELETE FROM tags WHERE id = ?').run(existing.id);
-    return result.changes > 0;
-  });
-}
-
-function getLinks(db, objectId) {
-  const sql = objectId
-    ? 'SELECT * FROM object_links WHERE source_id = ? OR target_id = ? ORDER BY created_at DESC'
-    : 'SELECT * FROM object_links ORDER BY created_at DESC';
-  const rows = objectId ? db.prepare(sql).all(objectId, objectId) : db.prepare(sql).all();
-  return rows.map((row) => ({
-    id: row.id,
-    sourceId: row.source_id,
-    targetId: row.target_id,
-    sourceType: row.source_type,
-    targetType: row.target_type,
-    createdAt: row.created_at,
-  }));
-}
-
-function createLinkRecord(db, input) {
-  const existing = db.prepare('SELECT * FROM object_links WHERE source_id = ? AND target_id = ?').get(input.sourceId, input.targetId);
-  if (existing) {
-    return {
-      id: existing.id,
-      sourceId: existing.source_id,
-      targetId: existing.target_id,
-      sourceType: existing.source_type,
-      targetType: existing.target_type,
-      createdAt: existing.created_at,
-    };
-  }
-
-  db.prepare(`
-    INSERT INTO object_links (id, source_id, target_id, source_type, target_type, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(input.id, input.sourceId, input.targetId, input.sourceType, input.targetType, input.createdAt);
-  return getLinks(db).find((link) => link.id === input.id) ?? null;
-}
-
-function deleteLinkRecord(db, id) {
-  const result = db.prepare('DELETE FROM object_links WHERE id = ?').run(id);
-  return result.changes > 0;
-}
-
-function getScriptureLinkedNotes(db, scriptureId) {
-  const rows = db.prepare(`
-    SELECT source_id AS note_id, source_type AS note_type
-    FROM object_links
-    WHERE target_id = ?
-      AND target_type = ?
-      AND source_type IN ('topic-note', 'daily-note')
-    ORDER BY source_type ASC, source_id ASC
-  `).all(scriptureId, SCRIPTURE_TYPE);
-  const linkedNotes = [];
-  for (const row of rows) {
-    const summary = lookupObjectSummary(db, row.note_id, row.note_type);
-    if (!summary) continue;
-    linkedNotes.push(summary);
-  }
-  return sortRelatedObjectsStable(linkedNotes);
-}
-
-function getScripture(db, reference) {
-  const row = db.prepare('SELECT * FROM scriptures WHERE id = ? OR reference = ?').get(reference, reference);
-  if (!row) return null;
-  return {
-    id: row.id,
-    type: SCRIPTURE_TYPE,
-    reference: row.reference,
-    bookName: row.book_name,
-    bookOrder: row.book_order,
-    passageUrl: row.passage_url,
-    linkedNotes: getScriptureLinkedNotes(db, row.id),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function listScriptures(db) {
-  return db.prepare(`
-    SELECT s.id, s.reference, s.book_name, s.book_order, s.passage_url, s.created_at, s.updated_at,
-      COALESCE(link_counts.note_count, 0) AS note_count
-    FROM scriptures s
-    LEFT JOIN (
-      SELECT target_id, COUNT(*) AS note_count
-      FROM object_links
-      WHERE target_type = ?
-        AND source_type IN ('topic-note', 'daily-note')
-      GROUP BY target_id
-    ) link_counts ON link_counts.target_id = s.id
-    ORDER BY s.book_order ASC, s.reference COLLATE NOCASE ASC
-  `).all(SCRIPTURE_TYPE).map((row) => ({
-    id: row.id,
-    type: SCRIPTURE_TYPE,
-    reference: row.reference,
-    bookName: row.book_name,
-    bookOrder: row.book_order,
-    passageUrl: row.passage_url,
-    noteCount: row.note_count ?? 0,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
+const objectTypeAliasMap = createObjectTypeAliasMap();
+
+const scriptureService = createScriptureService({
+  SCRIPTURE_TYPE,
+  getIsoNow,
+  randomUUID,
+});
+const { collectScriptureLinkTargets } = scriptureService;
+const scriptureRepository = createScriptureRepository({
+  SCRIPTURE_TYPE,
+  lookupObjectSummary,
+  sortRelatedObjectsStable,
+});
+const { getScripture, listScriptures } = scriptureRepository;
+
+let dailyNoteService;
+const dailyNoteRepository = createDailyNoteRepository({
+  assembleMarkdownFromBlocks,
+  cleanupDailyNotesIfEligible: (...args) => dailyNoteService.cleanupDailyNotesIfEligible(...args),
+  collectScriptureLinkTargets,
+  dailyNoteSyncPath,
+  deriveNoteLinksFromContent,
+  getCanonicalNoteContent,
+  getCanonicalNoteContentMap,
+  getIsoNow,
+  getNoteBlocks,
+  getRelatedObjects,
+  getSyncRootFolder,
+  getTagDisplayNames,
+  getTagDisplayNamesMap,
+  mergeLinkTargets,
+  normalize,
+  normalizeScriptureBlocks,
+  normalizeSyncPath,
+  parseBlocksFromMarkdown,
+  persistNoteBlocks,
+  safeJsonParse,
+  syncNoteObjectLinks,
+  syncObjectTags,
+  withTransaction,
+});
+dailyNoteService = createDailyNoteService({
+  clearSyncState,
+  createDailyNoteRecord: dailyNoteRepository.createDailyNoteRecord,
+  createDailyNoteRecordInternal: dailyNoteRepository.createDailyNoteRecordInternal,
+  findDailyNoteRow: dailyNoteRepository.findDailyNoteRow,
+  getDailyNote: dailyNoteRepository.getDailyNote,
+  getIsoNow,
+  hasNonEmptyDailyNoteContent: dailyNoteRepository.hasNonEmptyDailyNoteContent,
+  isLocalDateString,
+  localDateString,
+  normalize,
+  prompt,
+  promptList,
+  promptMultiline,
+  randomUUID,
+  updateDailyNoteRecord: dailyNoteRepository.updateDailyNoteRecord,
+  withTransaction,
+});
+const {
+  cleanupDailyNotesIfEligible,
+  createDailyNoteInteractive,
+  deleteDailyNoteRecord,
+  ensureDailyNoteForDate,
+  isDailyNoteDeleteEligible,
+  updateDailyNoteInteractive,
+} = dailyNoteService;
+const {
+  createDailyNoteRecord,
+  createDailyNoteRecordInternal,
+  findDailyNoteRow,
+  getDailyNote,
+  listDailyNotes,
+  listDailyNotesForSync,
+  updateDailyNoteRecord,
+} = dailyNoteRepository;
+
+const topicNoteRepository = createTopicNoteRepository({
+  assembleMarkdownFromBlocks,
+  cleanupDailyNotesIfEligible,
+  clearSyncState,
+  collectDateLinkTargets,
+  collectScriptureLinkTargets,
+  deriveNoteLinksFromContent,
+  getCanonicalNoteContent,
+  getCanonicalNoteContentMap,
+  getIsoNow,
+  getRelatedObjects,
+  getSyncRootFolder,
+  getTagDisplayNames,
+  getTagDisplayNamesMap,
+  mergeLinkTargets,
+  normalizeScriptureBlocks,
+  normalizeSyncPath,
+  parseBlocksFromMarkdown,
+  persistNoteBlocks,
+  safeJsonParse,
+  syncNoteObjectLinks,
+  syncObjectTags,
+  topicNoteSyncPath,
+  withTransaction,
+});
+const topicNoteService = createTopicNoteService({
+  createTopicNoteRecord: topicNoteRepository.createTopicNoteRecord,
+  getIsoNow,
+  getTopicNote: topicNoteRepository.getTopicNote,
+  prompt,
+  promptList,
+  promptMultiline,
+  randomUUID,
+  updateTopicNoteRecord: topicNoteRepository.updateTopicNoteRecord,
+});
+const {
+  createTopicNoteInteractive,
+  updateTopicNoteInteractive,
+} = topicNoteService;
+const {
+  createTopicNoteRecord,
+  deleteTopicNoteRecord,
+  getTopicNote,
+  listTopicNotes,
+  listTopicNotesForSync,
+  updateTopicNoteRecord,
+} = topicNoteRepository;
+
+const projectRepository = createProjectRepository({
+  clearSyncState,
+  cleanupDailyNotesIfEligible,
+  collectDateLinkTargets,
+  getIsoNow,
+  getTagDisplayNames,
+  getTagDisplayNamesMap,
+  syncNoteObjectLinks,
+  syncObjectTags,
+  withTransaction,
+});
+const projectService = createProjectService({
+  createProjectRecord: projectRepository.createProjectRecord,
+  getIsoNow,
+  getProject: projectRepository.getProject,
+  prompt,
+  promptList,
+  randomUUID,
+  updateProjectRecord: projectRepository.updateProjectRecord,
+});
+const {
+  createProjectInteractive,
+  updateProjectInteractive,
+} = projectService;
+const {
+  createProjectRecord,
+  deleteProjectRecord,
+  getProject,
+  listProjects,
+  listProjectsForSync,
+  updateProjectRecord,
+} = projectRepository;
+
+const refMaterialRepository = createRefMaterialRepository({
+  clearSyncState,
+  getIsoNow,
+  getTagDisplayNames,
+  getTagDisplayNamesMap,
+  syncObjectTags,
+  withTransaction,
+});
+const refMaterialService = createRefMaterialService({
+  createRefMatRecord: refMaterialRepository.createRefMatRecord,
+  getIsoNow,
+  getRefMat: refMaterialRepository.getRefMat,
+  prompt,
+  promptList,
+  randomUUID,
+  updateRefMatRecord: refMaterialRepository.updateRefMatRecord,
+});
+const {
+  createRefMaterialInteractive,
+  updateRefMaterialInteractive,
+} = refMaterialService;
+const {
+  createRefMatRecord,
+  deleteRefMatRecord,
+  getRefMat,
+  listRefMaterialsForSync,
+  listRefMats,
+  updateRefMatRecord,
+} = refMaterialRepository;
+
+let habitService;
+const habitRepository = createHabitRepository({
+  HABIT_STATUS_PLANNED,
+  cleanupDailyNotesIfEligible,
+  clearSyncState,
+  collectDateLinkTargets,
+  getIsoNow,
+  getTagDisplayNames,
+  getTagDisplayNamesMap,
+  normalizeHabitStatus,
+  normalizeHabitTagNames,
+  sanitizeHabitText: (...args) => habitService.sanitizeHabitText(...args),
+  syncNoteObjectLinks,
+  syncObjectTags,
+  withTransaction,
+});
+habitService = createHabitService({
+  MAX_HABIT_TEXT_LENGTH,
+  createHabitRecord: habitRepository.createHabitRecord,
+  getHabit: habitRepository.getHabit,
+  getIsoNow,
+  localDateString,
+  prompt,
+  promptList,
+  randomUUID,
+  updateHabitRecord: habitRepository.updateHabitRecord,
+});
+const {
+  createHabitInteractive,
+  updateHabitInteractive,
+} = habitService;
+const {
+  createHabitRecord,
+  deleteHabitRecord,
+  getHabit,
+  listHabits,
+  listHabitsForSync,
+  updateHabitRecord,
+} = habitRepository;
+
+const tagRepository = createTagRepository({
+  getIsoNow,
+  normalize,
+  randomUUID,
+  withTransaction,
+});
+const tagService = createTagService({
+  createTagRecord: tagRepository.createTagRecord,
+  getTag: tagRepository.getTag,
+  prompt,
+  updateTagRecord: tagRepository.updateTagRecord,
+});
+const {
+  updateTagInteractive,
+} = tagService;
+const {
+  createTagRecord,
+  deleteTagRecord,
+  getTag,
+  listTags,
+  updateTagRecord,
+} = tagRepository;
+
+const linkRepository = createLinkRepository();
+const linkService = createLinkService({
+  createLinkRecord: linkRepository.createLinkRecord,
+  getIsoNow,
+  prompt,
+  randomUUID,
+  resolveType: (...args) => resolveType(...args),
+});
+const { createLinkInteractive } = linkService;
+const {
+  createLinkRecord,
+  deleteLinkRecord,
+  getLinks,
+} = linkRepository;
 
 function listObjects(type) {
   return withDb((db) => {
@@ -2518,32 +1900,7 @@ function getObject(type, reference) {
 function resolveType(token) {
   const value = normalize(token).toLowerCase();
   if (!value) return null;
-  const aliases = new Map([
-    ['topic-note', 'topic-note'],
-    ['topic-notes', 'topic-note'],
-    ['note', 'topic-note'],
-    ['notes', 'topic-note'],
-    ['daily-note', 'daily-note'],
-    ['daily-notes', 'daily-note'],
-    ['daily', 'daily-note'],
-    ['project', 'project'],
-    ['projects', 'project'],
-    ['ref-material', 'ref-material'],
-    ['ref-materials', 'ref-material'],
-    ['reference', 'ref-material'],
-    ['references', 'ref-material'],
-    ['reference-material', 'ref-material'],
-    ['reference-materials', 'ref-material'],
-    ['habit', 'habit'],
-    ['habits', 'habit'],
-    ['scripture', 'scripture'],
-    ['scriptures', 'scripture'],
-    ['tag', 'tag'],
-    ['tags', 'tag'],
-    ['link', 'link'],
-    ['links', 'link'],
-  ]);
-  return aliases.get(value) ?? null;
+  return objectTypeAliasMap.get(value) ?? null;
 }
 
 function formatCompact(value) {
@@ -3302,96 +2659,6 @@ async function listSyncFolders(folderPath) {
         path: `${folderPath.replace(/\/$/, '')}/${e.name}`,
       })),
   };
-}
-
-// ── Sync: note list helpers (include full content for upload) ─────────────────
-
-function listDailyNotesForSync(db) {
-  const rows = db.prepare('SELECT * FROM daily_notes ORDER BY date DESC').all();
-  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => {
-    const canonical = contentByNoteId.get(row.id) ?? { blocks: [], contentMarkdown: row.content_markdown ?? '' };
-    return {
-      id: row.id,
-      date: row.date,
-      syncPath: row.sync_path || '',
-      contentMarkdown: canonical.contentMarkdown,
-      blocks: canonical.blocks,
-      linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-      tagNames: tagNamesByObjectId.get(row.id) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
-}
-
-function listTopicNotesForSync(db) {
-  const rows = db.prepare('SELECT * FROM topic_notes ORDER BY updated_at DESC').all();
-  const contentByNoteId = getCanonicalNoteContentMap(db, rows);
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => {
-    const canonical = contentByNoteId.get(row.id) ?? { blocks: [], contentMarkdown: row.content_markdown ?? '' };
-    return {
-      id: row.id,
-      title: row.title,
-      date: row.date || '',
-      syncPath: row.sync_path || '',
-      contentMarkdown: canonical.contentMarkdown,
-      blocks: canonical.blocks,
-      linkedObjectIds: safeJsonParse(row.linked_object_ids, []),
-      tagNames: tagNamesByObjectId.get(row.id) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
-}
-
-function listProjectsForSync(db) {
-  const rows = db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    syncPath: row.sync_path,
-    startDate: row.start_date ?? '',
-    endDate: row.end_date ?? '',
-    tagNames: tagNamesByObjectId.get(row.id) ?? [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-function listRefMaterialsForSync(db) {
-  const rows = db.prepare('SELECT * FROM ref_materials ORDER BY updated_at DESC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    author: typeof row.author === 'string' ? row.author : '',
-    syncPath: row.sync_path,
-    tagNames: tagNamesByObjectId.get(row.id) ?? [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-function listHabitsForSync(db) {
-  const rows = db.prepare('SELECT * FROM habits ORDER BY updated_at DESC').all();
-  const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-  return rows.map((row) => {
-    const tags = tagNamesByObjectId.get(row.id) ?? [];
-    return {
-      id: row.id,
-      text: row.text,
-      date: row.date,
-      status: normalizeHabitStatus(row.status, HABIT_STATUS_PLANNED),
-      syncPath: row.sync_path || '',
-      tagNames: normalizeHabitTagNames(tags),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
 }
 
 // ── Sync: reconcile helpers ───────────────────────────────────────────────────
@@ -4255,110 +3522,14 @@ async function promptMultiline(rl, label, currentValue = null) {
 async function createObjectInteractive(type, rl) {
   const db = openDb();
   try {
-    const createdAt = getIsoNow();
-    const updatedAt = createdAt;
-
     switch (type) {
-      case 'topic-note': {
-        const title = await prompt(rl, 'Title', { required: true });
-        const date = await prompt(rl, 'Date (optional, YYYY-MM-DD)', { defaultValue: '', showDefault: false, allowClear: true });
-        const contentMarkdown = await promptMultiline(rl, 'Content');
-        const linkedObjectIds = parseCsv(await prompt(rl, 'Linked object IDs (comma separated)'));
-        const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
-        return createTopicNoteRecord(db, {
-          id: randomUUID(),
-          title,
-          date,
-          content: {},
-          contentMarkdown,
-          linkedObjectIds,
-          tags,
-          createdAt,
-          updatedAt,
-        });
-      }
-      case 'daily-note': {
-        const date = await prompt(rl, 'Date', { defaultValue: localDateString(), showDefault: true, required: true });
-        const contentMarkdown = await promptMultiline(rl, 'Content');
-        const linkedObjectIds = parseCsv(await prompt(rl, 'Linked object IDs (comma separated)'));
-        const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
-        return createDailyNoteRecord(db, {
-          id: randomUUID(),
-          date,
-          content: {},
-          contentMarkdown,
-          linkedObjectIds,
-          tags,
-          createdAt,
-          updatedAt,
-        });
-      }
-      case 'project': {
-        const name = await prompt(rl, 'Name', { required: true });
-        const syncPath = await prompt(rl, 'Sync path');
-        const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)');
-        const endDate = await prompt(rl, 'End date (YYYY-MM-DD)');
-        const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
-        return createProjectRecord(db, {
-          id: randomUUID(),
-          name,
-          syncPath,
-          startDate,
-          endDate,
-          tags,
-          createdAt,
-          updatedAt,
-        });
-      }
-      case 'ref-material': {
-        const name = await prompt(rl, 'Name', { required: true });
-        const author = await prompt(rl, 'Author (optional)', { allowClear: true });
-        const syncPath = await prompt(rl, 'Sync path');
-        const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
-        return createRefMatRecord(db, {
-          id: randomUUID(),
-          name,
-          author,
-          syncPath,
-          tags,
-          createdAt,
-          updatedAt,
-        });
-      }
-      case 'habit': {
-        const text = await prompt(rl, 'Habit text', { required: true });
-        const date = await prompt(rl, 'Date', { defaultValue: localDateString(), showDefault: true, required: true });
-        const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
-        return createHabitRecord(db, {
-          id: randomUUID(),
-          text,
-          date,
-          tags,
-          createdAt,
-          updatedAt,
-        });
-      }
-      case 'tag': {
-        const displayName = await prompt(rl, 'Tag name', { required: true });
-        return createTagRecord(db, displayName);
-      }
-      case 'link': {
-        const sourceType = resolveType(await prompt(rl, 'Source type', { required: true }));
-        const sourceId = await prompt(rl, 'Source id', { required: true });
-        const targetType = resolveType(await prompt(rl, 'Target type', { required: true }));
-        const targetId = await prompt(rl, 'Target id', { required: true });
-        if (!sourceType || !targetType || sourceType === 'link' || targetType === 'link') {
-          throw new Error('Links require valid non-link object types');
-        }
-        return createLinkRecord(db, {
-          id: randomUUID(),
-          sourceId,
-          targetId,
-          sourceType,
-          targetType,
-          createdAt,
-        });
-      }
+      case 'topic-note': return await createTopicNoteInteractive(db, rl);
+      case 'daily-note': return await createDailyNoteInteractive(db, rl);
+      case 'project': return await createProjectInteractive(db, rl);
+      case 'ref-material': return await createRefMaterialInteractive(db, rl);
+      case 'habit': return await createHabitInteractive(db, rl);
+      case 'tag': return createTagRecord(db, await prompt(rl, 'Tag name', { required: true }));
+      case 'link': return await createLinkInteractive(db, rl);
       default:
         throw new Error(`Unsupported type: ${type}`);
     }
@@ -4371,91 +3542,12 @@ async function updateObjectInteractive(type, reference, rl) {
   const db = openDb();
   try {
     switch (type) {
-      case 'topic-note': {
-        const existing = getTopicNote(db, reference);
-        if (!existing) return null;
-        const title = await prompt(rl, 'Title', { defaultValue: existing.title, showDefault: true });
-        const date = await prompt(rl, 'Date (optional, YYYY-MM-DD)', { defaultValue: existing.date ?? '', showDefault: true, allowClear: true });
-        const contentMarkdown = await promptMultiline(rl, 'Content', existing.contentMarkdown);
-        const linkedObjectIds = await promptList(rl, 'Linked object IDs (comma separated)', existing.linkedObjectIds);
-        const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
-        return updateTopicNoteRecord(db, existing.id, {
-          title,
-          date,
-          content: existing.content,
-          contentMarkdown,
-          linkedObjectIds,
-          tags,
-          updatedAt: getIsoNow(),
-        });
-      }
-      case 'daily-note': {
-        const existing = getDailyNote(db, reference);
-        if (!existing) return null;
-        const date = await prompt(rl, 'Date', { defaultValue: existing.date, showDefault: true });
-        const contentMarkdown = await promptMultiline(rl, 'Content', existing.contentMarkdown);
-        const linkedObjectIds = await promptList(rl, 'Linked object IDs (comma separated)', existing.linkedObjectIds);
-        const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
-        return updateDailyNoteRecord(db, existing.id, {
-          date,
-          content: existing.content,
-          contentMarkdown,
-          linkedObjectIds,
-          tags,
-          updatedAt: getIsoNow(),
-        });
-      }
-      case 'project': {
-        const existing = getProject(db, reference);
-        if (!existing) return null;
-        const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
-        const syncPath = await prompt(rl, 'Sync path', { defaultValue: existing.syncPath, showDefault: Boolean(existing.syncPath), allowClear: true });
-        const startDate = await prompt(rl, 'Start date (YYYY-MM-DD)', { defaultValue: existing.startDate, showDefault: Boolean(existing.startDate), allowClear: true });
-        const endDate = await prompt(rl, 'End date (YYYY-MM-DD)', { defaultValue: existing.endDate, showDefault: Boolean(existing.endDate), allowClear: true });
-        const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
-        return updateProjectRecord(db, existing.id, {
-          name,
-          syncPath,
-          startDate,
-          endDate,
-          tags,
-          updatedAt: getIsoNow(),
-        });
-      }
-      case 'ref-material': {
-        const existing = getRefMat(db, reference);
-        if (!existing) return null;
-        const name = await prompt(rl, 'Name', { defaultValue: existing.name, showDefault: true });
-        const author = await prompt(rl, 'Author (optional)', { defaultValue: existing.author ?? '', showDefault: Boolean(existing.author), allowClear: true });
-        const syncPath = await prompt(rl, 'Sync path', { defaultValue: existing.syncPath, showDefault: Boolean(existing.syncPath), allowClear: true });
-        const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
-        return updateRefMatRecord(db, existing.id, {
-          name,
-          author,
-          syncPath,
-          tags,
-          updatedAt: getIsoNow(),
-        });
-      }
-      case 'habit': {
-        const existing = getHabit(db, reference);
-        if (!existing) return null;
-        const text = await prompt(rl, 'Habit text', { defaultValue: existing.text, showDefault: true });
-        const date = await prompt(rl, 'Date', { defaultValue: existing.date, showDefault: true });
-        const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
-        return updateHabitRecord(db, existing.id, {
-          text,
-          date,
-          tags,
-          updatedAt: getIsoNow(),
-        });
-      }
-      case 'tag': {
-        const existing = getTag(db, reference);
-        if (!existing) return null;
-        const displayName = await prompt(rl, 'Tag name', { defaultValue: existing.displayName, showDefault: true });
-        return updateTagRecord(db, existing.id, { displayName });
-      }
+      case 'topic-note': return await updateTopicNoteInteractive(db, reference, rl);
+      case 'daily-note': return await updateDailyNoteInteractive(db, reference, rl);
+      case 'project': return await updateProjectInteractive(db, reference, rl);
+      case 'ref-material': return await updateRefMaterialInteractive(db, reference, rl);
+      case 'habit': return await updateHabitInteractive(db, reference, rl);
+      case 'tag': return await updateTagInteractive(db, reference, rl);
       default:
         throw new Error(`Interactive update is not supported for ${type}`);
     }
