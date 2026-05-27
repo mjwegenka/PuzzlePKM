@@ -8,16 +8,19 @@
 ## Canonical Ownership (avoid drift)
 - `README.md`: product/domain truth (what the app is, object definitions).
 - `IMPLEMENTATION_DECISIONS.md`: implementation decision log (behavior decisions; `DEC-*` IDs).
+- `UI_GUIDELINES.md`: canonical UI appearance and interaction rules (feature-agnostic visual system).
 - `AGENTS.md` (this file): workflow rules for coding agents.
 
 If information must change, update the canonical file above instead of duplicating the same rule in multiple docs.
 
 ## Read Order for Any Task
 1. `README.md`
-2. `IMPLEMENTATION_DECISIONS.md`
+2. `UI_GUIDELINES.md`
+3. `IMPLEMENTATION_DECISIONS.md`
 
 ## Documentation Hygiene Rules
 - Do not duplicate behavioral rules across docs; link to the canonical file.
+- Do not duplicate visual style rules across docs; link to `UI_GUIDELINES.md`.
 - If a statement conflicts across files, reconcile by updating the canonical owner and removing stale copies.
 - When implementation changes affect prior decisions, append a new `DEC-*` entry (do not silently rewrite history).
 - Keep command lists synchronized between `AGENTS.md` and `README.md`.

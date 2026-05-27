@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { addDays, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from 'date-fns'
+import { ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import { Button } from '../ui/button'
@@ -17,17 +18,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select'
+import { Input } from '../ui/input'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
-import { getObjectColor } from '../../lib/objectColors'
+import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
+import { cn } from '../../lib/utils'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -56,7 +52,7 @@ interface CalendarPageProps {
   onOpenObjectTab?: (target: { id: string; type: CalObjectType; forceNewTab?: boolean }) => void | Promise<void>
 }
 
-const TYPE_COLORS: Record<CalObjectType, { bg: string; border: string; text: string }> = {
+const TYPE_COLORS: Record<CalObjectType, ObjectColorToken> = {
   'daily-note':   getObjectColor('daily-note'),
   'topic-note':   getObjectColor('topic-note'),
   'habit':        getObjectColor('habit'),
@@ -72,22 +68,38 @@ const TYPE_LABELS: Record<CalObjectType, string> = {
   'ref-material': 'Reference Material',
 }
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const CALENDAR_VIEWS = ['Day', 'Week', 'Month', 'Quarter', 'Year'] as const
+const EVENT_TYPE_ORDER: Record<CalObjectType, number> = {
+  project: 0,
+  'ref-material': 1,
+  'topic-note': 2,
+  habit: 3,
+  'daily-note': 4,
+}
+
+function formatDateKey(date: Date): string {
+  return format(date, 'yyyy-MM-dd')
+}
 
 export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate())
   const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | undefined>()
   const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
-  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; date: string } | null>(null)
 
-  const yr = currentMonth.getFullYear()
-  const mo = currentMonth.getMonth()
-  const yearOptions = Array.from({ length: 121 }, (_, index) => yr - 60 + index)
+  const today = useMemo(() => new Date(), [])
+  const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
+  const gridStart = useMemo(() => startOfWeek(monthStart, { weekStartsOn: 0 }), [monthStart])
+  const calendarDays = useMemo(
+    () => Array.from({ length: 42 }, (_, index) => addDays(gridStart, index)),
+    [gridStart],
+  )
+  const createTargetDate = selectedDate || getTodayDate()
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -101,7 +113,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
       const evts: CalEvent[] = []
       if (dailyRes.status === 'fulfilled') {
         for (const n of dailyRes.value) {
-          if (n.date) evts.push({ id: n.id, date: n.date, label: n.date, type: 'daily-note' })
+          if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note' })
         }
       }
       if (topicRes.status === 'fulfilled') {
@@ -132,21 +144,36 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
     loadEvents()
   }, [loadEvents])
 
-  const daysInMonth = new Date(yr, mo + 1, 0).getDate()
-  const firstDayOfWeek = new Date(yr, mo, 1).getDay()
-  const fmt = (y: number, m: number, d: number) =>
-    `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  const filteredEvents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return events
+    return events.filter((event) => {
+      const typeLabel = TYPE_LABELS[event.type].toLowerCase()
+      return event.label.toLowerCase().includes(query) || typeLabel.includes(query)
+    })
+  }, [events, searchQuery])
 
-  const cells: (number | null)[] = []
-  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, CalEvent[]>()
+    for (const event of filteredEvents) {
+      const existing = map.get(event.date) ?? []
+      existing.push(event)
+      map.set(event.date, existing)
+    }
+    for (const [dateKey, dateEvents] of map.entries()) {
+      map.set(
+        dateKey,
+        dateEvents.slice().sort((left, right) => {
+          const byType = EVENT_TYPE_ORDER[left.type] - EVENT_TYPE_ORDER[right.type]
+          if (byType !== 0) return byType
+          return left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+        }),
+      )
+    }
+    return map
+  }, [filteredEvents])
 
-  const eventsForDate = (date: string) => events.filter((e) => e.date === date)
-
-  const isToday = (day: number) => {
-    const t = new Date()
-    return day === t.getDate() && mo === t.getMonth() && yr === t.getFullYear()
-  }
+  const visibleEventCount = filteredEvents.filter((event) => event.type !== 'daily-note').length
 
   const openEvent = useCallback(async (evt: CalEvent) => {
     if (onOpenObjectTab) {
@@ -170,10 +197,11 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
   }, [onOpenObjectTab])
 
   const handleDayClick = useCallback(
-    async (day: number) => {
-      const date = fmt(yr, mo, day)
+    async (dateValue: Date) => {
+      const date = formatDateKey(dateValue)
       setSelectedDate(date)
-      const dayEvts = eventsForDate(date)
+      setCurrentMonth(dateValue)
+      const dayEvts = (eventsByDate.get(date) ?? []).filter((event) => event.type !== 'daily-note')
       if (dayEvts.length === 0) {
         if (onOpenObjectTab) return
         setSelectedType('daily-note')
@@ -185,8 +213,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
         await openEvent(dailyFirst)
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [yr, mo, events, onOpenObjectTab, openEvent],
+    [eventsByDate, onOpenObjectTab, openEvent],
   )
 
   const handleSave = useCallback(
@@ -229,6 +256,20 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
     setSelectedObject(undefined)
   }
 
+  const handleToday = useCallback(() => {
+    const next = new Date()
+    setCurrentMonth(next)
+    setSelectedDate(formatDateKey(next))
+  }, [])
+
+  const handlePrevMonth = useCallback(() => {
+    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+  }, [])
+
+  const handleNextMonth = useCallback(() => {
+    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+  }, [])
+
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
     try {
       const full = await getObject(target.type, target.id)
@@ -265,167 +306,200 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
     }
   }, [])
 
+  const monthLabel = format(currentMonth, 'MMMM')
+  const yearLabel = format(currentMonth, 'yyyy')
+
   return (
-    <div className="flex min-h-0 flex-1 gap-1.5">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-2">
-        {/* Month header */}
-        <div className="mb-1.5 flex shrink-0 items-center justify-between">
-          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
-            {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
-          </h2>
-          <div className="flex items-center gap-1">
-            <Select
-              value={String(mo)}
-              onValueChange={(value) => {
-                setCurrentMonth(new Date(yr, Number(value), 1))
-              }}
-            >
-              <SelectTrigger aria-label="Select month" className="h-8 w-[90px] border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-xs text-[var(--color-text-secondary)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MONTH_LABELS.map((label, monthIndex) => (
-                  <SelectItem key={label} value={String(monthIndex)}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={String(yr)}
-              onValueChange={(value) => {
-                const parsedYear = Number.parseInt(String(value), 10)
-                if (!Number.isFinite(parsedYear)) return
-                setCurrentMonth(new Date(parsedYear, mo, 1))
-              }}
-            >
-              <SelectTrigger aria-label="Select year" className="h-8 w-[88px] border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-xs text-[var(--color-text-secondary)]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {yearOptions.map((year) => (
-                  <SelectItem key={year} value={String(year)}>{year}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {loading && <Loader2 className="mr-0.5 h-3.5 w-3.5 animate-spin text-[var(--color-text-secondary)]" />}
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 text-[var(--color-text-secondary)]"
-              onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))}
-            >
-              <ChevronLeft className="h-[18px] w-[18px]" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-primary)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-elevated)]"
-              onClick={() => setCurrentMonth(new Date())}
-            >
-              Today
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 text-[var(--color-text-secondary)]"
-              onClick={() => setCurrentMonth(new Date(yr, mo + 1, 1))}
-            >
-              <ChevronRight className="h-[18px] w-[18px]" />
-            </Button>
+    <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+        <div className="border-b border-[var(--color-border-subtle)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-10 w-10 rounded-full">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'daily-note')}>
+                    New Daily Note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'topic-note')}>
+                    New Topic Note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'habit')}>
+                    New Habit
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1">
+                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full" onClick={handlePrevMonth}>
+                  <ChevronLeft className="h-4.5 w-4.5" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 rounded-full px-4 text-sm text-[var(--color-text-primary)]" onClick={handleToday}>
+                  Today
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full" onClick={handleNextMonth}>
+                  <ChevronRight className="h-4.5 w-4.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="hidden rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 lg:flex">
+              {CALENDAR_VIEWS.map((view) => {
+                const active = view === 'Month'
+                return (
+                  <button
+                    key={view}
+                    type="button"
+                    aria-pressed={active}
+                    className={cn(
+                      'rounded-full px-4 py-1.5 text-sm transition-colors',
+                      active
+                        ? 'bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
+                        : 'text-[var(--color-text-secondary)]',
+                    )}
+                  >
+                    {view}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="relative w-full max-w-[280px]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search"
+                className="h-10 rounded-full pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
+                {monthLabel}{' '}
+                <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
+              </h2>
+            </div>
+            <div className="text-xs text-[var(--color-text-secondary)]">
+              {loading ? 'Loading events…' : searchQuery.trim() ? `${visibleEventCount} matching events` : `${visibleEventCount} events this month`}
+            </div>
           </div>
         </div>
 
-        {/* Legend */}
-        <div className="mb-1 flex shrink-0 flex-wrap gap-2">
-          {(Object.entries(TYPE_COLORS) as [CalObjectType, (typeof TYPE_COLORS)[CalObjectType]][]).map(
-            ([type, colors]) => (
-              <div key={type} className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-[2px] border" style={{ backgroundColor: colors.bg, borderColor: colors.border }} />
-                <span className="text-[10px]" style={{ color: colors.text }}>
-                  {TYPE_LABELS[type]}
-                </span>
-              </div>
-            ),
-          )}
-        </div>
-
-        {/* Day-of-week headers */}
-        <div className="mb-0.5 grid shrink-0 grid-cols-7 gap-px">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <span key={d} className="py-0.5 text-center text-[11px] font-bold text-[var(--color-text-secondary)]">
-              {d}
-            </span>
+        <div className="grid grid-cols-7 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/85">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayLabel) => (
+            <div key={dayLabel} className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+              {dayLabel}
+            </div>
           ))}
         </div>
 
-        {/* Day cells - fixed width grid */}
-        <div className="grid flex-1 grid-cols-7 content-start gap-0.5 overflow-auto">
-          {cells.map((day, idx) => {
-            if (!day) return <div key={`empty-${idx}`} className="min-h-[72px] rounded-md bg-transparent" />
-
-            const date = fmt(yr, mo, day)
-            const dayEvts = eventsForDate(date)
-            const today = isToday(day)
-            const selected = date === selectedDate
+        <div
+          className="grid flex-1 grid-cols-7 overflow-auto bg-[var(--color-border-subtle)]/60"
+          style={{ gridTemplateRows: 'repeat(6, minmax(136px, 1fr))' }}
+        >
+          {calendarDays.map((dayValue) => {
+            const dateKey = formatDateKey(dayValue)
+            const dayEvents = eventsByDate.get(dateKey) ?? []
+            const dailyNote = dayEvents.find((event) => event.type === 'daily-note')
+            const nonNoteEvents = dayEvents.filter((event) => event.type !== 'daily-note')
+            const visibleDayEvents = nonNoteEvents.slice(0, 4)
+            const hiddenCount = Math.max(nonNoteEvents.length - visibleDayEvents.length, 0)
+            const selected = dateKey === selectedDate
+            const isCurrentMonthDay = isSameMonth(dayValue, currentMonth)
+            const isTodayDate = isSameDay(dayValue, today)
 
             return (
               <div
-                key={date}
-                onClick={() => handleDayClick(day)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setContextMenu({ mouseX: event.clientX + 2, mouseY: event.clientY - 6, date })
-                }}
-                className="flex min-h-[72px] min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border px-1.5 py-1 transition-colors hover:bg-[var(--color-surface-sunken)]"
+                key={dateKey}
+                onClick={() => { void handleDayClick(dayValue) }}
+                className={cn(
+                  'flex min-h-[136px] min-w-0 cursor-pointer flex-col bg-[var(--color-surface-app)] px-2.5 py-2 transition-colors',
+                  isCurrentMonthDay ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-disabled)]',
+                )}
                 style={{
-                  borderColor: selected ? 'var(--color-border-strong)' : 'var(--color-border-subtle)',
+                  boxShadow: selected ? 'inset 0 0 0 1px rgba(242, 203, 99, 0.28)' : 'none',
                   backgroundColor: selected
-                    ? 'rgba(56, 189, 248, 0.12)'
-                    : today
-                      ? 'rgba(56, 189, 248, 0.08)'
-                      : 'var(--color-surface-app)',
+                    ? 'color-mix(in srgb, var(--color-selected-fill-soft) 55%, var(--color-surface-app))'
+                    : isCurrentMonthDay
+                      ? 'var(--color-surface-app)'
+                      : 'color-mix(in srgb, var(--color-surface-app) 82%, var(--color-surface-elevated))',
                 }}
               >
-                <span
-                  className="text-xs leading-[1.3]"
-                  style={{
-                    fontWeight: today ? 800 : 500,
-                    color: today || selected ? 'var(--color-accent-selected)' : 'var(--color-text-primary)',
-                  }}
-                >
-                  {day}
-                </span>
-                {dayEvts.slice(0, 3).map((evt) => {
-                  const colors = TYPE_COLORS[evt.type]
-                  return (
-                    <div
-                      key={evt.id}
-                      onClick={(e) => { e.stopPropagation(); openEvent(evt) }}
-                      className="cursor-pointer overflow-hidden rounded-[3px] border px-1 py-px hover:brightness-125"
-                      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
-                    >
-                      <span className="block truncate text-[10px]" style={{ color: colors.text }}>
-                        {evt.type === 'daily-note' ? '📓 Daily'
-                          : evt.type === 'habit' ? `🔁 ${evt.label}`
-                          : evt.type === 'project' ? `📁 ${evt.label}`
-                          : `📝 ${evt.label}`}
-                      </span>
-                    </div>
-                  )
-                })}
-                {dayEvts.length > 3 && (
-                  <span className="text-[10px] text-[var(--color-text-secondary)]">
-                    +{dayEvts.length - 3} more
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  {dailyNote ? (
+                    <span className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+                      Note
+                    </span>
+                  ) : <span />}
+                  <span
+                    className={cn(
+                      'inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-sm font-medium',
+                      isTodayDate ? 'bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : '',
+                    )}
+                  >
+                    {format(dayValue, 'd')}
                   </span>
-                )}
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+                  {visibleDayEvents.map((event, index) => {
+                    const colors = TYPE_COLORS[event.type]
+                    const compact = index >= 2
+                    return compact ? (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation()
+                          void openEvent(event)
+                        }}
+                        className="flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left text-[11px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.accent }} />
+                        <span className="truncate">{event.label}</span>
+                      </button>
+                    ) : (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation()
+                          void openEvent(event)
+                        }}
+                        className="truncate rounded-[7px] border px-2 py-1 text-left text-[11px] font-medium hover:brightness-110"
+                        style={{
+                          backgroundColor: colors.bg,
+                          borderColor: colors.border,
+                          color: colors.text,
+                        }}
+                      >
+                        {event.label}
+                      </button>
+                    )
+                  })}
+
+                  {hiddenCount > 0 ? (
+                    <span className="px-1 text-[11px] text-[var(--color-text-disabled)]">
+                      +{hiddenCount} more
+                    </span>
+                  ) : null}
+                </div>
               </div>
             )
           })}
         </div>
       </div>
 
-      {selectedObject && (
-        <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
-          <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-2 py-1">
+      {selectedObject && !onOpenObjectTab && (
+        <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+          <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-3 py-2">
             <h3 className="text-lg font-bold">
               {selectedType === 'daily-note' ? 'Daily Note'
                 : selectedType === 'habit' ? 'Habit'
@@ -451,48 +525,9 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
        </div>
       )}
 
-      {contextMenu && (
-       <DropdownMenu open onOpenChange={(open) => { if (!open) setContextMenu(null) }}>
-         <DropdownMenuTrigger asChild>
-           <button
-             type="button"
-             aria-label="Open calendar context actions"
-             className="fixed h-px w-px opacity-0"
-             style={{ left: contextMenu.mouseX, top: contextMenu.mouseY }}
-           />
-         </DropdownMenuTrigger>
-         <DropdownMenuContent align="start" className="w-44">
-           <DropdownMenuItem
-             onSelect={() => {
-               startCreateForDate(contextMenu.date, 'daily-note')
-               setContextMenu(null)
-             }}
-           >
-             New Daily Note
-           </DropdownMenuItem>
-           <DropdownMenuItem
-             onSelect={() => {
-               startCreateForDate(contextMenu.date, 'topic-note')
-               setContextMenu(null)
-             }}
-           >
-             New Topic Note
-           </DropdownMenuItem>
-           <DropdownMenuItem
-             onSelect={() => {
-               startCreateForDate(contextMenu.date, 'habit')
-               setContextMenu(null)
-             }}
-           >
-             New Habit
-           </DropdownMenuItem>
-         </DropdownMenuContent>
-       </DropdownMenu>
-      )}
-
-       {/* Confirmation Dialog for unsaved changes */}
+      {/* Confirmation Dialog for unsaved changes */}
       <Dialog open={showConfirmClose} onOpenChange={setShowConfirmClose}>
-       <DialogContent>
+        <DialogContent>
          <DialogHeader>
            <DialogTitle>Unsaved Changes</DialogTitle>
            <DialogDescription>

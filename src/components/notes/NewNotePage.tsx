@@ -73,16 +73,16 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
           Note type
         </Typography>
         <Tabs value={noteType} onValueChange={handleTypeChange}>
-          <TabsList className="grid h-10 w-full max-w-lg grid-cols-3 bg-slate-950 p-1 text-slate-400">
-            <TabsTrigger value="topic-note" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+          <TabsList className="grid h-10 w-full max-w-lg grid-cols-3 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
+            <TabsTrigger value="topic-note" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <NoteAddIcon sx={{ fontSize: 16 }} />
               Topic Note
             </TabsTrigger>
-            <TabsTrigger value="daily-note" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+            <TabsTrigger value="daily-note" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <CalendarTodayIcon sx={{ fontSize: 16 }} />
               Daily Note
             </TabsTrigger>
-            <TabsTrigger value="habit" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+            <TabsTrigger value="habit" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <RepeatIcon sx={{ fontSize: 16 }} />
               Habit
             </TabsTrigger>

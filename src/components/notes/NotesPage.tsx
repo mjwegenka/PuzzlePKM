@@ -1,24 +1,26 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import {
+  ArrowUpDown,
+  CalendarDays,
+  Inbox,
+  Loader2,
+  NotebookPen,
+  Plus,
+  Repeat2,
+  Search,
+  SlidersHorizontal,
+  Tags,
+  X,
+} from 'lucide-react'
 import {
   Box,
   Stack,
   Paper,
   Typography,
-  CircularProgress,
   Divider,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
-import NoteAddIcon from '@mui/icons-material/NoteAdd'
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
-import RepeatIcon from '@mui/icons-material/Repeat'
-import SearchIcon from '@mui/icons-material/Search'
-import CloseIcon from '@mui/icons-material/Close'
-import MoveToInboxIcon from '@mui/icons-material/MoveToInbox'
-import TuneIcon from '@mui/icons-material/Tune'
-import LabelIcon from '@mui/icons-material/Label'
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
-import SwapVertIcon from '@mui/icons-material/SwapVert'
 import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
@@ -62,8 +64,6 @@ import {
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
-import { getObjectColor } from '@/lib/objectColors'
-import { cardSpacingTokens } from '@/theme'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -79,8 +79,8 @@ type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 't
 
 interface NotesPageProps {
   onSaved?: () => void
-  pendingSelection?: { id: string; type: NoteType; nonce: number; forceNewTab?: boolean } | null
-  onOpenObjectTab?: (target: { id: string; type: EditorObjectType; forceNewTab?: boolean }) => void | Promise<void>
+  pendingSelection?: { id: string; type: EditorObjectType; nonce: number } | null
+  onPendingSelectionHandled?: (nonce: number) => void
 }
 
 // ── Typed list items ──────────────────────────────────────────────────────────
@@ -129,8 +129,7 @@ interface ScriptureItem {
   type: 'scripture'
 }
 
-interface OpenEditorTab {
-  tabId: string
+interface ActiveLibraryObject {
   objectId: string
   type: EditorObjectType
   object: Record<string, unknown>
@@ -167,6 +166,20 @@ const BOARD_SORT_LABELS: Record<BoardSort, string> = {
   oldest: 'Oldest',
   'title-asc': 'Title A–Z',
   'title-desc': 'Title Z–A',
+}
+
+const LIBRARY_LIST_WIDTH_STORAGE_KEY = 'puzzlepkm:library-list-width:v1'
+const LIBRARY_LIST_MIN_WIDTH = 320
+const LIBRARY_LIST_DEFAULT_WIDTH = 372
+const LIBRARY_DETAIL_MIN_WIDTH = 420
+const LIBRARY_COLUMN_GAP_PX = 12
+
+function clampLibraryListWidth(width: number, containerWidth?: number): number {
+  const maxFromContainer = typeof containerWidth === 'number'
+    ? Math.max(LIBRARY_LIST_MIN_WIDTH, containerWidth - LIBRARY_DETAIL_MIN_WIDTH - LIBRARY_COLUMN_GAP_PX)
+    : Number.POSITIVE_INFINITY
+
+  return Math.min(maxFromContainer, Math.max(LIBRARY_LIST_MIN_WIDTH, width))
 }
 
 function sanitizeCardText(value: string): string {
@@ -287,22 +300,22 @@ function CreatePanel({
           direction="row"
           alignItems="center"
           justifyContent="space-between"
-          sx={{ px: 2, pt: 1.5, pb: 1, flexShrink: 0 }}
+          sx={{ px: 2.5, pt: 2, pb: 1.25, flexShrink: 0 }}
         >
           <Typography
             variant="caption"
             sx={{
               fontWeight: 700,
-              color: 'text.secondary',
+              color: 'text.disabled',
               textTransform: 'uppercase',
-              letterSpacing: '0.07em',
+              letterSpacing: '0.1em',
               fontSize: '10px',
             }}
           >
             New Note
           </Typography>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6 text-slate-400 hover:text-slate-100">
-            <CloseIcon sx={{ fontSize: 16 }} />
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
+            <X className="h-4 w-4" />
           </Button>
         </Stack>
       ) : null}
@@ -310,17 +323,17 @@ function CreatePanel({
       {/* Type selector */}
       <Box sx={{ px: 2, pt: showHeader ? 0 : 2, pb: 1.5, flexShrink: 0 }}>
         <Tabs value={createType} onValueChange={(value) => onTypeChange(value as NoteType)}>
-          <TabsList className="grid h-9 w-full grid-cols-3 bg-slate-950 p-1 text-slate-400">
-            <TabsTrigger value="topic-note" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
-              <NoteAddIcon sx={{ fontSize: 14 }} />
+          <TabsList className="grid h-10 w-full grid-cols-3 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
+            <TabsTrigger value="topic-note" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+              <NotebookPen className="h-3.5 w-3.5" />
               Topic
             </TabsTrigger>
-            <TabsTrigger value="daily-note" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
-              <CalendarTodayIcon sx={{ fontSize: 14 }} />
+            <TabsTrigger value="daily-note" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+              <CalendarDays className="h-3.5 w-3.5" />
               Daily
             </TabsTrigger>
-            <TabsTrigger value="habit" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
-              <RepeatIcon sx={{ fontSize: 14 }} />
+            <TabsTrigger value="habit" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+              <Repeat2 className="h-3.5 w-3.5" />
               Habit
             </TabsTrigger>
           </TabsList>
@@ -348,9 +361,10 @@ function CreatePanel({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }: NotesPageProps) {
+export default function NotesPage({ onSaved, pendingSelection, onPendingSelectionHandled }: NotesPageProps) {
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
+  const listRowRef = useRef<HTMLDivElement | null>(null)
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
   const [habits, setHabits] = useState<HabitItem[]>([])
@@ -358,15 +372,15 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [scriptures, setScriptures] = useState<ScriptureItem[]>([])
   const [loading, setLoading] = useState(false)
 
-  const [openTabs, setOpenTabs] = useState<OpenEditorTab[]>([])
-  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [activeObject, setActiveObject] = useState<ActiveLibraryObject | null>(null)
+  const [deferredSelection, setDeferredSelection] = useState<{ id: string; type: EditorObjectType } | null>(null)
 
   // Create mode
   const [isCreating, setIsCreating] = useState(false)
   const [createType, setCreateType] = useState<NoteType>('topic-note')
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
-  const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
+  const [confirmCloseTarget, setConfirmCloseTarget] = useState<'create' | 'active-object' | null>(null)
 
   // Inbox filter
   const [showInbox, setShowInbox] = useState(false)
@@ -376,6 +390,67 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([])
+  const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
+  const [isResizingFileList, setIsResizingFileList] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const raw = window.localStorage.getItem(LIBRARY_LIST_WIDTH_STORAGE_KEY)
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+    if (!Number.isFinite(parsed)) return
+    setFileListWidth(clampLibraryListWidth(parsed))
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(LIBRARY_LIST_WIDTH_STORAGE_KEY, String(fileListWidth))
+  }, [fileListWidth])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!activeObject || isSmallScreen) return
+
+    const clampToContainer = () => {
+      const containerWidth = listRowRef.current?.getBoundingClientRect().width
+      setFileListWidth((prev) => clampLibraryListWidth(prev, containerWidth))
+    }
+
+    clampToContainer()
+    window.addEventListener('resize', clampToContainer)
+    return () => window.removeEventListener('resize', clampToContainer)
+  }, [activeObject, isSmallScreen])
+
+  const handleFileListResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!activeObject || isSmallScreen) return
+
+    event.preventDefault()
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    setIsResizingFileList(true)
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const containerRect = listRowRef.current?.getBoundingClientRect()
+      const containerWidth = containerRect?.width
+      const nextWidth = containerRect
+        ? moveEvent.clientX - containerRect.left
+        : moveEvent.clientX
+
+      setFileListWidth(clampLibraryListWidth(nextWidth, containerWidth))
+    }
+
+    const handleMouseUp = () => {
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      setIsResizingFileList(false)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [activeObject, isSmallScreen])
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
@@ -458,34 +533,20 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     loadAll()
   }, [loadAll])
 
-  const closeTab = useCallback((tabId: string) => {
-    setOpenTabs((prev) => {
-      const index = prev.findIndex((tab) => tab.tabId === tabId)
-      if (index === -1) return prev
-      const next = prev.filter((tab) => tab.tabId !== tabId)
-      setActiveTabId((current) => {
-        if (current !== tabId) return current
-        const fallback = next[index] ?? next[index - 1] ?? null
-        return fallback?.tabId ?? null
-      })
-      return next
-    })
-  }, [])
-
-  const openObjectInTab = useCallback(async (
+  const openObjectInPanel = useCallback(async (
     objectId: string,
     type: EditorObjectType,
-    options?: { forceNewTab?: boolean },
+    options?: { skipDirtyCheck?: boolean },
   ): Promise<boolean> => {
-    const forceNewTab = Boolean(options?.forceNewTab)
+    if (!options?.skipDirtyCheck && activeObject?.isDirty && (activeObject.objectId !== objectId || activeObject.type !== type)) {
+      setDeferredSelection({ id: objectId, type })
+      setConfirmCloseTarget('active-object')
+      return false
+    }
 
-    if (!forceNewTab) {
-      const existing = openTabs.find((tab) => tab.objectId === objectId && tab.type === type)
-      if (existing) {
-        setIsCreating(false)
-        setActiveTabId(existing.tabId)
-        return true
-      }
+    if (activeObject?.objectId === objectId && activeObject.type === type) {
+      setIsCreating(false)
+      return true
     }
 
     let loadedObject: Record<string, unknown> | null = null
@@ -508,31 +569,37 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     }
 
     if (!loadedObject) return false
-    const tabId = `${type}:${objectId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 7)}`
     setIsCreating(false)
-    setOpenTabs((prev) => [
-      ...prev,
-      { tabId, objectId, type, object: loadedObject as Record<string, unknown>, isDirty: false },
-    ])
-    setActiveTabId(tabId)
+    setDeferredSelection(null)
+    setActiveObject({ objectId, type, object: loadedObject as Record<string, unknown>, isDirty: false })
     return true
-  }, [openTabs])
+  }, [activeObject])
 
-  const handleSelectItem = useCallback(async (id: string, type: EditorObjectType, options?: { forceNewTab?: boolean }) => {
-    if (onOpenObjectTab) {
-      await Promise.resolve(onOpenObjectTab({ id, type, forceNewTab: options?.forceNewTab }))
-      return
-    }
-    await openObjectInTab(id, type, options)
-  }, [onOpenObjectTab, openObjectInTab])
+  const handleSelectItem = useCallback(async (id: string, type: EditorObjectType) => {
+    await openObjectInPanel(id, type)
+  }, [openObjectInPanel])
 
   useEffect(() => {
     if (!pendingSelection) return
-    void handleSelectItem(pendingSelection.id, pendingSelection.type, { forceNewTab: Boolean(pendingSelection.forceNewTab) })
-  }, [handleSelectItem, pendingSelection])
+    let cancelled = false
 
-  const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => {
-    const opened = await openObjectInTab(target.id, target.type, options)
+    void (async () => {
+      try {
+        await handleSelectItem(pendingSelection.id, pendingSelection.type)
+      } finally {
+        if (!cancelled) {
+          onPendingSelectionHandled?.(pendingSelection.nonce)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [handleSelectItem, onPendingSelectionHandled, pendingSelection])
+
+  const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
+    const opened = await openObjectInPanel(target.id, target.type)
     if (opened) return
 
     if (target.type === 'habit') {
@@ -541,13 +608,12 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       const fallback = habitsMeta.find((item) => item.id === target.id)
         ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.syncPath) === targetPath)
       if (fallback) {
-        void openObjectInTab(fallback.id, 'habit', options)
+        void openObjectInPanel(fallback.id, 'habit')
       }
     }
-  }, [openObjectInTab])
+  }, [openObjectInPanel])
 
   const handleStartCreate = useCallback((type: NoteType) => {
-    setActiveTabId(null)
     setCreateType(type)
     setIsCreating(true)
     setCreateHasUnsavedChanges(false)
@@ -559,9 +625,9 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     const existing = dailyNotes.find((note) => note.date === date)
     if (!existing) return
 
-    await openObjectInTab(existing.id, 'daily-note')
+    await openObjectInPanel(existing.id, 'daily-note')
     setCreateHasUnsavedChanges(false)
-  }, [createType, dailyNotes, isCreating, openObjectInTab])
+  }, [createType, dailyNotes, isCreating, openObjectInPanel])
 
   const handleSaveNew = (saved: Record<string, unknown>) => {
     const type = (saved.type as EditorObjectType | undefined) ?? createType
@@ -570,7 +636,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     setIsCreating(false)
     loadAll()
     if (id) {
-      void openObjectInTab(id, type)
+      void openObjectInPanel(id, type, { skipDirtyCheck: true })
     }
     onSaved?.()
   }
@@ -578,51 +644,54 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const handleSaveEdit = (saved: Record<string, unknown>) => {
     const id = saved.id as string | undefined
     const type = saved.type as EditorObjectType | undefined
-    if (id && type && activeTabId) {
-      setOpenTabs((prev) => prev.map((tab) =>
-        tab.tabId === activeTabId
-          ? { ...tab, objectId: id, type, object: { ...saved, type }, isDirty: false }
-          : tab,
+    if (id && type) {
+      setActiveObject((prev) => (prev
+        ? { ...prev, objectId: id, type, object: { ...saved, type }, isDirty: false }
+        : prev
       ))
     }
     loadAll()
   }
 
-  const handleRequestCloseTab = useCallback((tabId: string) => {
-    const tab = openTabs.find((entry) => entry.tabId === tabId)
-    if (!tab) return
-    if (tab.isDirty) {
-      setConfirmCloseTabId(tabId)
+  const handleRequestCloseEditor = useCallback(() => {
+    if (!activeObject) return
+    if (activeObject.isDirty) {
+      setConfirmCloseTarget('active-object')
       return
     }
-    closeTab(tabId)
-  }, [closeTab, openTabs])
+    setActiveObject(null)
+  }, [activeObject])
 
   const handleCloseEditor = () => {
     if (isCreating) {
       if (createHasUnsavedChanges) {
-        setConfirmCloseTabId('create')
+        setConfirmCloseTarget('create')
         return
       }
       setIsCreating(false)
       setCreateHasUnsavedChanges(false)
       return
     }
-    if (!activeTabId) return
-    handleRequestCloseTab(activeTabId)
+    if (!activeObject) return
+    handleRequestCloseEditor()
   }
 
   const handleConfirmClose = () => {
-    if (confirmCloseTabId === 'create') {
+    if (confirmCloseTarget === 'create') {
       setIsCreating(false)
       setCreateHasUnsavedChanges(false)
-      setConfirmCloseTabId(null)
+      setConfirmCloseTarget(null)
+      setDeferredSelection(null)
       return
     }
-    if (confirmCloseTabId) {
-      closeTab(confirmCloseTabId)
+
+    const nextSelection = deferredSelection
+    setActiveObject(null)
+    setDeferredSelection(null)
+    setConfirmCloseTarget(null)
+    if (nextSelection) {
+      void openObjectInPanel(nextSelection.id, nextSelection.type, { skipDirtyCheck: true })
     }
-    setConfirmCloseTabId(null)
   }
 
    // Unified card list
@@ -751,61 +820,53 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
   }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, selectedTagFilterSet, effectiveVisibleObjectTypeSet])
-  const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
-  const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material' || activeTab?.type === 'scripture' || activeTab?.type === 'tag'
-    ? activeTab.type
-    : null
-  const activeNoteId = activeNoteType ? activeTab?.objectId ?? null : null
+  const activeNoteType = activeObject?.type ?? null
+  const activeNoteId = activeObject?.objectId ?? null
+  const isGalleryMode = !activeObject
+  const resultsLabel = allCards.length === 1 ? '1 item' : `${allCards.length} items`
+  const boardStatusLabel = loading
+    ? 'Loading library'
+    : boardFilter || showInbox || hasActiveBoardFilters
+      ? `Filtered • ${resultsLabel}`
+      : resultsLabel
 
-  const getTabLabel = (tab: OpenEditorTab) => {
-    if (tab.type === 'daily-note') {
-      const value = tab.object.date as string | undefined
+  const getObjectPanelLabel = (item: ActiveLibraryObject) => {
+    if (item.type === 'daily-note') {
+      const value = item.object.date as string | undefined
       return value ? formatDatePretty(value) : 'Daily Note'
     }
-    if (tab.type === 'habit') {
-      return (tab.object.text as string | undefined)?.trim() || 'Habit'
+    if (item.type === 'habit') {
+      return (item.object.text as string | undefined)?.trim() || 'Habit'
     }
-    if (tab.type === 'project') {
-      return (tab.object.name as string | undefined)?.trim() || 'Project'
+    if (item.type === 'project') {
+      return (item.object.name as string | undefined)?.trim() || 'Project'
     }
-    if (tab.type === 'ref-material') {
-      return (tab.object.name as string | undefined)?.trim() || 'Reference Material'
+    if (item.type === 'ref-material') {
+      return (item.object.name as string | undefined)?.trim() || 'Reference Material'
     }
-    if (tab.type === 'scripture') {
-      return (tab.object.reference as string | undefined)?.trim() || 'Scripture'
+    if (item.type === 'scripture') {
+      return (item.object.reference as string | undefined)?.trim() || 'Scripture'
     }
-    if (tab.type === 'tag') {
-      const display = (tab.object.displayName as string | undefined)?.trim() || (tab.object.name as string | undefined)?.trim()
+    if (item.type === 'tag') {
+      const display = (item.object.displayName as string | undefined)?.trim() || (item.object.name as string | undefined)?.trim()
       return display ? `#${display}` : 'Tag'
     }
-    return (tab.object.title as string | undefined)?.trim() || 'Topic Note'
+    return (item.object.title as string | undefined)?.trim() || 'Topic Note'
   }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0 }}>
-      {/* ── Compact Toolbar ──────────────────────────────────────────────────── */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1}
-        sx={{
-          mb: 1,
-          flexShrink: 0,
-          minHeight: cardSpacingTokens.toolbarRowMinHeight,
-          px: 1,
-          py: 0.75,
-          borderRadius: '10px',
-          bgcolor: 'transparent',
-          border: '1px solid',
-          borderColor: 'border.subtle',
-        }}
-      >
-        {/* Filter chip row */}
-        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
+      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3">
+        <div className="min-w-[180px] flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Library</div>
+          <div className="mt-1 text-sm text-[var(--color-text-secondary)]">{boardStatusLabel}</div>
+        </div>
+
+        <div className="ui-scroller flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <FilterChip
-                icon={<TuneIcon />}
+                icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
                 label="Object type"
                 showCaret
                 selected={isObjectTypeFilterCustomized}
@@ -827,10 +888,11 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               })}
             </DropdownMenuContent>
           </DropdownMenu>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <FilterChip
-                icon={<LabelIcon />}
+                icon={<Tags className="h-3.5 w-3.5" />}
                 label="Tags"
                 showCaret
                 selected={isTagFilterCustomized}
@@ -849,7 +911,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                   >
                     <span className="flex flex-1 items-center justify-between gap-3">
                       <span>#{option.label}</span>
-                      <span className="text-xs text-slate-400">{option.count} {option.count === 1 ? 'object' : 'objects'}</span>
+                      <span className="text-xs text-[var(--color-text-disabled)]">{option.count} {option.count === 1 ? 'object' : 'objects'}</span>
                     </span>
                   </DropdownMenuCheckboxItem>
                 ))
@@ -867,34 +929,23 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        </Stack>
+        </div>
 
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
-          {/* Search input */}
-          <div className="relative w-[220px] shrink-0">
-            <SearchIcon
-              sx={{
-                position: 'absolute',
-                left: 10,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                fontSize: 14,
-                color: 'text.disabled',
-                pointerEvents: 'none',
-              }}
-            />
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative w-[248px] max-w-full shrink-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
             <Input
-              placeholder="Find a note..."
+              placeholder="Search"
               value={boardFilter}
               onChange={(e) => setBoardFilter(e.target.value)}
-              className="h-8 border-slate-800 bg-slate-950 pl-8 text-xs text-slate-200 placeholder:text-slate-500"
+              className="h-10 w-full rounded-[10px] pl-10 pr-4 text-sm"
             />
           </div>
 
           <Select value={boardSort} onValueChange={(value) => setBoardSort(value as BoardSort)}>
-            <SelectTrigger aria-label="Sort notes" className="h-8 w-[146px] border-slate-800 bg-slate-950 text-xs text-slate-200">
-              <span className="flex items-center gap-1">
-                <SwapVertIcon sx={{ fontSize: 14 }} />
+            <SelectTrigger aria-label="Sort notes" className="h-10 w-[168px] rounded-[10px] border-[var(--color-border-subtle)] bg-[var(--color-surface-control)]/88 text-xs text-[var(--color-text-primary)]">
+              <span className="flex items-center gap-2">
+                <ArrowUpDown className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
                 <SelectValue />
               </span>
             </SelectTrigger>
@@ -906,7 +957,6 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             </SelectContent>
           </Select>
 
-          {/* +New button */}
           <TooltipProvider>
             <Tooltip>
               <DropdownMenu>
@@ -916,12 +966,10 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                       variant="outline"
                       size="sm"
                       aria-label="Create a new object"
-                      className="h-8 shrink-0 border-slate-800 bg-slate-950 px-2 text-xs text-slate-100 hover:bg-slate-900"
+                      className="h-10 rounded-[10px] px-4 text-xs"
                     >
-                      <AddCircleOutlineIcon sx={{ fontSize: 16 }} />
-                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                        +New
-                      </Box>
+                      <Plus className="h-4 w-4" />
+                      <span className="hidden sm:inline">New</span>
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -929,28 +977,28 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                   <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
                     <span className="flex flex-col gap-0.5">
                       <span className="flex items-center gap-2">
-                        <NoteAddIcon fontSize="small" />
+                        <NotebookPen className="h-4 w-4" />
                         Topic Note
                       </span>
-                      <span className="pl-6 text-xs text-slate-400">Create a titled note</span>
+                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a titled note</span>
                     </span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
                     <span className="flex flex-col gap-0.5">
                       <span className="flex items-center gap-2">
-                        <CalendarTodayIcon fontSize="small" />
+                        <CalendarDays className="h-4 w-4" />
                         Daily Note
                       </span>
-                      <span className="pl-6 text-xs text-slate-400">Create or open a dated daily note</span>
+                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
                     </span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
                     <span className="flex flex-col gap-0.5">
                       <span className="flex items-center gap-2">
-                        <RepeatIcon fontSize="small" />
+                        <Repeat2 className="h-4 w-4" />
                         Habit
                       </span>
-                      <span className="pl-6 text-xs text-slate-400">Create a dated habit entry</span>
+                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -959,188 +1007,184 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             </Tooltip>
           </TooltipProvider>
 
-          {/* Inbox toggle */}
           <Button
             size="icon"
-            variant={showInbox ? 'secondary' : 'ghost'}
+            variant={showInbox ? 'outline' : 'ghost'}
             onClick={() => setShowInbox((v) => !v)}
             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-            className="h-8 w-8 shrink-0"
+            className={showInbox ? 'h-11 w-11 rounded-[10px] border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : 'h-11 w-11 rounded-[10px]'}
           >
-            <MoveToInboxIcon sx={{ fontSize: 18 }} />
+            <Inbox className="h-[18px] w-[18px]" />
           </Button>
-        </Stack>
-      </Stack>
+        </div>
+      </div>
 
-      <Stack direction={activeTab ? 'row' : 'column'} spacing={1.5} sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}>
-       <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', width: '100%', minWidth: 0 }}>
-         {/* ── Inbox banner ─────────────────────────────────── */}
-         {showInbox && (
-           <Stack
-             direction="row"
-             alignItems="center"
-             spacing={0.75}
-             sx={{ mb: 1, px: 1, py: 0.5, bgcolor: 'surface.sunken', borderRadius: '6px', border: '1px solid', borderColor: 'border.subtle' }}
-           >
-             <MoveToInboxIcon sx={{ fontSize: 14, color: 'accent.metadata' }} />
-             <Typography variant="caption" sx={{ color: 'accent.metadata', fontWeight: 600, fontSize: '11px' }}>
-               Inbox — showing only newly imported objects tagged Inbox
-             </Typography>
-           </Stack>
-         )}
-
-         {/* ── Unified masonry card board ────────────────────── */}
-         {loading ? (
-           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-             <CircularProgress size={24} />
-           </Box>
-         ) : allCards.length === 0 ? (
-           <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic', p: 1.5, display: 'block' }}>
-             {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches' : 'Nothing here yet'}
-           </Typography>
-         ) : (
-           <Box
-             sx={{
-                columnWidth: { xs: '100%', sm: '260px' },
-                columnGap: cardSpacingTokens.cardVerticalGutter,
-                width: '100%',
-                minWidth: 0,
-             }}
-           >
-             {allCards.map((card) => (
-                <Box
-                  key={`${card.type}:${card.id}`}
-                  sx={{
-                    mb: cardSpacingTokens.cardVerticalGutter,
-                    breakInside: 'avoid',
-                    WebkitColumnBreakInside: 'avoid',
-                  }}
-                >
-                  {(() => {
-                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
-                    return (
-                  <NoteCard
-                    card={card}
-                    isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                    onClick={isOpenable ? (e) => handleSelectItem(card.id, card.type as EditorObjectType, { forceNewTab: e.metaKey || e.ctrlKey }) : undefined}
-                    title={isOpenable ? 'Click to open • Ctrl/Cmd-click to open in new tab' : undefined}
-                  />
-                    )
-                  })()}
-                </Box>
-             ))}
-           </Box>
-         )}
-       </Box>
-
-      {activeTab && (
-        <Paper
-          sx={{
-            width: 560,
-            minWidth: 420,
-            bgcolor: 'surface.elevated',
-            border: '1px solid',
-            borderColor: 'border.subtle',
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0,
-         }}
+      <Stack
+        ref={listRowRef}
+        direction={activeObject && !isSmallScreen ? 'row' : 'column'}
+        spacing={1.5}
+        sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}
+      >
+        <div
+          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[18px] bg-[var(--color-surface-elevated)]"
+          style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
-         <>
-           <Stack
-             direction="row"
-             alignItems="center"
-             gap={0.5}
-             sx={{ px: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}
-           >
-             <Tabs value={activeTab?.tabId ?? ''} onValueChange={setActiveTabId}>
-               <Box sx={{ maxWidth: 480, overflowX: 'auto' }}>
-                 <TabsList aria-label="Object editor tabs" className="h-auto min-h-10 w-max justify-start gap-2 bg-transparent p-0">
-                   {openTabs.map((tab) => {
-                     const tabToken = getObjectColor(tab.type)
-                     return (
-                       <div key={tab.tabId} className="relative shrink-0">
-                         <TabsTrigger
-                           value={tab.tabId}
-                           className="h-10 min-w-0 rounded-t-md border border-transparent bg-transparent px-3 pr-8 text-slate-400 shadow-none data-[state=active]:bg-slate-950/70 data-[state=active]:text-slate-100 data-[state=active]:shadow-none"
-                           style={{
-                             boxShadow: activeTabId === tab.tabId ? `inset 0 2px 0 ${tabToken.accent}` : undefined,
-                             color: activeTabId === tab.tabId ? tabToken.text : undefined,
-                           }}
-                         >
-                           <span className="flex min-h-6 items-center gap-2">
-                             <Box
-                               className="notes-editor-tab-dot"
-                               sx={{
-                                 width: 5,
-                                 height: 5,
-                                 borderRadius: '50%',
-                                 bgcolor: activeTabId === tab.tabId ? tabToken.accent : tabToken.text,
-                                 flexShrink: 0,
-                               }}
-                             />
-                             <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1, fontWeight: 500 }}>
-                               {getTabLabel(tab)}
-                             </Typography>
-                             {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
-                           </span>
-                         </TabsTrigger>
-                         <Button
-                           type="button"
-                           variant="ghost"
-                           size="icon"
-                           className="absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 hover:text-slate-100"
-                           onClick={(event) => {
-                             event.stopPropagation()
-                             handleRequestCloseTab(tab.tabId)
-                           }}
-                           aria-label={`Close ${getTabLabel(tab)} tab`}
-                         >
-                           <CloseIcon sx={{ fontSize: 11 }} />
-                         </Button>
-                       </div>
-                     )
-                   })}
-                 </TabsList>
-               </Box>
-             </Tabs>
-             <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-7 w-7 text-slate-400 hover:text-slate-100">
-               <CloseIcon fontSize="small" />
-             </Button>
-           </Stack>
-           <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-             {activeTab ? (
-               <EditorErrorBoundary>
-                  {activeTab.type === 'scripture' || activeTab.type === 'tag' ? (
-                    <ObjectMetaDetailPanel
-                      object={activeTab.object}
-                      type={activeTab.type}
-                      flatTop
-                      onNavigateToObject={handleNavigateToObject}
+          {activeObject && !isSmallScreen ? (
+            <div
+              onMouseDown={handleFileListResizeStart}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize file list"
+              className="absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize"
+            >
+              <div
+                className="absolute right-[2px] top-0 h-full w-px transition-colors"
+                style={{ backgroundColor: isResizingFileList ? 'rgba(243, 239, 231, 0.95)' : 'transparent' }}
+              />
+            </div>
+          ) : null}
+          <div className="border-b border-[var(--color-border-subtle)] px-5 pb-3 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 pr-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
+                <div className="mt-1 text-base font-semibold text-[var(--color-text-primary)]">All items</div>
+              </div>
+              <div className="rounded-[8px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-xs text-[var(--color-text-secondary)]">
+                {resultsLabel}
+              </div>
+            </div>
+            {showInbox && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
+                <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
+                Inbox only — showing imported objects tagged Inbox
+              </div>
+            )}
+          </div>
+
+          <div className="ui-scroller flex-1 overflow-auto px-3 py-3">
+            {loading ? (
+              <div className="flex h-full min-h-[240px] items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+              </div>
+            ) : allCards.length === 0 ? (
+              <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+                {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
+              </div>
+            ) : isGalleryMode ? (
+              <div
+                className="mx-auto w-full"
+                style={{
+                  columnWidth: '272px',
+                  columnGap: '12px',
+                  maxWidth: '100%',
+                }}
+              >
+                {allCards.map((card) => {
+                  const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
+                  return (
+                    <div
+                      key={`${card.type}:${card.id}`}
+                      className="mb-3 w-full break-inside-avoid"
+                    >
+                      <NoteCard
+                        card={card}
+                        isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                        onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
+                        title={isOpenable ? 'Click to open in the detail pane' : undefined}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="mx-auto flex w-full max-w-[960px] flex-col gap-2.5">
+                {allCards.map((card) => {
+                  const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
+                  return (
+                    <NoteCard
+                      key={`${card.type}:${card.id}`}
+                      card={card}
+                      isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                      onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
+                      title={isOpenable ? 'Click to open in the detail pane' : undefined}
                     />
-                  ) : (
-                    <ObjectEditor
-                      key={activeTab.tabId}
-                      object={activeTab.object}
-                      type={activeTab.type}
-                       flatTop
-                      onSave={handleSaveEdit}
-                      onCancel={handleCloseEditor}
-                      onDirty={(isDirty) => {
-                        if (!activeTabId) return
-                        setOpenTabs((prev) => prev.map((tab) => (
-                          tab.tabId === activeTabId ? { ...tab, isDirty } : tab
-                        )))
-                      }}
-                      onNavigateToObject={handleNavigateToObject}
-                    />
-                  )}
-               </EditorErrorBoundary>
-             ) : null}
-           </Box>
-         </>
-       </Paper>
-      )}
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {activeObject && (
+          <Paper
+            sx={{
+              flex: 1,
+              width: 0,
+              minWidth: 420,
+              bgcolor: 'surface.elevated',
+              border: '1px solid',
+              borderColor: 'border.subtle',
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              borderRadius: '18px',
+              overflow: 'hidden',
+            }}
+          >
+            <>
+              <Stack
+                direction="row"
+                alignItems="center"
+                gap={1}
+                sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.sunken' }}
+              >
+                <div className="min-w-0 flex-1 px-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+                    Open item
+                  </div>
+                  <div className="mt-1 truncate text-base font-semibold text-[var(--color-text-primary)]">
+                    {getObjectPanelLabel(activeObject)}
+                  </div>
+                </div>
+                {activeObject.isDirty ? (
+                  <div className="rounded-[8px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[11px] text-[var(--color-text-secondary)]">
+                    Unsaved
+                  </div>
+                ) : null}
+                <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
+                  <X className="h-4 w-4" />
+                </Button>
+              </Stack>
+              <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+                {activeObject ? (
+                  <EditorErrorBoundary>
+                    {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
+                      <ObjectMetaDetailPanel
+                        object={activeObject.object}
+                        type={activeObject.type}
+                        flatTop
+                        onNavigateToObject={handleNavigateToObject}
+                      />
+                    ) : (
+                      <ObjectEditor
+                        key={`${activeObject.type}:${activeObject.objectId}`}
+                        object={activeObject.object}
+                        type={activeObject.type}
+                        flatTop
+                        onSave={handleSaveEdit}
+                        onCancel={handleCloseEditor}
+                        onDirty={(isDirty) => {
+                          setActiveObject((prev) => (prev ? { ...prev, isDirty } : prev))
+                        }}
+                        onNavigateToObject={handleNavigateToObject}
+                      />
+                    )}
+                  </EditorErrorBoundary>
+                ) : null}
+              </Box>
+            </>
+          </Paper>
+        )}
       </Stack>
 
       <Dialog open={isCreating} onOpenChange={(open) => { if (!open) handleCloseEditor() }}>
@@ -1175,8 +1219,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       </Dialog>
 
       {/* Confirmation Dialog for unsaved changes */}
-      <Dialog open={!!confirmCloseTabId} onOpenChange={(open) => { if (!open) setConfirmCloseTabId(null) }}>
-        {confirmCloseTabId ? (
+      <Dialog open={!!confirmCloseTarget} onOpenChange={(open) => { if (!open) { setConfirmCloseTarget(null); setDeferredSelection(null) } }}>
+        {confirmCloseTarget ? (
           <DialogContent className="max-w-sm" aria-label="Unsaved Changes">
             <DialogHeader>
               <DialogTitle>Unsaved Changes</DialogTitle>
@@ -1185,7 +1229,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirmCloseTabId(null)}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setConfirmCloseTarget(null); setDeferredSelection(null) }}>Cancel</Button>
               <Button onClick={handleConfirmClose} variant="destructive">
                 Discard Changes
               </Button>

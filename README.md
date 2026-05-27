@@ -33,6 +33,14 @@ A local-first knowledge management app with folder-based sync. The core product 
 | Sync transport | Local folder sync |
 | iOS mobile app | SwiftUI (iOS 17+) + SwiftyDropbox SDK |
 
+## UI Design Canonical Source
+
+For all UI appearance and interaction styling decisions, use [`UI_GUIDELINES.md`](./UI_GUIDELINES.md) as the canonical source of truth.
+
+- This is intentionally feature-agnostic and defines reusable visual/interaction rules.
+- If UI styling guidance in other docs conflicts, `UI_GUIDELINES.md` wins.
+- Keep product/domain behavior in this README and decision history in [`IMPLEMENTATION_DECISIONS.md`](./IMPLEMENTATION_DECISIONS.md).
+
 ## Desktop UI Features
 
 The desktop wrapper provides a full-featured interface for knowledge management:

@@ -20,7 +20,6 @@ import { cn } from '../../lib/utils';
 import { useSyncStatus } from '../../lib/syncContext';
 import { formatDatePretty } from '../../lib/dateUtils';
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../../lib/cliService';
-import { cardSpacingTokens, neutralDarkTokens } from '../../theme';
 
 interface NavigationItem {
   id: string;
@@ -55,20 +54,6 @@ const navItems: NavigationItem[] = [
   { id: 'calendar', label: 'Calendar', icon: <CalendarDays className="h-[21px] w-[21px]" /> },
   { id: 'graph', label: 'Graph', icon: <Network className="h-[21px] w-[21px]" /> },
 ];
-
-const sidebarColors = {
-  background: neutralDarkTokens.surface.app,
-  backgroundTop: neutralDarkTokens.surface.app,
-  border: 'transparent',
-  divider: withAlpha(neutralDarkTokens.text.primary, 0.07),
-  text: neutralDarkTokens.text.primary,
-  textMuted: neutralDarkTokens.text.secondary,
-  icon: neutralDarkTokens.text.secondary,
-  iconMuted: neutralDarkTokens.text.muted,
-  hover: withAlpha(neutralDarkTokens.text.primary, 0.04),
-  selected: withAlpha(neutralDarkTokens.text.primary, 0.065),
-  selectedBorder: neutralDarkTokens.border.subtle,
-};
 
 function withAlpha(color: string, opacity: number): string {
   const hex = color.trim();
@@ -290,12 +275,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   return (
     <TooltipProvider>
       <aside
-        className="relative flex shrink-0 flex-col overflow-hidden px-1 pb-1"
+        className="relative flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-border-subtle)] bg-[color:rgba(18,18,20,0.94)] px-1.5 pb-2 backdrop-blur-md"
         style={{
           width: sidebarWidth,
-          backgroundColor: sidebarColors.background,
-          color: sidebarColors.text,
-          paddingTop: 'calc(env(titlebar-area-height, 0px) + 30px)',
+            paddingTop: 'calc(env(titlebar-area-height, 0px) + 12px)',
         }}
       >
         <div
@@ -307,11 +290,12 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         >
           <div
             className="absolute right-[2px] top-0 h-full w-px transition-colors"
-            style={{ backgroundColor: isResizing ? withAlpha(sidebarColors.text, 0.95) : 'transparent' }}
+            style={{ backgroundColor: isResizing ? withAlpha('#f3efe7', 0.95) : 'transparent' }}
           />
         </div>
 
-        <div className="flex flex-1 flex-col overflow-auto px-0.5 py-0.5">
+        <div className="ui-scroller flex flex-1 flex-col overflow-auto px-1 pb-2">
+          <div className="mb-3 border-b border-[var(--color-border-subtle)]/80 px-1 pb-3">
           {navItems.map((item) => {
             const selected = currentSection === item.id;
             return (
@@ -321,24 +305,22 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 variant="ghost"
                 onClick={() => onNavigate(item.id)}
                 className={cn(
-                  'mb-0.5 h-[38px] justify-start rounded-[14px] px-1 py-0.5 text-[13px] font-medium transition-colors',
-                  selected && 'border',
+                  'mb-1 h-11 w-full justify-start rounded-[12px] px-4 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
+                  selected
+                    ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)] shadow-none'
+                    : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
                 )}
-                style={{
-                  color: selected ? sidebarColors.text : sidebarColors.textMuted,
-                  backgroundColor: selected ? sidebarColors.selected : 'transparent',
-                  borderColor: selected ? sidebarColors.selectedBorder : 'transparent',
-                }}
               >
-                <span className="mr-2 flex h-5 w-5 items-center justify-center" style={{ color: sidebarColors.icon }}>
+                <span className={cn('mr-2 flex h-5 w-5 items-center justify-center', selected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')}>
                   {item.icon}
                 </span>
                 <span>{item.label}</span>
               </Button>
             );
           })}
+          </div>
 
-          <div className="my-1 h-px" style={{ backgroundColor: sidebarColors.divider }} />
+          <div className="mb-3 border-b border-[var(--color-border-subtle)]/80 px-1 pb-3">
           <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
 
           {pinnedItems.map((item) => {
@@ -363,14 +345,13 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   type="button"
                   variant="ghost"
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  className="mb-0.5 h-8 w-full justify-start gap-1 rounded-[10px] px-0.5 py-0.5"
-                  style={{ color: sidebarColors.textMuted }}
+                  className="relative mb-1 h-10 w-full justify-start gap-2.5 rounded-[10px] border border-transparent px-3 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
                 >
-                  <span className="flex h-4 w-4 items-center justify-center" style={{ color: sidebarColors.iconMuted }}>
+                  <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
                     {objectIcon(item.type)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-left text-[11px] leading-[1.25]">{item.title}</span>
-                  <span className="pin-actions flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-[12px] leading-[1.25]">{item.title}</span>
+                  <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[rgba(18,18,20,0.92)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       type="button"
                       variant="ghost"
@@ -381,8 +362,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         movePinned(idx, idx - 1);
                       }}
-                      className="h-5 w-5"
-                      style={{ color: sidebarColors.icon }}
+                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
                     >
                       <ArrowUp className="h-3 w-3" />
                     </Button>
@@ -396,8 +376,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         movePinned(idx, idx + 1);
                       }}
-                      className="h-5 w-5"
-                      style={{ color: sidebarColors.icon }}
+                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
                     >
                       <ArrowDown className="h-3 w-3" />
                     </Button>
@@ -410,8 +389,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                         event.stopPropagation();
                         void handleUnpin(item);
                       }}
-                      className="h-5 w-5"
-                      style={{ color: sidebarColors.icon }}
+                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
                     >
                       <X className="h-3 w-3" />
                     </Button>
@@ -420,11 +398,14 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
               </div>
             );
           })}
+          </div>
         </div>
 
-        <div className="h-px" style={{ backgroundColor: sidebarColors.divider }} />
-
-        <div className="flex items-center gap-1 px-1.5 py-1.5">
+        <div className="mb-2 border-t border-[var(--color-border-subtle)]/80 px-2 py-3">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+            Sync
+          </div>
+          <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <div>
@@ -434,8 +415,8 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   size="icon"
                   onClick={triggerSync}
                   disabled={syncing}
-                  className="h-7 w-7"
-                  style={{ color: syncError ? 'var(--destructive)' : sidebarColors.icon }}
+                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                  style={{ color: syncError ? 'var(--destructive)' : undefined }}
                 >
                   {syncing ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <RefreshCw className="h-[17px] w-[17px]" />}
                 </Button>
@@ -445,32 +426,31 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </Tooltip>
           <div className="min-w-0 flex-1">
             <span
-              className="block truncate whitespace-nowrap text-[9.5px] leading-[1.3]"
-              style={{ color: syncError ? 'var(--destructive)' : sidebarColors.textMuted }}
+               className="block truncate whitespace-nowrap text-[11px] font-medium leading-[1.35]"
+               style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
             >
               {syncing ? 'Syncing…' : syncError ? 'Sync error' : formatLastSynced(lastSyncedAt)}
             </span>
+                <span className="block truncate text-[10px] leading-[1.35] text-[var(--color-text-disabled)]">
+                  Keep local changes and sync state aligned.
+                </span>
+          </div>
           </div>
         </div>
 
-        <div className="h-px" style={{ backgroundColor: sidebarColors.divider }} />
-
-        <div className="px-0.5 py-0.5">
+        <div className="px-1 pb-1">
           <Button
             type="button"
             variant="ghost"
             onClick={() => onNavigate('settings')}
             className={cn(
-              'h-[38px] w-full justify-start rounded-[14px] px-1 py-0.5 text-[13px] font-medium transition-colors',
-              currentSection === 'settings' && 'border',
+              'h-11 w-full justify-start rounded-[12px] px-4 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
+              currentSection === 'settings'
+                ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)] shadow-none'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
             )}
-            style={{
-              color: currentSection === 'settings' ? sidebarColors.text : sidebarColors.textMuted,
-              backgroundColor: currentSection === 'settings' ? sidebarColors.selected : 'transparent',
-              borderColor: currentSection === 'settings' ? sidebarColors.selectedBorder : 'transparent',
-            }}
           >
-            <span className="mr-2 flex h-5 w-5 items-center justify-center" style={{ color: sidebarColors.icon }}>
+            <span className={cn('mr-2 flex h-5 w-5 items-center justify-center', currentSection === 'settings' ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')}>
               <Settings className="h-[21px] w-[21px]" />
             </span>
             <span>Settings</span>
@@ -483,16 +463,13 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
 function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean; count: number }) {
   return (
-    <div
-      className="flex min-h-[30px] items-center gap-1 py-[0.55rem]"
-      style={{ paddingLeft: cardSpacingTokens.sidebarRowPaddingX, paddingRight: cardSpacingTokens.sidebarRowPaddingX }}
-    >
-      <Pin className="h-3 w-3" style={{ color: sidebarColors.iconMuted }} />
-      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.03em]" style={{ color: sidebarColors.textMuted }}>
+    <div className="flex min-h-[32px] items-center gap-1.5 px-2 py-1.5">
+      <Pin className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
+      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
         Pinned
       </span>
-      {loadingPinned ? <Loader2 className="h-[11px] w-[11px] animate-spin" style={{ color: sidebarColors.iconMuted }} /> : (
-        <span className="text-[9px]" style={{ color: sidebarColors.iconMuted }}>
+      {loadingPinned ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
+        <span className="rounded-[10px] bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[9px] text-[var(--color-text-disabled)]">
           {count}
         </span>
       )}

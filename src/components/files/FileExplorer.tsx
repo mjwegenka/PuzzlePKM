@@ -159,7 +159,7 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
           {/* Reference Materials section */}
           <SectionHeader
             label="Reference Materials"
-            icon={<MenuBookIcon sx={{ fontSize: 14, mr: 0.5, color: 'secondary.main' }} />}
+            icon={<MenuBookIcon sx={{ fontSize: 14, mr: 0.5, color: 'accent.metadata' }} />}
             onAdd={onCreateNew ? () => onCreateNew('ref-material') : undefined}
           />
           <List sx={{ p: 0 }}>
@@ -173,7 +173,7 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
                   selected={selectedId === item.id}
                   showDivider={idx < refMaterials.length - 1}
                   onSelect={onSelect}
-                  icon={<ArticleIcon sx={{ fontSize: 16, color: 'secondary.main', mr: 1, flexShrink: 0 }} />}
+                  icon={<ArticleIcon sx={{ fontSize: 16, color: 'accent.metadata', mr: 1, flexShrink: 0 }} />}
                 />
               ))
             )}

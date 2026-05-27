@@ -1,6 +1,6 @@
 import type { ObjectType } from '../shared/types'
 import { alpha } from '@mui/material/styles'
-import { amber, blue, green, orange, pink, purple } from '@mui/material/colors'
+import { amber, green, orange, pink, purple } from '@mui/material/colors'
 
 /**
  * Canonical color token for one object type.
@@ -34,12 +34,12 @@ function buildToken(accent: string): ObjectColorToken {
 
 /** One canonical color mapping per object type. */
 export const objectColors: Record<ColorableType, ObjectColorToken> = {
-  'daily-note': buildToken(blue[300]),
+  'daily-note': buildToken(amber[300]),
   'topic-note': buildToken(green[300]),
   'habit': buildToken(orange[300]),
   'project': buildToken(purple[300]),
   'ref-material': buildToken(pink[300]),
-  'scripture': buildToken(amber[300]),
+  'scripture': buildToken('#f2cb63'),
 }
 
 /** Look up the color token for a given object type string, falling back to daily-note colors. */

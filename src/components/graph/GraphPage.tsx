@@ -200,7 +200,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
         className="relative min-h-0 flex-1 overflow-hidden rounded-sm border"
         style={{
           borderColor: isPanning ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
-          backgroundColor: 'rgba(2, 6, 23, 0.45)',
+          backgroundColor: 'rgba(26, 22, 18, 0.6)',
           cursor: isPanning ? 'grabbing' : 'grab',
         }}
       >
@@ -222,7 +222,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                   y1={source.y}
                   x2={target.x}
                   y2={target.y}
-                  stroke="rgba(148, 163, 184, 0.35)"
+                  stroke="rgba(221, 181, 80, 0.18)"
                   strokeWidth={1}
                 />
               )
@@ -235,8 +235,8 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                     cx={node.x}
                     cy={node.y}
                     r={focused ? 8 : 6}
-                    fill={focused ? 'var(--color-accent-selected)' : 'var(--color-surface-app)'}
-                    stroke={focused ? 'var(--color-success-main)' : 'var(--color-text-secondary)'}
+                    fill={focused ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-control)'}
+                    stroke={focused ? 'var(--color-accent-metadata)' : 'var(--color-border-strong)'}
                     strokeWidth={focused ? 2 : 1}
                   />
                   <text

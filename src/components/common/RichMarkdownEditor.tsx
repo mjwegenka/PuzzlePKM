@@ -379,12 +379,14 @@ function ToolbarButton({ title, active, onClick, children }: ToolbarButtonProps)
         onClick={onClick}
         sx={(theme) => ({
           color: active ? theme.palette.text.primary : theme.palette.text.secondary,
-          bgcolor: active ? theme.palette.action.selected : 'transparent',
-          border: `1px solid ${active ? theme.palette.border.strong : 'transparent'}`,
-          borderRadius: '6px',
+          bgcolor: active ? 'var(--color-surface-control)' : 'transparent',
+          border: `1px solid ${active ? theme.palette.border.subtle : 'transparent'}`,
+          borderRadius: '10px',
+          width: 30,
+          height: 30,
           '&:hover': {
-            bgcolor: active ? theme.palette.action.selected : theme.palette.action.hover,
-            borderColor: theme.palette.border.strong,
+            bgcolor: active ? 'var(--color-surface-control)' : theme.palette.action.hover,
+            borderColor: theme.palette.border.subtle,
           },
         })}
       >
@@ -824,8 +826,8 @@ export default function RichMarkdownEditor({
 
   return (
     <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '12px', fontWeight: 500 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           {label}
         </Typography>
         {typeof currentCount === 'number' && typeof maxLength === 'number' && (
@@ -839,8 +841,8 @@ export default function RichMarkdownEditor({
         sx={{
           border: '1px solid',
           borderColor: 'border.subtle',
-          borderRadius: '12px',
-          bgcolor: 'surface.sunken',
+          borderRadius: '14px',
+          bgcolor: 'surface.elevated',
           flex: 1,
           minHeight: 0,
           display: 'flex',
@@ -848,7 +850,7 @@ export default function RichMarkdownEditor({
           overflow: 'hidden',
         }}
       >
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid', borderColor: 'border.subtle', flexShrink: 0 }}>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid', borderColor: 'border.subtle', flexShrink: 0, bgcolor: 'surface.sunken' }}>
           <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
             <TitleIcon fontSize="small" />
           </ToolbarButton>
@@ -899,12 +901,14 @@ export default function RichMarkdownEditor({
               onClick={handleAdmonitionMenuOpen}
               sx={(theme) => ({
                 color: activeAdmonitionType ? theme.palette.text.primary : theme.palette.text.secondary,
-                bgcolor: activeAdmonitionType ? theme.palette.action.selected : 'transparent',
-                border: `1px solid ${activeAdmonitionType ? theme.palette.border.strong : 'transparent'}`,
-                borderRadius: '6px',
+                bgcolor: activeAdmonitionType ? 'var(--color-surface-control)' : 'transparent',
+                border: `1px solid ${activeAdmonitionType ? theme.palette.border.subtle : 'transparent'}`,
+                borderRadius: '10px',
+                width: 30,
+                height: 30,
                 '&:hover': {
-                  bgcolor: activeAdmonitionType ? theme.palette.action.selected : theme.palette.action.hover,
-                  borderColor: theme.palette.border.strong,
+                  bgcolor: activeAdmonitionType ? 'var(--color-surface-control)' : theme.palette.action.hover,
+                  borderColor: theme.palette.border.subtle,
                 },
               })}
             >
@@ -956,9 +960,10 @@ export default function RichMarkdownEditor({
             minHeight: 0,
             overflow: 'auto',
             position: 'relative',
-            pl: 1.5,
-            pr: 1.5,
-            py: 1.25,
+            pl: 2,
+            pr: 2,
+            py: 1.75,
+            bgcolor: 'surface.elevated',
           }}
           onMouseDownCapture={(event) => {
             handleModifiedLinkClick(event)
@@ -978,6 +983,7 @@ export default function RichMarkdownEditor({
                 lineHeight: 1.5,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
+                p: 0.5,
               }}
             >
               {markdownPreview || ''}

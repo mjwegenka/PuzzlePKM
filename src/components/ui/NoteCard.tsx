@@ -3,7 +3,6 @@ import { CalendarDays, NotebookPen, Repeat } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
 import { Badge } from './badge'
 import { cn } from '@/lib/utils'
-import { cardSpacingTokens } from '@/theme'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -147,16 +146,21 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
   return nodes
 }
 
-function MarkdownSnippet({ text }: { text: string }) {
+function MarkdownSnippet({ text, maxLines = 4 }: { text: string; maxLines?: number }) {
   const lines = text.split('\n')
+  const visibleLines = lines.slice(0, maxLines)
+  const wasTruncated = lines.length > maxLines
 
   return (
     <div className="grid gap-1">
-      {lines.map((line, index) => {
+      {visibleLines.map((line, index) => {
         const trimmed = line.trim()
         const bulletMatch = /^\s*[-*+]\s+(.*)$/.exec(line)
         const orderedMatch = /^\s*(\d+)[.)]\s+(.*)$/.exec(line)
-        const content = bulletMatch?.[1] ?? orderedMatch?.[2] ?? line
+        const baseContent = bulletMatch?.[1] ?? orderedMatch?.[2] ?? line
+        const content = wasTruncated && index === visibleLines.length - 1
+          ? `${baseContent.replace(/[\s.]+$/, '')}…`
+          : baseContent
 
         if (!trimmed) return <div key={`line-${index}`} className="min-h-[1em]" />
 
@@ -196,28 +200,34 @@ function TypeIcon({ type }: { type: ObjectType }) {
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
   const tags = card.tags ?? []
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
+  const contentToneClass = 'text-[var(--color-text-primary)]'
+  const metaToneClass = isSelected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]'
+  const chipClassName = isSelected
+    ? 'border-[rgba(242,203,99,0.14)] bg-[rgba(242,203,99,0.08)] text-[var(--color-text-secondary)]'
+    : 'border-[var(--color-border-subtle)] bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)]'
 
   return (
     <div
       onClick={onClick}
       title={title}
       className={cn(
-        'w-full break-inside-avoid rounded-[10px] border bg-[var(--color-surface-elevated)] text-left transition-[background-color,border-color,box-shadow]',
-        onClick ? 'cursor-pointer hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-sunken)]' : 'cursor-default',
+        'w-full break-inside-avoid rounded-[14px] border text-left transition-[background-color,border-color,box-shadow]',
+        onClick ? 'cursor-pointer hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-control)]' : 'cursor-default',
       )}
       style={{
-        padding: cardSpacingTokens.cardPadding,
-        borderColor: isSelected ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
-        boxShadow: isSelected ? '0 0 0 1px var(--color-accent-selected), 0 0 10px var(--color-action-focus)' : 'none',
+        padding: '14px 16px',
+        backgroundColor: isSelected ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-elevated)',
+        borderColor: isSelected ? 'rgba(242, 203, 99, 0.16)' : 'var(--color-border-subtle)',
+        boxShadow: 'none',
         transition: CARD_TRANSITION,
       }}
     >
       {/* 1. Metadata row — type icon + label + optional metadata string + tags */}
-      <div className="mb-3 flex flex-wrap items-center gap-0.5 text-[var(--color-text-disabled)]">
+      <div className={cn('mb-2.5 flex flex-wrap items-center gap-1.5', metaToneClass)}>
         {/* Type badge */}
-        <div className="flex shrink-0 items-center gap-0.5 text-inherit">
+        <div className="flex shrink-0 items-center gap-1 text-inherit">
           <TypeIcon type={card.type} />
-          <span className="text-[11px] uppercase" style={{ color: 'inherit' }}>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'inherit' }}>
             {typeLabel}
           </span>
         </div>
@@ -234,7 +244,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <Badge
             key={tag}
             variant="outline"
-            className="h-4 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-1.5 text-[9px] text-[var(--color-text-secondary)]"
+            className={cn('h-5 rounded-[8px] px-2 text-[10px] font-medium', chipClassName)}
           >
             {tag}
           </Badge>
@@ -242,18 +252,17 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         {tags.length > 3 && (
           <Badge
             variant="outline"
-            className="h-4 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-1.5 text-[9px] text-[var(--color-text-secondary)]"
+            className={cn('h-5 rounded-[8px] px-2 text-[10px] font-medium', chipClassName)}
           >
             +{tags.length - 3}
           </Badge>
         )}
       </div>
 
-      <div className={cn('flex items-start', card.weekdayLabel ? 'flex-col gap-1' : 'flex-col')} style={{ marginBottom: card.snippet || card.mediaUrl ? '0.75rem' : 0 }}>
+      <div className={cn('flex items-start', card.weekdayLabel ? 'flex-col gap-1' : 'flex-col')} style={{ marginBottom: card.snippet || card.mediaUrl ? '0.7rem' : 0 }}>
         {card.weekdayLabel && (
           <span
-            className="text-[10px] font-bold uppercase tracking-[0.08em]"
-            style={{ color: 'var(--color-accent-metadata)' }}
+            className={cn('text-[10px] font-bold uppercase tracking-[0.08em]', 'text-[var(--color-accent-metadata)]')}
           >
             {card.weekdayLabel}
           </span>
@@ -261,7 +270,13 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
         {/* 2. Title / date — large, prominent */}
         <span
-          className={cn('w-full break-words text-[var(--color-text-primary)]', card.type === 'daily-note' ? 'text-[20px] font-bold' : 'text-[19px] font-semibold')}
+          className={cn('w-full break-words leading-[1.25]', contentToneClass, card.type === 'daily-note' ? 'text-[19px] font-semibold' : 'text-[17px] font-semibold')}
+          style={{
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: card.type === 'daily-note' ? 2 : 3,
+            overflow: 'hidden',
+          }}
         >
           {card.title || '(untitled)'}
         </span>
@@ -270,7 +285,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <div
-          className="block max-h-[5.6em] overflow-hidden break-words text-sm leading-5 text-[var(--color-text-secondary)]"
+          className={cn('block break-words text-[13px] leading-5 text-[var(--color-text-secondary)]')}
           style={{ marginBottom: card.mediaUrl ? '0.25rem' : 0 }}
         >
           <MarkdownSnippet text={card.snippet} />

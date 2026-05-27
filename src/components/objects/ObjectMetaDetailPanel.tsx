@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react'
-import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
+import { Box, Paper, Stack, Typography } from '@mui/material'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { formatDatePretty } from '../../lib/dateUtils'
+import { Button } from '../ui/button'
 
 interface ObjectMetaDetailPanelProps {
   object?: Record<string, unknown>
@@ -61,19 +62,19 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
   return (
     <Paper
       sx={{
-        p: 3,
-        bgcolor: 'surface.elevated',
+        p: flatTop ? 0 : 3,
+        bgcolor: flatTop ? 'transparent' : 'surface.elevated',
         border: flatTop ? 'none' : '1px solid',
         borderColor: 'border.subtle',
         borderTopLeftRadius: flatTop ? 0 : undefined,
         borderTopRightRadius: flatTop ? 0 : undefined,
         flex: 1,
         minHeight: 0,
-        overflow: 'auto',
+        overflow: 'hidden',
       }}
     >
-      <Stack spacing={2}>
-        <Box>
+      <Stack spacing={0} sx={{ minHeight: 0, height: '100%' }}>
+        <Box sx={{ px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2.5, flexShrink: 0 }}>
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
             {header}
           </Typography>
@@ -96,11 +97,11 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           )}
         </Box>
 
-        <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2 }}>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+        <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 3 : 0, minHeight: 0, flex: 1, overflow: 'auto' }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 1.25 }}>
             {type === 'scripture' ? 'Linked Notes' : 'Tagged Objects'}
           </Typography>
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+          <Stack spacing={1}>
             {relations.length === 0 ? (
               <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
                 None
@@ -110,25 +111,28 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
                 const target = toTarget(row)
                 const label = relationLabel(row)
                 const date = String(row.date ?? '').trim()
-                const chipLabel = date && row.type === 'daily-note' ? formatDatePretty(date) : label
+                const primaryLabel = date && row.type === 'daily-note' ? formatDatePretty(date) : label
+                const secondaryLabel = String(row.type ?? '').trim().replace(/-/g, ' ')
                 return (
-                  <Chip
+                  <Button
                     key={`${String(row.type)}:${String(row.id)}`}
-                    label={chipLabel}
-                    size="small"
-                    clickable={Boolean(target && onNavigateToObject)}
                     onClick={(event) => {
                       if (!target || !onNavigateToObject) return
                       void onNavigateToObject(target, { forceNewTab: event.metaKey || event.ctrlKey })
                     }}
-                    sx={{
-                      bgcolor: 'action.selected',
-                      border: '1px solid',
-                      borderColor: 'accent.selected',
-                      color: 'text.secondary',
-                      height: 22,
-                    }}
-                  />
+                    disabled={Boolean(!target || !onNavigateToObject)}
+                    variant="ghost"
+                    className="h-auto w-full justify-start rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-2 text-left"
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                      <span className="truncate text-sm font-medium text-[var(--color-text-primary)]">
+                        {primaryLabel}
+                      </span>
+                      <span className="truncate text-[11px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                        {secondaryLabel || 'object'}
+                      </span>
+                    </span>
+                  </Button>
                 )
               })
             )}

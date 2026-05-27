@@ -2,25 +2,43 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  --background: 36 9% 97%;
+  --foreground: 24 18% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  --card-foreground: 24 18% 11%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 199 89% 48%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
+  --popover-foreground: 24 18% 11%;
+  --primary: 44 72% 50%;
+  --primary-foreground: 24 22% 12%;
+  --secondary: 36 14% 91%;
+  --secondary-foreground: 24 18% 14%;
+  --muted: 36 14% 91%;
+  --muted-foreground: 28 11% 42%;
+  --accent: 38 19% 89%;
+  --accent-foreground: 24 18% 14%;
   --destructive: 0 72% 51%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 199 89% 48%;
-  --radius: 0.5rem;
+  --border: 36 16% 84%;
+  --input: 36 16% 84%;
+  --ring: 44 78% 52%;
+  --radius: 0.875rem;
+  --surface-app: #0b0b0c;
+  --surface-elevated: #1a1a1c;
+  --surface-sunken: #121214;
+  --surface-control: #1d1d21;
+  --surface-hover: rgba(255, 255, 255, 0.035);
+  --surface-active: rgba(255, 255, 255, 0.085);
+  --selected-fill: #9a7a2a;
+  --selected-fill-soft: rgba(154, 122, 42, 0.16);
+  --border-subtle-raw: rgba(241, 234, 220, 0.075);
+  --border-strong-raw: rgba(241, 234, 220, 0.13);
+  --text-primary-raw: #f3efe7;
+  --text-secondary-raw: #beb6a8;
+  --text-tertiary-raw: #8d8678;
+  --text-inverse-raw: #221b0d;
+  --accent-link-raw: #f2cb63;
+  --accent-metadata-raw: #ddb550;
+  --success-main-raw: #87b487;
+  --focus-ring-raw: rgba(242, 203, 99, 0.42);
   font-family: Inter, -apple-system, BlinkMacSystemFont, system-ui, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -31,24 +49,24 @@
 }
 
 .dark {
-  --background: 216 7% 11%;
-  --foreground: 210 40% 96%;
-  --card: 220 8% 14%;
-  --card-foreground: 210 40% 96%;
-  --popover: 220 8% 14%;
-  --popover-foreground: 210 40% 96%;
-  --primary: 199 89% 56%;
-  --primary-foreground: 216 7% 11%;
-  --secondary: 220 8% 17%;
-  --secondary-foreground: 210 40% 96%;
-  --muted: 220 8% 17%;
-  --muted-foreground: 215 16% 70%;
-  --accent: 220 8% 17%;
-  --accent-foreground: 210 40% 96%;
+  --background: 30 10% 5%;
+  --foreground: 38 24% 93%;
+  --card: 30 6% 10%;
+  --card-foreground: 38 24% 93%;
+  --popover: 30 6% 11%;
+  --popover-foreground: 38 24% 93%;
+  --primary: 44 70% 58%;
+  --primary-foreground: 28 22% 12%;
+  --secondary: 30 6% 14%;
+  --secondary-foreground: 38 20% 89%;
+  --muted: 30 6% 14%;
+  --muted-foreground: 34 10% 64%;
+  --accent: 30 6% 16%;
+  --accent-foreground: 38 24% 93%;
   --destructive: 0 72% 58%;
-  --border: 220 10% 22%;
-  --input: 220 10% 22%;
-  --ring: 199 89% 56%;
+  --border: 30 7% 21%;
+  --input: 30 7% 21%;
+  --ring: 44 76% 60%;
 }
 
 @theme inline {
@@ -70,6 +88,26 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-surface-app: var(--surface-app);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-control: var(--surface-control);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-selected-fill: var(--selected-fill);
+  --color-selected-fill-soft: var(--selected-fill-soft);
+  --color-border-subtle: var(--border-subtle-raw);
+  --color-border-strong: var(--border-strong-raw);
+  --color-text-primary: var(--text-primary-raw);
+  --color-text-secondary: var(--text-secondary-raw);
+  --color-text-disabled: var(--text-tertiary-raw);
+  --color-text-inverse: var(--text-inverse-raw);
+  --color-accent-link: var(--accent-link-raw);
+  --color-accent-selected: var(--selected-fill);
+  --color-accent-metadata: var(--accent-metadata-raw);
+  --color-action-hover: var(--surface-hover);
+  --color-action-focus: var(--focus-ring-raw);
+  --color-success-main: var(--success-main-raw);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -84,7 +122,9 @@
 }
 
 body {
-  background: hsl(var(--background));
+  background:
+    radial-gradient(circle at top, rgba(242, 203, 99, 0.08), transparent 26%),
+    linear-gradient(180deg, #0e0e10 0%, #080809 100%);
   color: hsl(var(--foreground));
   margin: 0;
   min-width: 320px;
@@ -94,6 +134,34 @@ body {
 #root {
   height: 100vh;
   overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.ui-shell-panel {
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-surface-elevated) 96%, transparent);
+  border-radius: 22px;
+}
+
+.ui-toolbar-panel {
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+}
+
+.ui-pane-divider {
+  border-color: var(--color-border-subtle);
+}
+
+.ui-scroller {
+  scrollbar-gutter: stable;
 }
 
 
@@ -108,7 +176,7 @@ body {
   min-height: 200px;
   font-size: 15px;
   line-height: 1.7;
-  color: #eceff3;
+  color: var(--color-text-primary);
   padding: 0.1rem 0;
 }
 
@@ -155,7 +223,7 @@ body {
   font-weight: 700;
   margin-top: 1.4em;
   margin-bottom: 0.4em;
-  color: #f8fbff;
+  color: var(--color-text-primary);
 }
 
 .ProseMirror h2 {
@@ -163,7 +231,7 @@ body {
   font-weight: 600;
   margin-top: 1.2em;
   margin-bottom: 0.3em;
-  color: #f0f6fc;
+  color: var(--color-text-primary);
 }
 
 .ProseMirror h3 {
@@ -171,7 +239,7 @@ body {
   font-weight: 600;
   margin-top: 1em;
   margin-bottom: 0.3em;
-  color: #ebf3fb;
+  color: var(--color-text-primary);
 }
 
 .ProseMirror ul,
@@ -192,8 +260,8 @@ body {
 }
 
 .ProseMirror blockquote {
-  border-left: 3px solid rgba(255, 255, 255, 0.22);
-  color: #b8bec8;
+  border-left: 3px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
   padding-left: 0.95rem;
   margin-left: 0;
 }
@@ -205,7 +273,7 @@ body {
   border-left-color: var(--admonition-accent, rgba(255, 255, 255, 0.32));
   background: var(--admonition-bg, rgba(255, 255, 255, 0.05));
   border-radius: 12px;
-  color: #eceff3;
+  color: var(--color-text-primary);
   padding: 1.5rem 1rem 0.9rem;
 }
 
@@ -213,7 +281,7 @@ body {
   content: attr(data-admonition-label);
   display: block;
   margin-bottom: 0.55rem;
-  color: var(--admonition-accent, #b8bec8);
+  color: var(--admonition-accent, var(--color-text-secondary));
   font-size: 0.78em;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -221,8 +289,8 @@ body {
 }
 
 .ProseMirror blockquote[data-admonition-type='note'] {
-  --admonition-accent: #4f8fed;
-  --admonition-bg: rgba(79, 143, 237, 0.12);
+  --admonition-accent: #ddb550;
+  --admonition-bg: rgba(221, 181, 80, 0.12);
 }
 
 .ProseMirror blockquote[data-admonition-type='tip'] {
@@ -251,18 +319,18 @@ body {
 }
 
 .ProseMirror pre {
-  background: #171a1f;
-  border: 1px solid rgba(255,255,255,0.09);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 10px;
-  color: #d4dae4;
+  color: var(--color-text-primary);
   padding: 0.9rem 1rem;
   overflow-x: auto;
 }
 
 .ProseMirror code {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--color-surface-hover);
   border-radius: 6px;
-  color: #d0d6e0;
+  color: var(--color-accent-link);
   font-size: 0.92em;
   padding: 0.12rem 0.34rem;
 }
@@ -275,12 +343,12 @@ body {
 
 .ProseMirror hr {
   border: none;
-  border-top: 1px solid rgba(255,255,255,0.09);
+  border-top: 1px solid var(--color-border-subtle);
   margin: 1.2rem 0;
 }
 
 .ProseMirror a {
-  color: #7dcfaa;
+  color: var(--color-accent-link);
   text-decoration: underline;
   text-underline-offset: 0.16em;
 }
@@ -305,7 +373,7 @@ body {
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
-  color: #adb5bd;
+  color: var(--color-text-disabled);
   content: attr(data-placeholder);
   float: left;
   height: 0;
@@ -313,10 +381,10 @@ body {
 }
 
 .ProseMirror .mention {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
+  background-color: var(--color-selected-fill-soft);
+  border-radius: 8px;
   padding: 1px 4px;
-  color: #d2d8e3;
+  color: var(--color-text-primary);
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
@@ -329,14 +397,26 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1b1d20;
+  background: var(--color-surface-sunken);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.09);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

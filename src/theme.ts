@@ -62,23 +62,23 @@ declare module '@mui/material/Typography' {
 
 export const neutralDarkTokens = {
   surface: {
-    app: '#1b1d20',
-    elevated: '#1e2024',
-    sunken: '#20242a',
+    app: '#0b0b0c',
+    elevated: '#171719',
+    sunken: '#121214',
   },
   border: {
-    subtle: alpha('#ffffff', 0.08),
-    strong: alpha('#ffffff', 0.13),
+    subtle: alpha('#f1eadc', 0.09),
+    strong: alpha('#f1eadc', 0.16),
   },
   text: {
-    primary: '#eceff3',
-    secondary: '#b8bec8',
-    muted: '#9198a3',
+    primary: '#f3efe7',
+    secondary: '#beb6a8',
+    muted: '#8d8678',
   },
   accent: {
-    link: '#66a8ff',
-    selected: '#4f8fed',
-    metadata: '#d96b77',
+    link: '#f2cb63',
+    selected: '#ad8a2f',
+    metadata: '#ddb550',
   },
 } as const
 
@@ -91,13 +91,13 @@ export const cardTypographyTokens = {
     color: neutralDarkTokens.text.muted,
   },
   'card-title': {
-    fontSize: '19px',
-    fontWeight: 700,
+    fontSize: '18px',
+    fontWeight: 650,
     lineHeight: 1.3,
   },
   'card-date': {
-    fontSize: '19px',
-    fontWeight: 700,
+    fontSize: '18px',
+    fontWeight: 650,
     lineHeight: 1.3,
   },
   'snippet-body': {
@@ -140,9 +140,9 @@ export const appTheme = createTheme({
       main: neutralDarkTokens.accent.metadata,
     },
     action: {
-      selected: alpha(neutralDarkTokens.accent.selected, 0.18),
-      hover: alpha('#ffffff', 0.04),
-      focus: alpha(neutralDarkTokens.accent.selected, 0.24),
+      selected: alpha(neutralDarkTokens.accent.selected, 0.22),
+      hover: alpha('#ffffff', 0.045),
+      focus: alpha(neutralDarkTokens.accent.selected, 0.28),
     },
     surface: {
       app: neutralDarkTokens.surface.app,
@@ -168,6 +168,22 @@ export const appTheme = createTheme({
         ':root': {
           '--focus-ring-color': theme.palette.accent.selected,
           '--focus-ring-shadow': alpha(theme.palette.accent.selected, 0.34),
+          '--color-surface-app': theme.palette.surface.app,
+          '--color-surface-elevated': theme.palette.surface.elevated,
+          '--color-surface-sunken': theme.palette.surface.sunken,
+          '--color-border-subtle': theme.palette.border.subtle,
+          '--color-border-strong': theme.palette.border.strong,
+          '--color-text-primary': theme.palette.text.primary,
+          '--color-text-secondary': theme.palette.text.secondary,
+          '--color-text-disabled': theme.palette.text.disabled,
+          '--color-accent-link': theme.palette.accent.link,
+          '--color-accent-selected': theme.palette.accent.selected,
+          '--color-accent-metadata': theme.palette.accent.metadata,
+          '--color-action-hover': theme.palette.action.hover,
+          '--color-action-focus': theme.palette.action.focus,
+          '--color-selected-fill': theme.palette.accent.selected,
+          '--color-selected-fill-soft': alpha(theme.palette.accent.selected, 0.2),
+          '--color-success-main': '#87b487',
         },
         body: {
           backgroundColor: theme.palette.surface.app,
@@ -197,6 +213,7 @@ export const appTheme = createTheme({
           backgroundImage: 'none',
           backgroundColor: theme.palette.surface.elevated,
           border: `1px solid ${theme.palette.border.subtle}`,
+          borderRadius: 22,
         }),
       },
     },

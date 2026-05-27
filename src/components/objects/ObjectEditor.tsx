@@ -8,7 +8,7 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import { Pencil, Plus, Save } from 'lucide-react';
+import { Plus, Save } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
@@ -151,7 +151,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [content, setContent] = useState('');
   const [noteBlocks, setNoteBlocks] = useState<NoteBlock[]>([]);
   const [tags, setTags] = useState<string[]>([]);
-  const [isTitleEditing, setIsTitleEditing] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -200,7 +199,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setTags(nextTags);
     setSaveError(null);
     setIsDirty(false);
-    setIsTitleEditing(false);
     setPendingNavigation(null);
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
@@ -561,7 +559,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           variant="ghost"
           size="icon"
           onClick={() => setShowTagDialog(true)}
-          className="h-6 w-6 text-slate-400 hover:text-slate-100"
+          className="h-6 w-6 text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
           aria-label="Add tag"
         >
           <Plus className="h-4 w-4" />
@@ -581,9 +579,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             onDelete={() => handleRemoveTag(tag)}
             size="small"
             sx={{
-              bgcolor: 'action.selected',
+              bgcolor: 'surface.control',
               border: '1px solid',
-              borderColor: 'accent.selected',
+              borderColor: 'border.subtle',
               color: 'text.secondary',
               height: 22,
               '& .MuiChip-deleteIcon': { fontSize: 14, color: 'text.secondary' },
@@ -593,21 +591,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       </Stack>
     </>
   );
-
-  const handleSaveTitleEdit = async () => {
-    try {
-      const saved = await persistCurrentObject();
-      onSave?.(saved);
-      setIsTitleEditing(false);
-    } catch {
-      // persistCurrentObject already sets saveError
-    }
-  };
-
-  const handleCancelTitleEdit = () => {
-    setTitle(initialRef.current.title);
-    setIsTitleEditing(false);
-  };
 
   const relationshipsSection = (
     <Stack spacing={1.5} sx={{ mb: 2 }}>
@@ -629,9 +612,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
                 sx={{
-                  bgcolor: 'action.selected',
+                  bgcolor: 'surface.control',
                   border: '1px solid',
-                  borderColor: 'accent.selected',
+                  borderColor: 'border.subtle',
                   color: 'text.secondary',
                   height: 22,
                 }}
@@ -658,10 +641,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
                 sx={{
-                  bgcolor: 'success.dark',
+                  bgcolor: 'surface.control',
                   border: '1px solid',
-                  borderColor: 'success.main',
-                  color: 'success.light',
+                  borderColor: 'border.subtle',
+                  color: 'text.secondary',
                   height: 22,
                 }}
               />
@@ -675,8 +658,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   return (
     <Paper
       sx={{
-        p: 3,
-        bgcolor: 'surface.elevated',
+        p: flatTop ? 0 : 3,
+        bgcolor: flatTop ? 'transparent' : 'surface.elevated',
         border: flatTop ? 'none' : '1px solid',
         borderColor: 'border.subtle',
         borderTopLeftRadius: flatTop ? 0 : undefined,
@@ -690,69 +673,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     >
       <Stack sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 0, overflow: isFileObject ? 'visible' : 'hidden' }}>
         {isFileObject ? (
-          <Stack sx={{ flex: 1, minHeight: 0, gap: 2, overflow: 'visible' }}>
-            <Box sx={{ flexShrink: 0 }}>
-              {isTitleEditing ? (
-                <Stack
-                  direction="column"
-                  spacing={1}
-                  sx={{ mb: 1.5 }}
-                >
-                  <div className="space-y-1">
-                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
-                      {type === 'project' ? 'Project name' : 'Reference name'}
-                    </label>
-                    <Input
-                      value={title}
-                      onChange={(event) => setTitle(event.target.value)}
-                      placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
-                    />
-                  </div>
-                  <Stack direction="row" spacing={1}>
-                    <Button size="sm" onClick={() => { void handleSaveTitleEdit(); }} disabled={saving || !title.trim()}>
-                      Save
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={handleCancelTitleEdit} disabled={saving}>
-                      Cancel
-                    </Button>
-                  </Stack>
-                </Stack>
-              ) : (
-                <Box
-                  sx={{
-                    position: 'relative',
-                    mb: 1.5,
-                    '&:hover .title-edit-button': { opacity: 1 },
-                    '&:hover .title-display': { pl: 3.5 },
-                    '&:focus-within .title-display': { pl: 3.5 },
-                  }}
-                >
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="title-edit-button h-7 w-7 text-slate-400 hover:text-slate-100"
-                    onClick={() => setIsTitleEditing(true)}
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: -1,
-                      opacity: 0,
-                      transition: 'opacity 120ms ease',
-                    }}
-                    aria-label={`Edit ${type === 'project' ? 'project' : 'reference'} title`}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Typography
-                    className="title-display"
-                    variant="h4"
-                    sx={{ pl: 0, transition: 'padding-left 120ms ease', fontSize: '1.8rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}
-                  >
-                    {title.trim() || (type === 'project' ? 'Untitled Project' : 'Untitled Reference Material')}
-                  </Typography>
-                </Box>
-              )}
+          <Stack sx={{ flex: 1, minHeight: 0, gap: 0, overflow: 'hidden' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
+              <div className="mb-6 space-y-1">
+                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                  {type === 'project' ? 'Project name' : 'Reference name'}
+                </label>
+                <Input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
+                  className="h-11 text-base font-semibold"
+                />
+              </div>
 
               {tagsEditor}
 
@@ -772,7 +705,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
               {type === 'ref-material' && (
                 <div className="mt-7 space-y-1">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
                   <Input
@@ -782,125 +715,151 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   />
                 </div>
               )}
+
+              <Box sx={{ mt: 3, minHeight: 280, overflow: 'hidden' }}>
+                <ObjectDirectoryBrowser object={object} type={type} embedded />
+              </Box>
+
+              <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2.5, mt: 3, flexShrink: 0 }}>
+                {relationshipsSection}
+              </Box>
             </Box>
 
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              <ObjectDirectoryBrowser object={object} type={type} embedded />
-            </Box>
-
-            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2, flexShrink: 0 }}>
-              {relationshipsSection}
+            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 2.5 : 0, flexShrink: 0, backgroundColor: flatTop ? 'surface.sunken' : 'transparent' }}>
+              <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+                {saveError && (
+                  <Alert severity="error" sx={{ flex: 1, py: 0.25, fontSize: '12px' }}>
+                    {saveError}
+                  </Alert>
+                )}
+                {onCancel && (
+                  <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  onClick={handleSave}
+                  disabled={saving}
+                  size="sm"
+                >
+                  {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </Stack>
             </Box>
           </Stack>
         ) : (
           <>
-            {/* ── TOP: Title and Date (always first) ── */}
-            <Box sx={{ mb: 2, flexShrink: 0 }}>
-              {type === 'daily-note' && (
-                <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', mb: 1 }}>
-                  {date ? `Daily Note — ${formatDatePretty(date)}` : 'Daily Note'}
-                </Typography>
-              )}
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
+              {/* ── TOP: Title and Date (always first) ── */}
+              <Box sx={{ mb: 2.5, flexShrink: 0 }}>
+                {type === 'daily-note' && date && (
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                    {formatDatePretty(date)}
+                  </Typography>
+                )}
 
-              {showTitle && (
-                <div className="mb-6 space-y-1">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
-                    {type === 'topic-note' ? 'Title' : 'Name'}
-                  </label>
-                  <Input
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
-                    className="h-11 text-base font-semibold"
-                  />
-                </div>
-              )}
-
-              {isNoteType && !isHabit && (
-                <Box sx={{ mb: 1.5 }}>
-                  {tagsEditor}
-                </Box>
-              )}
-
-              {isHabit && (
-                <Box sx={{ mb: 1.5 }}>
-                  {tagsEditor}
-                </Box>
-              )}
-
-              {showDate && (
-                <Box sx={{ mb: 1.5 }}>
-                  <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
-                    <DatePicker
-                      label="Date"
-                      value={date}
-                      onChange={setDate}
-                      helperText={!date && isOptionalDate ? 'No date set' : undefined}
-                      allowClear={isOptionalDate}
+                {showTitle && (
+                  <div className="mb-6 space-y-1">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                      {type === 'topic-note' ? 'Title' : 'Name'}
+                    </label>
+                    <Input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
+                      className="h-11 text-base font-semibold"
                     />
+                  </div>
+                )}
+
+                {isNoteType && !isHabit && (
+                  <Box sx={{ mb: 1.5 }}>
+                    {tagsEditor}
                   </Box>
+                )}
+
+                {isHabit && (
+                  <Box sx={{ mb: 1.5 }}>
+                    {tagsEditor}
+                  </Box>
+                )}
+
+                {showDate && (
+                  <Box sx={{ mb: 1.5 }}>
+                    <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
+                      <DatePicker
+                        label="Date"
+                        value={date}
+                        onChange={setDate}
+                        helperText={!date && isOptionalDate ? 'No date set' : undefined}
+                        allowClear={isOptionalDate}
+                      />
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+
+              {/* ── MIDDLE: Main content (fills remaining space) ── */}
+              {showContent && (
+                <Box sx={{ minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
+                  <RichMarkdownEditor
+                    label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
+                    value={content}
+                    onChange={setContent}
+                    placeholder={
+                      isNoteType
+                        ? 'Write your note… type @ to link another object'
+                        : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
+                    }
+                    mentionEnabled={isNoteType}
+                    resolveMentionHref={resolveMentionHref}
+                    blocks={isNoteType ? noteBlocks : undefined}
+                    onBlocksChange={isNoteType ? setNoteBlocks : undefined}
+                    maxLength={type === 'habit' ? 255 : undefined}
+                    onShiftClickLink={handleShiftClickLink}
+                  />
                 </Box>
               )}
+
+              {/* ── BOTTOM: Relationships + Tags ── */}
+              <Box
+                sx={{
+                  borderTop: '1px solid',
+                  borderColor: 'border.subtle',
+                  pt: 2.5,
+                  flexShrink: 0,
+                  minHeight: 0,
+                }}
+              >
+                {isNoteType && relationshipsSection}
+              </Box>
             </Box>
 
-            {/* ── MIDDLE: Main content (fills remaining space) ── */}
-            {showContent && (
-              <Box sx={{ flex: 1, minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
-                <RichMarkdownEditor
-                  label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
-                  value={content}
-                  onChange={setContent}
-                  placeholder={
-                    isNoteType
-                      ? 'Write your note… type @ to link another object'
-                      : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
-                  }
-                  mentionEnabled={isNoteType}
-                  resolveMentionHref={resolveMentionHref}
-                  blocks={isNoteType ? noteBlocks : undefined}
-                  onBlocksChange={isNoteType ? setNoteBlocks : undefined}
-                  maxLength={type === 'habit' ? 255 : undefined}
-                  onShiftClickLink={handleShiftClickLink}
-                />
-              </Box>
-            )}
-
-            {/* ── BOTTOM: Relationships + Tags ── */}
-            <Box
-              sx={{
-                borderTop: '1px solid',
-                borderColor: 'border.subtle',
-                pt: 2,
-                flexShrink: 0,
-                minHeight: 0,
-              }}
-            >
-              {isNoteType && relationshipsSection}
+            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 2.5 : 0, flexShrink: 0, backgroundColor: flatTop ? 'surface.sunken' : 'transparent' }}>
+              <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+                {saveError && (
+                  <Alert severity="error" sx={{ flex: 1, py: 0.25, fontSize: '12px' }}>
+                    {saveError}
+                  </Alert>
+                )}
+                {onCancel && (
+                  <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  onClick={handleSave}
+                  disabled={saving}
+                  size="sm"
+                >
+                  {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </Stack>
             </Box>
           </>
         )}
-
-        {/* ── Action buttons ── */}
-        <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2, flexShrink: 0 }}>
-          {saveError && (
-            <Alert severity="error" sx={{ flex: 1, py: 0.25, fontSize: '12px' }}>
-              {saveError}
-            </Alert>
-          )}
-          {onCancel && (
-            <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
-              Cancel
-            </Button>
-          )}
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            size="sm"
-          >
-            {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-        </Stack>
       </Stack>
 
       {/* Tag dialog */}
@@ -914,7 +873,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1">
-              <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+              <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                 Tag name
               </label>
               <Input

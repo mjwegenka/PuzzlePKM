@@ -48,7 +48,7 @@ function fileIconForName(name: string): React.ReactNode {
     return <PictureAsPdfIcon {...iconProps} sx={{ ...iconProps.sx, color: 'error.main' }} />
   }
   if (['md', 'txt', 'rtf'].includes(ext)) {
-    return <DescriptionIcon {...iconProps} sx={{ ...iconProps.sx, color: 'info.main' }} />
+    return <DescriptionIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
   }
   if (['csv', 'tsv', 'xls', 'xlsx', 'numbers'].includes(ext)) {
     return <TableChartIcon {...iconProps} sx={{ ...iconProps.sx, color: 'success.main' }} />
@@ -57,10 +57,10 @@ function fileIconForName(name: string): React.ReactNode {
     return <SlideshowIcon {...iconProps} sx={{ ...iconProps.sx, color: 'warning.main' }} />
   }
   if (['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm'].includes(ext)) {
-    return <MovieIcon {...iconProps} sx={{ ...iconProps.sx, color: 'secondary.main' }} />
+    return <MovieIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
   }
   if (['mp3', 'wav', 'm4a', 'aac', 'flac'].includes(ext)) {
-    return <AudioFileIcon {...iconProps} sx={{ ...iconProps.sx, color: 'secondary.main' }} />
+    return <AudioFileIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
   }
   if (['zip', 'tar', 'gz', 'tgz', 'bz2', 'xz', '7z'].includes(ext)) {
     return <ArchiveIcon {...iconProps} sx={{ ...iconProps.sx, color: 'warning.main' }} />
@@ -134,7 +134,7 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
       sx={{
         mt: embedded ? 0 : 1.5,
         p: embedded ? 0 : 1.25,
-        bgcolor: 'surface.elevated',
+        bgcolor: embedded ? 'transparent' : 'surface.elevated',
         border: embedded ? 'none' : type === 'project' ? 'none' : '1px solid',
         borderColor: 'border.subtle',
         borderRadius: embedded ? 0 : type === 'project' ? 0 : undefined,
@@ -143,17 +143,17 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
         flexDirection: 'column',
       }}
     >
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.25 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, fontSize: '10px' }}>
           {title}
         </Typography>
-        <IconButton size="small" onClick={() => void load()} sx={{ color: 'text.secondary' }}>
+        <IconButton size="small" onClick={() => void load()} sx={{ color: 'text.secondary', border: '1px solid', borderColor: 'border.subtle', borderRadius: '10px', width: 30, height: 30 }}>
           <RefreshIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Stack>
 
       {directoryPath && (
-        <Typography variant="caption" sx={{ color: 'text.disabled', mb: 1, wordBreak: 'break-all' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', mb: 1.5, display: 'block', wordBreak: 'break-all', lineHeight: 1.45 }}>
           {directoryPath}
         </Typography>
       )}
@@ -165,9 +165,11 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
           <CircularProgress size={18} />
         </Box>
       ) : entries.length === 0 ? (
-        <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
-          No files found.
-        </Typography>
+        <Box sx={{ border: '1px dashed', borderColor: 'border.subtle', borderRadius: '14px', px: 2, py: 2.5, bgcolor: 'surface.sunken' }}>
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+            No files found.
+          </Typography>
+        </Box>
       ) : (
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <List dense disablePadding>
@@ -175,16 +177,32 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
               <ListItemButton
                 key={`${entry.kind}:${entry.name}`}
                 onClick={() => void handleOpenEntry(entry)}
-                sx={{ borderRadius: 1, mb: 0.25 }}
+                sx={{
+                  borderRadius: '12px',
+                  mb: 0.5,
+                  px: 1.25,
+                  py: 0.85,
+                  border: '1px solid',
+                  borderColor: 'transparent',
+                  bgcolor: 'surface.control',
+                  '&:hover': {
+                    bgcolor: 'action.hover',
+                    borderColor: 'border.subtle',
+                  },
+                }}
               >
                 {entry.kind === 'dir'
                   ? <FolderIcon sx={{ fontSize: 15, color: 'warning.main', mr: 1 }} />
                   : fileIconForName(entry.name)}
                 <ListItemText
                   primary={entry.name}
+                  secondary={entry.kind === 'dir' ? 'Folder' : 'Open in default app'}
                   slotProps={{
                     primary: {
-                      sx: { color: 'text.primary', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                      sx: { color: 'text.primary', fontSize: '13px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                    },
+                    secondary: {
+                      sx: { color: 'text.disabled', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                     },
                   }}
                 />

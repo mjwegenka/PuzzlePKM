@@ -109,8 +109,8 @@ export default function CalendarView({ onDateSelect, selectedDate, noteDates = [
               variant={isSelected(day) ? 'secondary' : 'ghost'}
               className="relative aspect-square min-w-0 p-0 text-[var(--color-text-primary)]"
               style={{
-                backgroundColor: isToday(day) ? 'rgba(56, 189, 248, 0.12)' : undefined,
-                borderColor: isToday(day) ? 'var(--color-accent-selected)' : undefined,
+                backgroundColor: isToday(day) ? 'var(--color-selected-fill-soft)' : undefined,
+                borderColor: isToday(day) ? 'rgba(242, 203, 99, 0.18)' : undefined,
                 fontWeight: isToday(day) ? 700 : 400,
               }}
             >
