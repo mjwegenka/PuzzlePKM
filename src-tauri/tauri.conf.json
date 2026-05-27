@@ -30,7 +30,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "../cli.mjs"
+      "../cli.mjs",
+      "../cli"
     ],
     "icon": [
       "../public/icons/icon-32.png",

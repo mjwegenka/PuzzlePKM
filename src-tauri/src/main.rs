@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
+use std::io::ErrorKind;
 use tauri::Manager;
 use tauri::path::BaseDirectory;
 
@@ -13,20 +14,46 @@ struct CliRunResult {
 }
 
 fn resolve_cli_path(app: &tauri::AppHandle) -> PathBuf {
-    let bundled_path = app
-        .path()
-        .resolve("cli.mjs", BaseDirectory::Resource)
-        .ok();
-
-    if let Some(path) = bundled_path {
-        if path.exists() {
-            return path;
+    for candidate in ["cli.mjs", "_up_/cli.mjs"] {
+        if let Ok(path) = app.path().resolve(candidate, BaseDirectory::Resource) {
+            if path.exists() {
+                return path;
+            }
         }
     }
 
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("cli.mjs")
+}
+
+fn resolve_node_candidates() -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+
+    for env_var in ["PUZZLEPKM_NODE_PATH", "NODE_BINARY"] {
+        if let Ok(value) = std::env::var(env_var) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                candidates.push(trimmed.to_string());
+            }
+        }
+    }
+
+    candidates.push("node".to_string());
+
+    // macOS GUI apps launched from Finder commonly miss shell PATH entries.
+    candidates.push("/opt/homebrew/bin/node".to_string());
+    candidates.push("/usr/local/bin/node".to_string());
+    candidates.push("/opt/local/bin/node".to_string());
+
+    let mut deduped: Vec<String> = Vec::new();
+    for candidate in candidates {
+        if !deduped.contains(&candidate) {
+            deduped.push(candidate);
+        }
+    }
+
+    deduped
 }
 
 #[tauri::command]
@@ -44,17 +71,33 @@ fn run_puzzlepkm_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunR
         return Err(format!("Could not find cli.mjs at {}", cli_path.display()));
     }
 
-    let output = Command::new("node")
-        .arg(cli_path)
-        .args(args)
-        .output()
-        .map_err(|error| format!("Failed to execute Node CLI: {error}"))?;
+    let mut last_not_found_error: Option<String> = None;
 
-    Ok(CliRunResult {
-        exit_code: output.status.code().unwrap_or(1),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
+    for node_binary in resolve_node_candidates() {
+        match Command::new(&node_binary).arg(&cli_path).args(&args).output() {
+            Ok(output) => {
+                return Ok(CliRunResult {
+                    exit_code: output.status.code().unwrap_or(1),
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                });
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                last_not_found_error = Some(format!("{node_binary}: {error}"));
+                continue;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to execute Node CLI via `{node_binary}`: {error}"
+                ));
+            }
+        }
+    }
+
+    let details = last_not_found_error.unwrap_or_else(|| "no candidate binaries were attempted".to_string());
+    return Err(format!(
+        "Failed to execute Node CLI: no Node binary found. Install Node and ensure it is available to GUI apps, or set PUZZLEPKM_NODE_PATH. Last error: {details}"
+    ));
 }
 
 #[tauri::command]

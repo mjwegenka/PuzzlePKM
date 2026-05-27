@@ -1903,8 +1903,6 @@ const {
 } = dailyNoteService;
 const {
   createDailyNoteRecord,
-  createDailyNoteRecordInternal,
-  findDailyNoteRow,
   getDailyNote,
   listDailyNotes,
   listDailyNotesForSync,
@@ -2084,7 +2082,6 @@ const {
   deleteTagRecord,
   getTag,
   listTags,
-  updateTagRecord,
 } = tagRepository;
 
 const linkRepository = createLinkRepository();
@@ -2097,7 +2094,6 @@ const linkService = createLinkService({
 });
 const { createLinkInteractive } = linkService;
 const {
-  createLinkRecord,
   deleteLinkRecord,
   getLinks,
 } = linkRepository;
@@ -2163,10 +2159,10 @@ function printRecords(type, rows) {
         console.log(`${row.id}\t${row.date}\t${listField(row.preview)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'project':
-        console.log(`${row.id}\t${listField(row.name)}\t${row.syncPath || '(no path)'}\t${row.startDate || ''}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${row.syncPath || '(no path)'}\t${row.startDate || ''}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'ref-material':
-        console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.syncPath || '(no path)'}`);
+        console.log(`${row.id}\t${listField(row.name)}\t${listField(row.author)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
         break;
       case 'scripture':
         console.log(`${row.id}\t${listField(row.reference)}\t${row.passageUrl}\t${row.noteCount ?? 0}`);

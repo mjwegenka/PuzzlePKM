@@ -43,11 +43,18 @@ import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import FilterChip from '../ui/FilterChip'
 import { NoteCard } from '../ui/NoteCard'
 import type { NoteCardData } from '../ui/NoteCard'
-import { listTopicNoteMeta, listDailyNoteMeta, listHabitMeta, listFileMeta, listScriptureMeta, getObject } from '../../lib/cliService'
-import type { ResolvedObjectRef } from '../../lib/cliService'
-import { formatDatePretty, formatWeekdayShort, getTodayDate } from '../../lib/dateUtils'
-import { getObjectColor } from '../../lib/objectColors'
-import { cardSpacingTokens } from '../../theme'
+import {
+  getObject,
+  listDailyNoteMeta,
+  listFileMeta,
+  listHabitMeta,
+  listScriptureMeta,
+  listTopicNoteMeta,
+  type ResolvedObjectRef,
+} from '@/lib/cliService'
+import { formatDatePretty, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
+import { getObjectColor } from '@/lib/objectColors'
+import { cardSpacingTokens } from '@/theme'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -609,7 +616,20 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   }
 
    // Unified card list
-  const hasInboxTag = (tags: string[]) => tags.some((t) => t.toLowerCase() === 'inbox')
+  const hasInboxTag = (tags: string[]) => tags.some((t) => String(t ?? '').trim().toLowerCase() === 'inbox')
+  const isInboxEligibleCardType = (type: BoardCard['type']) => (
+    type === 'topic-note'
+    || type === 'daily-note'
+    || type === 'habit'
+    || type === 'project'
+    || type === 'ref-material'
+  )
+  const effectiveVisibleObjectTypeSet = useMemo(() => {
+    if (showInbox) {
+      return new Set<LibraryObjectFilterType>(LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => option.value))
+    }
+    return visibleObjectTypeSet
+  }, [showInbox, visibleObjectTypeSet])
   const hasActiveBoardFilters = isObjectTypeFilterCustomized || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
   const allCards = useMemo((): BoardCard[] => {
     const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
@@ -702,7 +722,11 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
 
     const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
       if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
-      if (!visibleObjectTypeSet.has(card.type)) return false
+      if (!effectiveVisibleObjectTypeSet.has(card.type)) return false
+
+      if (showInbox) {
+        return isInboxEligibleCardType(card.type) && hasInboxTag(card.tags ?? [])
+      }
 
       const hasTags = (card.tags?.length ?? 0) > 0
       if (activeFilterChips.tags !== activeFilterChips.untagged) {
@@ -717,7 +741,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, activeFilterChips, visibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, activeFilterChips, effectiveVisibleObjectTypeSet])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material' || activeTab?.type === 'scripture' || activeTab?.type === 'tag'
     ? activeTab.type
