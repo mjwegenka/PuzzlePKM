@@ -1,5 +1,5 @@
 export function createProjectRepository(deps) {
-  const { collectDateLinkTargets, getIsoNow, getTagDisplayNames, getTagDisplayNamesMap, syncNoteObjectLinks, syncObjectTags, withTransaction } = deps;
+  const { collectDateLinkTargets, getIsoNow, getRelatedObjects, getTagDisplayNames, getTagDisplayNamesMap, syncNoteObjectLinks, syncObjectTags, withTransaction } = deps;
 
   function getProject(db, id) {
     const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
@@ -11,6 +11,8 @@ export function createProjectRepository(deps) {
       syncPath: row.sync_path,
       startDate: row.start_date ?? '',
       endDate: row.end_date ?? '',
+      links: getRelatedObjects(db, row.id, 'forward'),
+      backlinks: getRelatedObjects(db, row.id, 'backward'),
       tags: getTagDisplayNames(db, row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,

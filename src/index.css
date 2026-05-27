@@ -52,18 +52,18 @@ body {
 }
 
 .ProseMirror > * + * {
-  margin-top: 0.72em;
+  margin-top: 0.95em;
 }
 
-/* Paragraph rows should not stack extra top margin between each other. */
+/* Keep paragraph blocks visually separated. */
 .ProseMirror > p + p {
-  margin-top: 0;
+  margin-top: 0.95em;
 }
 
 /* Keep rhythm when transitioning between paragraph and non-paragraph blocks. */
 .ProseMirror > p + :not(p),
 .ProseMirror > :not(p) + p {
-  margin-top: 0.72em;
+  margin-top: 0.95em;
 }
 
 .ProseMirror p {

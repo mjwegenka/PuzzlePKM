@@ -435,6 +435,8 @@ export default function RichMarkdownEditor({
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
   const [mentionPosition, setMentionPosition] = useState<{ top: number; left: number } | null>(null)
   const [admonitionMenuAnchor, setAdmonitionMenuAnchor] = useState<HTMLElement | null>(null)
+  const [showMarkdownView, setShowMarkdownView] = useState(false)
+  const [markdownPreview, setMarkdownPreview] = useState(value)
 
   const extensions = useMemo<AnyExtension[]>(() => [
       Blockquote.extend({
@@ -613,29 +615,45 @@ export default function RichMarkdownEditor({
         },
       },
       handleKeyDown: (_view, event) => {
-        if (!mentionActive) return false
+        if (mentionActive) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setMentionSelectedIdx((i) => Math.min(i + 1, Math.max(mentionOptions.length - 1, 0)))
+            return true
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setMentionSelectedIdx((i) => Math.max(i - 1, 0))
+            return true
+          }
+          if (event.key === 'Enter' || event.key === 'Tab') {
+            const option = mentionOptions[mentionSelectedIdx]
+            event.preventDefault()
+            if (!option) return true
+            void insertMentionLink(option, editorRef.current)
+            return true
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            closeMention()
+            return true
+          }
+        }
 
-        if (event.key === 'ArrowDown') {
-          event.preventDefault()
-          setMentionSelectedIdx((i) => Math.min(i + 1, Math.max(mentionOptions.length - 1, 0)))
-          return true
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault()
-          setMentionSelectedIdx((i) => Math.max(i - 1, 0))
-          return true
-        }
         if (event.key === 'Enter') {
-          const option = mentionOptions[mentionSelectedIdx]
-          if (!option) return false
+          const activeEditor = editorRef.current
+          if (!activeEditor) return false
           event.preventDefault()
-          void insertMentionLink(option, editor)
-          return true
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          closeMention()
-          return true
+
+          // Enter inserts a soft line break by default; Shift+Enter forces a paragraph split.
+          if (event.shiftKey) {
+            return activeEditor.chain().focus().splitBlock().run()
+          }
+
+          if (activeEditor.chain().focus().setHardBreak().run()) {
+            return true
+          }
+          return activeEditor.chain().focus().splitBlock().run()
         }
         return false
       },
@@ -646,6 +664,7 @@ export default function RichMarkdownEditor({
       const nextMarkdown = htmlToMarkdown(nextEditor.getHTML())
       if (nextMarkdown !== lastMarkdownRef.current) {
         lastMarkdownRef.current = nextMarkdown
+        setMarkdownPreview(nextMarkdown)
         const nextBlocks = reconcileBlocksWithMarkdown(lastBlocksRef.current, nextMarkdown)
         if (!areBlocksEqual(nextBlocks, lastBlocksRef.current)) {
           lastBlocksRef.current = nextBlocks
@@ -715,6 +734,7 @@ export default function RichMarkdownEditor({
     isApplyingExternalValueRef.current = true
     editor.commands.setContent(markdownToHtml(value), { emitUpdate: false })
     lastMarkdownRef.current = value
+    setMarkdownPreview(value)
     isApplyingExternalValueRef.current = false
     updateMentionState(editor)
   }, [editor, updateMentionState, value])
@@ -774,6 +794,7 @@ export default function RichMarkdownEditor({
   const currentCount = maxLength && editor
     ? editor.storage.characterCount?.characters?.()
     : undefined
+
 
   const activeAdmonitionType = editor?.isActive('blockquote')
     ? String(editor.getAttributes('blockquote').admonitionType ?? '').trim().toLowerCase()
@@ -864,6 +885,13 @@ export default function RichMarkdownEditor({
           <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={handleLinkPrompt}>
             <LinkIcon fontSize="small" />
           </ToolbarButton>
+          <ToolbarButton
+            title={showMarkdownView ? 'View Rich Text' : 'View Markdown'}
+            active={showMarkdownView}
+            onClick={() => setShowMarkdownView((current) => !current)}
+          >
+            <Typography sx={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1 }}>MD</Typography>
+          </ToolbarButton>
           <Tooltip title={activeAdmonitionType ? `Admonition (${capitalize(activeAdmonitionType)})` : 'Admonition'}>
             <IconButton
               size="small"
@@ -939,11 +967,28 @@ export default function RichMarkdownEditor({
             handleModifiedLinkClick(event)
           }}
         >
-          <EditorContent editor={editor} />
+          {showMarkdownView ? (
+            <Box
+              component="pre"
+              sx={{
+                m: 0,
+                color: 'text.secondary',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontSize: '12px',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {markdownPreview || ''}
+            </Box>
+          ) : (
+            <EditorContent editor={editor} />
+          )}
         </Box>
       </Box>
 
-      {mentionEnabled && mentionActive && mentionPosition && (
+      {mentionEnabled && !showMarkdownView && mentionActive && mentionPosition && (
         <MentionPopup
           query={mentionQuery}
           options={mentionOptions}

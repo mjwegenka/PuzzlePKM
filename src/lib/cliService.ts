@@ -30,6 +30,13 @@ export interface MentionSearchResult {
   syncPath?: string;
 }
 
+function stripHtmlComments(value: string): string {
+  return String(value ?? '')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export interface ResolvedObjectRef {
   id: string;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
@@ -355,17 +362,17 @@ function parseListOutput(
       const path2 = normalizePath(parts[2]);
       switch (type) {
         case 'daily-note':
-          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', date: parts[1], syncPath: path3 ?? '' });
+          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[2] ?? ''), date: parts[1], syncPath: path3 ?? '' });
         case 'topic-note':
-          return withLegacyPathAlias({ id, type, title: parts[2] ?? '', date: parts[4] ?? '', syncPath: path3 ?? '' });
+          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[2] ?? ''), date: parts[4] ?? '', syncPath: path3 ?? '' });
         case 'project':
-          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', syncPath: path2 ?? '', date: parts[3] });
+          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[1] ?? ''), syncPath: path2 ?? '', date: parts[3] });
         case 'ref-material':
-          return withLegacyPathAlias({ id, type, title: parts[1] ?? '', author: parts[2] ?? '', syncPath: normalizePath(parts[3]) ?? '' });
+          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[1] ?? ''), author: stripHtmlComments(parts[2] ?? ''), syncPath: normalizePath(parts[3]) ?? '' });
         case 'habit':
-          return withLegacyPathAlias({ id, type, title: parts[3] ?? '', syncPath: normalizePath(parts[4]) ?? '', date: parts[1] });
+          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[3] ?? ''), syncPath: normalizePath(parts[4]) ?? '', date: parts[1] });
         default:
-          return { id, type, title: parts[1] ?? '' };
+          return { id, type, title: stripHtmlComments(parts[1] ?? '') };
       }
     })
     .filter((r) => r.id);

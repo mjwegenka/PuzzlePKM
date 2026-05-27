@@ -1,5 +1,5 @@
 export function createRefMaterialRepository(deps) {
-  const { getIsoNow, getTagDisplayNames, getTagDisplayNamesMap, syncObjectTags, withTransaction } = deps;
+  const { getIsoNow, getRelatedObjects, getTagDisplayNames, getTagDisplayNamesMap, syncObjectTags, withTransaction } = deps;
 
   function getRefMat(db, id) {
     const row = db.prepare('SELECT * FROM ref_materials WHERE id = ?').get(id);
@@ -10,6 +10,8 @@ export function createRefMaterialRepository(deps) {
       name: row.name,
       author: typeof row.author === 'string' ? row.author : '',
       syncPath: row.sync_path,
+      links: getRelatedObjects(db, row.id, 'forward'),
+      backlinks: getRelatedObjects(db, row.id, 'backward'),
       tags: getTagDisplayNames(db, row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,

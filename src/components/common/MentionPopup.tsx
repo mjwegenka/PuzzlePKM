@@ -108,6 +108,10 @@ export default function MentionPopup({
                 <ListItemButton
                   selected={idx === selectedIndex}
                   dense
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                   onClick={() => onSelect(option)}
                   sx={{
                     borderRadius: '4px',

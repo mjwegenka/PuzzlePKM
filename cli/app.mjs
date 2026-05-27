@@ -1964,6 +1964,7 @@ const projectRepository = createProjectRepository({
   cleanupDailyNotesIfEligible,
   collectDateLinkTargets,
   getIsoNow,
+  getRelatedObjects,
   getTagDisplayNames,
   getTagDisplayNamesMap,
   syncNoteObjectLinks,
@@ -1995,6 +1996,7 @@ const {
 const refMaterialRepository = createRefMaterialRepository({
   clearSyncState,
   getIsoNow,
+  getRelatedObjects,
   getTagDisplayNames,
   getTagDisplayNamesMap,
   syncObjectTags,

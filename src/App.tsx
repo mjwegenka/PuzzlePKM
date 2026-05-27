@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Box, CircularProgress, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
 import CalendarPage from './components/calendar/CalendarPage'
 import ObjectEditor from './components/objects/ObjectEditor'
@@ -205,17 +204,6 @@ export default function App() {
     )
   }, [openObjectTab, sidebarSection])
 
-  const handleTopDragMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    const tauriInvoke =
-      typeof window !== 'undefined' &&
-      typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke === 'function'
-    if (!tauriInvoke) return
-    void getCurrentWindow().startDragging().catch(() => {
-      // Ignore if the native drag API is temporarily unavailable.
-    })
-  }, [])
-
   const renderSection = (section: Section) => {
     if (section === 'calendar') {
       return (
@@ -265,20 +253,6 @@ export default function App() {
 
   return (
     <Box sx={{ display: 'flex', bgcolor: 'surface.app', height: '100vh', overflow: 'hidden', color: 'text.primary', position: 'relative' }}>
-      <Box
-        data-tauri-drag-region
-        onMouseDown={handleTopDragMouseDown}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 'calc(env(titlebar-area-height, 0px) + 18px)',
-          zIndex: 5,
-          pointerEvents: 'auto',
-          backgroundColor: 'transparent',
-        }}
-      />
       <NavigationSidebar
         currentSection={sidebarSection}
         onNavigate={handleNavigate}
@@ -286,7 +260,7 @@ export default function App() {
       />
 
       <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 2, bgcolor: 'surface.app' }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 0.5, bgcolor: 'surface.app' }}>
           <Box
             sx={{
               flex: 1,

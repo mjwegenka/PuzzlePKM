@@ -161,6 +161,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [isDirty, setIsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
   const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
+  const [liveForwardLinks, setLiveForwardLinks] = useState<Array<Record<string, unknown>>>([]);
+  const [liveBacklinkLinks, setLiveBacklinkLinks] = useState<Array<Record<string, unknown>>>([]);
   const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -205,6 +207,50 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
   }, [object, defaultDate, type]);
+
+  useEffect(() => {
+    const initialForward = Array.isArray(object?.links)
+      ? (object.links as Array<Record<string, unknown>>)
+      : [];
+    const initialBacklinks = Array.isArray(object?.backlinks)
+      ? (object.backlinks as Array<Record<string, unknown>>)
+      : [];
+    setLiveForwardLinks(initialForward);
+    setLiveBacklinkLinks(initialBacklinks);
+  }, [object]);
+
+  useEffect(() => {
+    const objectId = String(object?.id ?? '').trim();
+    if (!objectId) return;
+
+    let cancelled = false;
+    const refreshRelations = async () => {
+      try {
+        const refreshed = await getObject(type, objectId);
+        if (cancelled) return;
+        const nextForward = Array.isArray((refreshed as { links?: unknown }).links)
+          ? (((refreshed as unknown as { links: Array<Record<string, unknown>> }).links) ?? [])
+          : [];
+        const nextBacklinks = Array.isArray((refreshed as { backlinks?: unknown }).backlinks)
+          ? (((refreshed as unknown as { backlinks: Array<Record<string, unknown>> }).backlinks) ?? [])
+          : [];
+        setLiveForwardLinks(nextForward);
+        setLiveBacklinkLinks(nextBacklinks);
+      } catch {
+        // Keep existing relationship chips if refresh fails.
+      }
+    };
+
+    const handleObjectsUpdated = () => {
+      void refreshRelations();
+    };
+
+    window.addEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
+    };
+  }, [object?.id, type]);
 
   const resolveMentionHref = useCallback(
     async (option: MentionOption) => {
@@ -467,12 +513,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const isNoteType = type === 'topic-note' || type === 'daily-note';
   const isFileObject = type === 'project' || type === 'ref-material';
-  const forwardLinks = Array.isArray(object?.links)
-    ? (object.links as Array<Record<string, unknown>>)
-    : [];
-  const backlinkLinks = Array.isArray(object?.backlinks)
-    ? (object.backlinks as Array<Record<string, unknown>>)
-    : [];
+  const forwardLinks = liveForwardLinks;
+  const backlinkLinks = liveBacklinkLinks;
   const relationLabel = (relation: Record<string, unknown>) => {
     const rawTitle = String(relation.title ?? '').trim();
     const rawName = String(relation.name ?? '').trim();
@@ -683,6 +725,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     position: 'relative',
                     mb: 1.5,
                     '&:hover .title-edit-button': { opacity: 1 },
+                    '&:hover .title-display': { pl: 3.5 },
+                    '&:focus-within .title-display': { pl: 3.5 },
                   }}
                 >
                   <IconButton
@@ -691,8 +735,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     onClick={() => setIsTitleEditing(true)}
                     sx={{
                       position: 'absolute',
-                      left: -34,
-                      top: -2,
+                      left: 0,
+                      top: -1,
                       opacity: 0,
                       transition: 'opacity 120ms ease',
                       color: 'text.secondary',
@@ -700,7 +744,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   >
                     <EditIcon sx={{ fontSize: 16 }} />
                   </IconButton>
-                  <Typography variant="h4" sx={{ fontSize: '1.8rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}>
+                  <Typography
+                    className="title-display"
+                    variant="h4"
+                    sx={{ pl: 0, transition: 'padding-left 120ms ease', fontSize: '1.8rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2 }}
+                  >
                     {title.trim() || (type === 'project' ? 'Untitled Project' : 'Untitled Reference Material')}
                   </Typography>
                 </Box>
@@ -796,6 +844,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 />
               )}
 
+              {isNoteType && !isHabit && (
+                <Box sx={{ mb: 1.5 }}>
+                  {tagsEditor}
+                </Box>
+              )}
+
               {isHabit && (
                 <Box sx={{ mb: 1.5 }}>
                   {tagsEditor}
@@ -881,7 +935,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               }}
             >
               {isNoteType && relationshipsSection}
-              {!isHabit && tagsEditor}
             </Box>
           </>
         )}
