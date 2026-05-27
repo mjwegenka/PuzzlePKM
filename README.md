@@ -26,9 +26,9 @@ A local-first knowledge management app with folder-based sync. The core product 
 | CLI | Pure Node.js (`cli.mjs`) — no build step required |
 | Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
 | Companion web shell | React 18 + TypeScript + Vite |
-| Desktop UI | Material UI + custom components |
+| Desktop UI | shadcn/ui (primary) + Material UI (migration compatibility) |
 | Local store | node:sqlite (built-in SQLite) |
-| Styling | Material UI + TailwindCSS v4 |
+| Styling | TailwindCSS v4 + shadcn/ui tokens (Material UI theme adapters during migration) |
 | Secure storage | app-managed secrets file (see `DEC-03`) |
 | Sync transport | Local folder sync |
 | iOS mobile app | SwiftUI (iOS 17+) + SwiftyDropbox SDK |
