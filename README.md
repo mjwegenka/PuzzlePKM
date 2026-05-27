@@ -49,6 +49,32 @@ The desktop wrapper provides a full-featured interface for knowledge management:
 
 See the `Desktop UI Contract Work (In Progress)` section in this README for the current desktop UI implementation roadmap.
 
+## shadcn/ui foundation in `src/`
+
+The baseline shadcn/ui foundation is available for incremental desktop UI migration.
+
+- Utility helper: `src/lib/utils.ts` exports `cn(...inputs)` (`clsx` + `tailwind-merge`).
+- Tailwind token wiring: `src/index.css` defines shared semantic tokens for light/dark themes (`--background`, `--foreground`, `--card`, `--primary`, etc.) and maps them through `@theme inline`.
+- Core primitives now available under `src/components/ui/`:
+  - `button.tsx`
+  - `input.tsx`
+  - `textarea.tsx`
+  - `select.tsx`
+  - `dialog.tsx`
+  - `dropdown-menu.tsx`
+  - `tooltip.tsx`
+  - `badge.tsx`
+  - `card.tsx`
+  - `tabs.tsx`
+
+Usage example:
+
+```tsx
+import { Button } from '@/components/ui/button'
+
+<Button variant="secondary">Save</Button>
+```
+
 ## Development Setup
 
 ### Prerequisites
