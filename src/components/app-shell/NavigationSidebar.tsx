@@ -1,36 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Box,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-  Divider,
-  Tooltip,
-  IconButton,
-  CircularProgress,
-  Collapse,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import FolderIcon from '@mui/icons-material/Folder';
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
-import HubIcon from '@mui/icons-material/Hub';
-import SettingsIcon from '@mui/icons-material/Settings';
-import SyncIcon from '@mui/icons-material/Sync';
-import PushPinIcon from '@mui/icons-material/PushPin';
-import CloseIcon from '@mui/icons-material/Close';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import DescriptionIcon from '@mui/icons-material/Description';
-import RepeatIcon from '@mui/icons-material/Repeat';
-import { useSyncStatus } from '../../lib/syncContext'
-import { formatDatePretty } from '../../lib/dateUtils'
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../../lib/cliService'
-import { cardSpacingTokens, neutralDarkTokens } from '../../theme'
+  ArrowDown,
+  ArrowUp,
+  BookOpen,
+  CalendarDays,
+  FileText,
+  Folder,
+  Loader2,
+  Network,
+  Pin,
+  RefreshCw,
+  Repeat,
+  Settings,
+  X,
+} from 'lucide-react';
+import { Button } from '../ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { cn } from '../../lib/utils';
+import { useSyncStatus } from '../../lib/syncContext';
+import { formatDatePretty } from '../../lib/dateUtils';
+import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../../lib/cliService';
+import { cardSpacingTokens, neutralDarkTokens } from '../../theme';
 
 interface NavigationItem {
   id: string;
@@ -61,24 +51,42 @@ const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_DEFAULT_WIDTH = 272;
 
 const navItems: NavigationItem[] = [
-  { id: 'library', label: 'Library', icon: <LibraryBooksIcon /> },
-  { id: 'calendar', label: 'Calendar', icon: <CalendarTodayIcon /> },
-  { id: 'graph', label: 'Graph', icon: <HubIcon /> },
+  { id: 'library', label: 'Library', icon: <BookOpen className="h-[21px] w-[21px]" /> },
+  { id: 'calendar', label: 'Calendar', icon: <CalendarDays className="h-[21px] w-[21px]" /> },
+  { id: 'graph', label: 'Graph', icon: <Network className="h-[21px] w-[21px]" /> },
 ];
 
 const sidebarColors = {
   background: neutralDarkTokens.surface.app,
   backgroundTop: neutralDarkTokens.surface.app,
   border: 'transparent',
-  divider: alpha(neutralDarkTokens.text.primary, 0.07),
+  divider: withAlpha(neutralDarkTokens.text.primary, 0.07),
   text: neutralDarkTokens.text.primary,
   textMuted: neutralDarkTokens.text.secondary,
   icon: neutralDarkTokens.text.secondary,
   iconMuted: neutralDarkTokens.text.muted,
-  hover: alpha(neutralDarkTokens.text.primary, 0.04),
-  selected: alpha(neutralDarkTokens.text.primary, 0.065),
+  hover: withAlpha(neutralDarkTokens.text.primary, 0.04),
+  selected: withAlpha(neutralDarkTokens.text.primary, 0.065),
   selectedBorder: neutralDarkTokens.border.subtle,
 };
+
+function withAlpha(color: string, opacity: number): string {
+  const hex = color.trim();
+  if (/^#([\da-fA-F]{6})$/.test(hex)) {
+    const value = hex.slice(1);
+    const r = Number.parseInt(value.slice(0, 2), 16);
+    const g = Number.parseInt(value.slice(2, 4), 16);
+    const b = Number.parseInt(value.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+
+  const rgb = hex.match(/^rgb\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)$/);
+  if (rgb) {
+    return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${opacity})`;
+  }
+
+  return color;
+}
 
 function formatLastSynced(date: Date | null): string {
   if (!date) return 'Never synced';
@@ -102,10 +110,10 @@ function isPinnedTag(tag: string): boolean {
 }
 
 function objectIcon(type: PinnedType): React.ReactNode {
-  if (type === 'daily-note') return <CalendarTodayIcon fontSize="small" />;
-  if (type === 'habit') return <RepeatIcon fontSize="small" />;
-  if (type === 'project' || type === 'ref-material') return <FolderIcon fontSize="small" />;
-  return <DescriptionIcon fontSize="small" />;
+  if (type === 'daily-note') return <CalendarDays className="h-4 w-4" />;
+  if (type === 'habit') return <Repeat className="h-4 w-4" />;
+  if (type === 'project' || type === 'ref-material') return <Folder className="h-4 w-4" />;
+  return <FileText className="h-4 w-4" />;
 }
 
 export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned }: NavigationSidebarProps) {
@@ -277,95 +285,69 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
   }, [persistPinnedOrder]);
 
-  return (
-    <Drawer
-      variant="permanent"
-      sx={{
-        width: sidebarWidth,
-        flexShrink: 0,
-        position: 'relative',
-        '& .MuiDrawer-paper': {
-          width: sidebarWidth,
-          boxSizing: 'border-box',
-          backgroundColor: sidebarColors.background,
-          border: 'none',
-          boxShadow: 'none',
-          color: sidebarColors.text,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          px: 1,
-          pt: 'calc(env(titlebar-area-height, 0px) + 30px)',
-          pb: 1,
-        },
-      }}
-    >
-      <Box
-        onMouseDown={handleResizeStart}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize navigation sidebar"
-        sx={{
-          position: 'absolute',
-          top: 0,
-          right: -2,
-          width: 6,
-          height: '100%',
-          cursor: 'col-resize',
-          zIndex: 2,
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            right: 2,
-            top: 0,
-            width: 1,
-            height: '100%',
-            bgcolor: (theme) => (isResizing ? alpha(theme.palette.accent.selected, 0.95) : 'transparent'),
-          },
-          '&:hover::before': {
-            bgcolor: (theme) => alpha(theme.palette.accent.selected, 0.6),
-          },
-        }}
-      />
+  const syncTooltip = syncError ?? (syncing ? 'Syncing…' : formatLastSynced(lastSyncedAt));
 
-      <List sx={{ flex: 1, overflow: 'auto', px: 0.5, py: 0.5 }}>
-        {navItems.map((item) => (
-          <ListItem key={item.id} disablePadding>
-            <ListItemButton
-              selected={currentSection === item.id}
-              onClick={() => onNavigate(item.id)}
-              sx={{
-                minHeight: 38,
-                px: 1,
-                py: 0.25,
-                borderRadius: '14px',
-                color: sidebarColors.textMuted,
-                transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
-                '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
-                '&.Mui-selected': {
-                  backgroundColor: sidebarColors.selected,
-                  color: sidebarColors.text,
-                  border: `1px solid ${sidebarColors.selectedBorder}`,
-                },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
-                <Box sx={{ '& .MuiSvgIcon-root': { fontSize: 21 } }}>{item.icon}</Box>
-              </ListItemIcon>
-              <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2', sx: { fontSize: '13px', fontWeight: 500, lineHeight: 1.25 } } }} />
-            </ListItemButton>
-          </ListItem>
-        ))}
-        <Collapse in timeout="auto" unmountOnExit={false}>
-          <Divider sx={{ borderColor: sidebarColors.divider, my: 1 }} />
+  return (
+    <TooltipProvider>
+      <aside
+        className="relative flex shrink-0 flex-col overflow-hidden px-1 pb-1"
+        style={{
+          width: sidebarWidth,
+          backgroundColor: sidebarColors.background,
+          color: sidebarColors.text,
+          paddingTop: 'calc(env(titlebar-area-height, 0px) + 30px)',
+        }}
+      >
+        <div
+          onMouseDown={handleResizeStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize navigation sidebar"
+          className="absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize"
+        >
+          <div
+            className="absolute right-[2px] top-0 h-full w-px transition-colors"
+            style={{ backgroundColor: isResizing ? withAlpha(sidebarColors.text, 0.95) : 'transparent' }}
+          />
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-auto px-0.5 py-0.5">
+          {navItems.map((item) => {
+            const selected = currentSection === item.id;
+            return (
+              <Button
+                key={item.id}
+                type="button"
+                variant="ghost"
+                onClick={() => onNavigate(item.id)}
+                className={cn(
+                  'mb-0.5 h-[38px] justify-start rounded-[14px] px-1 py-0.5 text-[13px] font-medium transition-colors',
+                  selected && 'border',
+                )}
+                style={{
+                  color: selected ? sidebarColors.text : sidebarColors.textMuted,
+                  backgroundColor: selected ? sidebarColors.selected : 'transparent',
+                  borderColor: selected ? sidebarColors.selectedBorder : 'transparent',
+                }}
+              >
+                <span className="mr-2 flex h-5 w-5 items-center justify-center" style={{ color: sidebarColors.icon }}>
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </Button>
+            );
+          })}
+
+          <div className="my-1 h-px" style={{ backgroundColor: sidebarColors.divider }} />
           <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
+
           {pinnedItems.map((item) => {
             const itemKey = makePinnedKey(item);
             const idx = keyToIndex.get(itemKey) ?? -1;
             return (
-              <ListItem
+              <div
                 key={itemKey}
-                disablePadding
+                className="group"
                 draggable
                 onDragStart={() => setDraggingKey(itemKey)}
                 onDragOver={(event) => event.preventDefault()}
@@ -376,176 +358,144 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   setDraggingKey(null);
                 }}
                 onDragEnd={() => setDraggingKey(null)}
-                sx={{
-                  '&:hover .pin-actions': { opacity: 1 },
-                  '&:focus-within .pin-actions': { opacity: 1 },
-                }}
               >
-                <ListItemButton
+                <Button
+                  type="button"
+                  variant="ghost"
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  sx={{
-                    gap: 0.5,
-                    minHeight: 32,
-                    px: 0.9,
-                    py: 0.25,
-                    borderRadius: '10px',
-                    color: sidebarColors.textMuted,
-                    transition: 'background-color 120ms ease, color 120ms ease',
-                    '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
-                  }}
+                  className="mb-0.5 h-8 w-full justify-start gap-1 rounded-[10px] px-0.5 py-0.5"
+                  style={{ color: sidebarColors.textMuted }}
                 >
-                  <ListItemIcon sx={{ minWidth: 24, color: sidebarColors.iconMuted }}>
+                  <span className="flex h-4 w-4 items-center justify-center" style={{ color: sidebarColors.iconMuted }}>
                     {objectIcon(item.type)}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={item.title}
-                    slotProps={{
-                      primary: {
-                        variant: 'body2',
-                        sx: {
-                          fontSize: '11px',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          lineHeight: 1.25,
-                        },
-                      },
-                    }}
-                  />
-                  <Box className="pin-actions" sx={{ display: 'flex', alignItems: 'center', opacity: 0, transition: 'opacity 120ms ease' }}>
-                    <IconButton
-                      size="small"
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-left text-[11px] leading-[1.25]">{item.title}</span>
+                  <span className="pin-actions flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
                       aria-label="Move pinned item up"
                       disabled={idx <= 0}
                       onClick={(event) => {
                         event.stopPropagation();
                         movePinned(idx, idx - 1);
                       }}
-                      sx={{ color: sidebarColors.icon }}
+                      className="h-5 w-5"
+                      style={{ color: sidebarColors.icon }}
                     >
-                      <ArrowUpwardIcon sx={{ fontSize: 12 }} />
-                    </IconButton>
-                    <IconButton
-                      size="small"
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
                       aria-label="Move pinned item down"
                       disabled={idx < 0 || idx >= pinnedItems.length - 1}
                       onClick={(event) => {
                         event.stopPropagation();
                         movePinned(idx, idx + 1);
                       }}
-                      sx={{ color: sidebarColors.icon }}
+                      className="h-5 w-5"
+                      style={{ color: sidebarColors.icon }}
                     >
-                      <ArrowDownwardIcon sx={{ fontSize: 12 }} />
-                    </IconButton>
-                    <IconButton
-                      size="small"
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
                       aria-label="Unpin item"
                       onClick={(event) => {
                         event.stopPropagation();
                         void handleUnpin(item);
                       }}
-                      sx={{ color: sidebarColors.icon }}
+                      className="h-5 w-5"
+                      style={{ color: sidebarColors.icon }}
                     >
-                      <CloseIcon sx={{ fontSize: 13 }} />
-                    </IconButton>
-                  </Box>
-                </ListItemButton>
-              </ListItem>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </span>
+                </Button>
+              </div>
             );
           })}
-        </Collapse>
-      </List>
+        </div>
 
-      <Divider sx={{ borderColor: sidebarColors.divider }} />
+        <div className="h-px" style={{ backgroundColor: sidebarColors.divider }} />
 
-      {/* ── Sync status + button ── */}
-      <Box sx={{ px: 1.5, py: 1.1, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Tooltip title={syncError ?? (syncing ? 'Syncing…' : formatLastSynced(lastSyncedAt))} placement="right">
-          <span>
-            <IconButton
-              size="small"
-              onClick={triggerSync}
-              disabled={syncing}
-              sx={{ color: syncError ? 'error.main' : sidebarColors.icon, '&:hover': { color: sidebarColors.text } }}
+        <div className="flex items-center gap-1 px-1.5 py-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={triggerSync}
+                  disabled={syncing}
+                  className="h-7 w-7"
+                  style={{ color: syncError ? 'var(--destructive)' : sidebarColors.icon }}
+                >
+                  {syncing ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <RefreshCw className="h-[17px] w-[17px]" />}
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">{syncTooltip}</TooltipContent>
+          </Tooltip>
+          <div className="min-w-0 flex-1">
+            <span
+              className="block truncate whitespace-nowrap text-[9.5px] leading-[1.3]"
+              style={{ color: syncError ? 'var(--destructive)' : sidebarColors.textMuted }}
             >
-              {syncing
-                ? <CircularProgress size={18} sx={{ color: sidebarColors.icon }} />
-                : <SyncIcon sx={{ fontSize: 17 }} />}
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            variant="caption"
-            sx={{
-              display: 'block',
-              color: syncError ? 'error.main' : sidebarColors.textMuted,
-              fontSize: '9.5px',
-              lineHeight: 1.3,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {syncing ? 'Syncing…' : syncError ? 'Sync error' : formatLastSynced(lastSyncedAt)}
-          </Typography>
-        </Box>
-      </Box>
+              {syncing ? 'Syncing…' : syncError ? 'Sync error' : formatLastSynced(lastSyncedAt)}
+            </span>
+          </div>
+        </div>
 
-      <Divider sx={{ borderColor: sidebarColors.divider }} />
+        <div className="h-px" style={{ backgroundColor: sidebarColors.divider }} />
 
-      <List sx={{ px: 0.5, py: 0.5 }}>
-        <ListItem disablePadding>
-          <ListItemButton
-            selected={currentSection === 'settings'}
+        <div className="px-0.5 py-0.5">
+          <Button
+            type="button"
+            variant="ghost"
             onClick={() => onNavigate('settings')}
-            sx={{
-              minHeight: 38,
-              px: 1,
-              py: 0.25,
-              borderRadius: '14px',
-              color: sidebarColors.textMuted,
-              transition: 'background-color 120ms ease, color 120ms ease, border-color 120ms ease',
-              '&:hover': { bgcolor: sidebarColors.hover, color: sidebarColors.text },
-              '&.Mui-selected': {
-                backgroundColor: sidebarColors.selected,
-                color: sidebarColors.text,
-                border: `1px solid ${sidebarColors.selectedBorder}`,
-              },
+            className={cn(
+              'h-[38px] w-full justify-start rounded-[14px] px-1 py-0.5 text-[13px] font-medium transition-colors',
+              currentSection === 'settings' && 'border',
+            )}
+            style={{
+              color: currentSection === 'settings' ? sidebarColors.text : sidebarColors.textMuted,
+              backgroundColor: currentSection === 'settings' ? sidebarColors.selected : 'transparent',
+              borderColor: currentSection === 'settings' ? sidebarColors.selectedBorder : 'transparent',
             }}
           >
-            <ListItemIcon sx={{ minWidth: 30, color: sidebarColors.icon }}>
-              <SettingsIcon sx={{ fontSize: 21 }} />
-            </ListItemIcon>
-            <ListItemText primary="Settings" slotProps={{ primary: { variant: 'body2', sx: { fontSize: '13px', fontWeight: 500, lineHeight: 1.25 } } }} />
-          </ListItemButton>
-        </ListItem>
-      </List>
-    </Drawer>
+            <span className="mr-2 flex h-5 w-5 items-center justify-center" style={{ color: sidebarColors.icon }}>
+              <Settings className="h-[21px] w-[21px]" />
+            </span>
+            <span>Settings</span>
+          </Button>
+        </div>
+      </aside>
+    </TooltipProvider>
   );
 }
 
 function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean; count: number }) {
   return (
-    <Box
-      sx={{
-        px: cardSpacingTokens.sidebarRowPaddingX,
-        py: 0.55,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        minHeight: 30,
-      }}
+    <div
+      className="flex min-h-[30px] items-center gap-1 py-[0.55rem]"
+      style={{ paddingLeft: cardSpacingTokens.sidebarRowPaddingX, paddingRight: cardSpacingTokens.sidebarRowPaddingX }}
     >
-      <PushPinIcon sx={{ fontSize: 12, color: sidebarColors.iconMuted }} />
-      <Typography variant="caption" sx={{ color: sidebarColors.textMuted, letterSpacing: '0.03em', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', flex: 1 }}>
+      <Pin className="h-3 w-3" style={{ color: sidebarColors.iconMuted }} />
+      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.03em]" style={{ color: sidebarColors.textMuted }}>
         Pinned
-      </Typography>
-      {loadingPinned ? <CircularProgress size={11} sx={{ color: sidebarColors.iconMuted }} /> : (
-        <Typography variant="caption" sx={{ color: sidebarColors.iconMuted, fontSize: '9px' }}>
+      </span>
+      {loadingPinned ? <Loader2 className="h-[11px] w-[11px] animate-spin" style={{ color: sidebarColors.iconMuted }} /> : (
+        <span className="text-[9px]" style={{ color: sidebarColors.iconMuted }}>
           {count}
-        </Typography>
+        </span>
       )}
-    </Box>
+    </div>
   );
 }

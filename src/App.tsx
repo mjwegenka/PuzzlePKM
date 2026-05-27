@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Box, CircularProgress, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
+import { Loader2, X } from 'lucide-react'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
 import CalendarPage from './components/calendar/CalendarPage'
 import ObjectEditor from './components/objects/ObjectEditor'
@@ -11,6 +10,7 @@ import ObjectMetaDetailPanel from './components/objects/ObjectMetaDetailPanel'
 import { getObject, listHabitMeta } from './lib/cliService'
 import type { ResolvedObjectRef } from './lib/cliService'
 import { formatDatePretty } from './lib/dateUtils'
+import { cn } from './lib/utils'
 
 type Section = 'calendar' | 'library' | 'files' | 'graph' | 'settings'
 type FileObjType = 'project' | 'ref-material'
@@ -243,117 +243,83 @@ export default function App() {
     }
     if (section === 'settings') {
       return (
-        <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        <div className="min-h-0 flex-1 overflow-auto">
           <SettingsPage />
-        </Box>
+        </div>
       )
     }
     return <EmptyFilesPrompt />
   }
 
   return (
-    <Box sx={{ display: 'flex', bgcolor: 'surface.app', height: '100vh', overflow: 'hidden', color: 'text.primary', position: 'relative' }}>
+    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
       <NavigationSidebar
         currentSection={sidebarSection}
         onNavigate={handleNavigate}
         onNavigateToPinned={handleNavigateToPinned}
       />
 
-      <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0 }}>
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, px: 2, pb: 2, pt: 0.5, bgcolor: 'surface.app' }}>
-          <Box
-            sx={{
-              flex: 1,
-              minHeight: 0,
-              minWidth: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              border: showWorkspaceTabBar ? '1px solid' : 'none',
-              borderColor: showWorkspaceTabBar ? 'border.subtle' : 'transparent',
-              borderRadius: showWorkspaceTabBar ? 1 : 0,
-              bgcolor: showWorkspaceTabBar ? 'surface.elevated' : 'surface.app',
-            }}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col bg-background px-2 pb-2 pt-0.5">
+          <div
+            className={cn(
+              'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+              showWorkspaceTabBar && 'rounded-md border border-border bg-card',
+            )}
           >
           {showWorkspaceTabBar && (
-            <Box sx={{ px: 1.25, bgcolor: 'surface.elevated', borderBottom: '1px solid', borderColor: 'border.subtle' }}>
-              <Tabs
-                value={activeTab?.id ?? false}
-                onChange={(_, value: string) => {
-                  setActiveTabId(value)
-                  const selected = tabs.find((tab) => tab.id === value)
-                  if (selected?.kind === 'section') setSidebarSection(selected.section)
-                }}
-                aria-label="Workspace navigation tabs"
-                variant="scrollable"
-                scrollButtons="auto"
-                sx={{
-                  minHeight: 48,
-                  '& .MuiTabs-indicator': { display: 'none' },
-                  '& .MuiTabs-flexContainer': { alignItems: 'center' },
-                  '& .MuiTabs-scroller': { overflow: 'hidden' },
-                  '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
-                  '& .MuiTab-root': {
-                    minHeight: 48,
-                    textTransform: 'none',
-                    minWidth: 0,
-                    px: 1.25,
-                    py: 0,
-                    borderRadius: '8px 8px 0 0',
-                    color: 'text.secondary',
-                    transition: 'color 120ms ease, background-color 120ms ease',
-                    '&:hover': {
-                      color: 'text.primary',
-                      bgcolor: 'surface.sunken',
-                    },
-                    '&.Mui-selected': {
-                      color: 'text.primary',
-                      bgcolor: 'surface.sunken',
-                    },
-                  },
-                }}
-              >
-                {tabs.map((tab) => (
-                  <Tab
-                    key={tab.id}
-                    value={tab.id}
-                    disableRipple
-                    label={(
-                      <Stack direction="row" alignItems="center" spacing={0.6} sx={{ minHeight: 24 }}>
-                        <Typography variant="body2" sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, lineHeight: 1.2 }}>
-                          {tab.title}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            closeTab(tab.id)
-                          }}
-                          sx={{
-                            p: 0.1,
-                            color: 'inherit',
-                            opacity: 0.72,
-                            '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-                          }}
-                        >
-                          <CloseIcon sx={{ fontSize: 12 }} />
-                        </IconButton>
-                      </Stack>
-                    )}
-                  />
-                ))}
-              </Tabs>
-            </Box>
+            <div className="border-b border-border bg-card px-1.5">
+              <div aria-label="Workspace navigation tabs" className="flex min-h-12 items-center gap-1 overflow-x-auto py-1">
+                {tabs.map((tab) => {
+                  const isActive = activeTab?.id === tab.id
+                  return (
+                    <div
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTabId(tab.id)
+                        if (tab.kind === 'section') setSidebarSection(tab.section)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setActiveTabId(tab.id)
+                          if (tab.kind === 'section') setSidebarSection(tab.section)
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      className={cn(
+                        'group inline-flex min-h-9 min-w-0 items-center gap-1 rounded-t-md px-2 py-0 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                        isActive && 'bg-muted text-foreground',
+                      )}
+                    >
+                      <span className="max-w-[180px] truncate text-sm font-medium leading-tight">{tab.title}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          closeTab(tab.id)
+                        }}
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-sm opacity-70 transition-opacity hover:bg-muted-foreground/20 hover:opacity-100"
+                        aria-label={`Close ${tab.title} tab`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           )}
 
-          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+          <div className="flex min-h-0 flex-1 overflow-hidden">
             {activeTab?.kind === 'section' ? (
               renderSection(activeTab.section)
             ) : activeTab?.kind === 'object' ? (
               activeTab.loading || !activeTab.object ? (
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CircularProgress size={24} />
-                </Box>
+                <div className="flex flex-1 items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
               ) : activeTab.objectType === 'scripture' || activeTab.objectType === 'tag' ? (
                 <ObjectMetaDetailPanel
                   object={activeTab.object}
@@ -371,36 +337,23 @@ export default function App() {
                 />
               )
             ) : null}
-          </Box>
-          </Box>
-        </Box>
-      </Box>
-    </Box>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
 function EmptyFilesPrompt() {
   return (
-    <Box
-      sx={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '1px dashed rgba(255,255,255,0.09)',
-        borderRadius: '8px',
-        p: 4,
-        gap: 2,
-        color: 'text.disabled',
-      }}
-    >
-      <Box sx={{ fontSize: 40, opacity: 0.35 }}>🗂</Box>
-      <Box component="p" sx={{ m: 0, fontSize: '14px', textAlign: 'center' }}>
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-foreground/10 p-4 text-muted-foreground">
+      <div className="text-[40px] opacity-40">🗂</div>
+      <p className="m-0 text-center text-sm">
         Select a project or reference material to view and edit.
         <br />
         Add new ones by creating folders in your sync root.
-      </Box>
-    </Box>
+      </p>
+    </div>
   )
 }
