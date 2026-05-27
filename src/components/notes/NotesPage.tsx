@@ -1067,7 +1067,7 @@ export default function NotesPage({
         {activeObject && (
           <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
             <>
-              <div className="flex items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 pb-3 pt-3">
+              <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
                 <div className="min-w-0 flex-1 px-2">
                   <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
