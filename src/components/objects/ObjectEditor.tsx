@@ -153,6 +153,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
+  const [tagDialogError, setTagDialogError] = useState<string | null>(null);
+  const [navigationDialogError, setNavigationDialogError] = useState<string | null>(null);
+  const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -200,6 +203,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setSaveError(null);
     setIsDirty(false);
     setPendingNavigation(null);
+    setNavigationDialogError(null);
+    setDeleteDialogError(null);
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
   }, [object, defaultDate, type]);
@@ -283,6 +288,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const closeTagDialog = useCallback(() => {
     setShowTagDialog(false);
     setNewTag('');
+    setTagDialogError(null);
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -290,7 +296,13 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const handleAddTag = useCallback((): boolean => {
     const tag = newTag.trim().toLowerCase();
+    setTagDialogError(null);
     if (!tag) return false;
+
+    if (type === 'habit' && isPinnedTag(tag)) {
+      setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
+      return false;
+    }
 
     if (tag) {
       if (type === 'habit') {
@@ -367,15 +379,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       triggerSyncInBackground();
       return saved;
     } catch (err) {
-      setSaveError(String(err));
+      const message = String(err);
+      if (showTagDialog) setTagDialogError(message);
+      else if (pendingNavigation) setNavigationDialogError(message);
+      else if (pendingDeleteReason) setDeleteDialogError(message);
+      else setSaveError(message);
       throw err;
     } finally {
       setSaving(false);
     }
-  }, [author, content, date, noteBlocks, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+  }, [author, content, date, noteBlocks, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, pendingDeleteReason, pendingNavigation, showTagDialog, tags, title, triggerSyncInBackground, type]);
 
   const isPinned = tags.some(isPinnedTag);
-  const canPin = type === 'topic-note' || type === 'daily-note' || type === 'habit' || type === 'project' || type === 'ref-material';
+  const canPin = type === 'topic-note' || type === 'daily-note' || type === 'project' || type === 'ref-material';
   const handleTogglePinned = useCallback(async () => {
     if (!canPin) return;
     const nextTags = isPinned
@@ -426,7 +442,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     const hasPersistedObject = Boolean(id);
 
     setSaving(true);
-    setSaveError(null);
+    setDeleteDialogError(null);
     try {
       if (hasPersistedObject) {
         // Pre-sync the current editor state (e.g. removed tags) to the DB
@@ -442,14 +458,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         // persistCurrentObject resets saving to false in its finally block;
         // re-establish the saving state for the delete step.
         setSaving(true);
-        setSaveError(null);
+        setDeleteDialogError(null);
 
         try {
           await deleteObject(type, id);
         } catch (err) {
           const message = String(err instanceof Error ? err.message : err).toLowerCase();
           if (!message.includes('not found')) {
-            setSaveError(String(err));
+            setDeleteDialogError(String(err));
             return;
           }
         }
@@ -457,11 +473,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       }
 
       setPendingDeleteReason(null);
+      setDeleteDialogError(null);
       setIsDirty(false);
       onDirty?.(false);
       onSave?.({ id: id || undefined, type, deleted: true });
     } catch (err) {
-      setSaveError(String(err));
+      setDeleteDialogError(String(err));
     } finally {
       setSaving(false);
     }
@@ -502,6 +519,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const handleDiscardAndNavigate = async () => {
     if (!pendingNavigation) return;
+    setNavigationDialogError(null);
     setPendingNavigation(null);
     setIsDirty(false);
     onDirty?.(false);
@@ -510,6 +528,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const handleSaveAndNavigate = async () => {
     if (!pendingNavigation) return;
+    setNavigationDialogError(null);
     try {
       const saved = await persistCurrentObject();
       // Notify the parent so it can update the tab object in its own state.
@@ -518,7 +537,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       onSave?.(saved);
       await executeNavigation(pendingNavigation.target, pendingNavigation.options);
       setPendingNavigation(null);
-    } catch {
+      setNavigationDialogError(null);
+    } catch (err) {
+      setNavigationDialogError(String(err));
       // keep prompt open if save failed
     }
   };
@@ -592,7 +613,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() => setShowTagDialog(true)}
+          onClick={() => {
+            setTagDialogError(null);
+            setShowTagDialog(true);
+          }}
           className="h-6 w-6 text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
           aria-label="Add tag"
         >
@@ -614,7 +638,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
             title="Remove tag"
           >
-            <span>#{tag}</span>
+            <span className="ui-tag-text">#{tag}</span>
             <span aria-hidden="true">×</span>
           </button>
         ))}
@@ -685,8 +709,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         {isFileObject ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
-              <div className="space-y-5 py-1">
-                <div className="space-y-2">
+              <div className="space-y-6 py-2">
+                <div className="space-y-3">
                 <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
                 </label>
@@ -698,12 +722,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 />
                 </div>
 
-                <div className="py-1">
+                <div className="py-1.5">
                   {tagsEditor}
                 </div>
 
                 {showDate && (
-                  <div className="w-full max-w-[320px] py-1">
+                  <div className="w-full max-w-[320px] py-1.5">
                     <DatePicker
                       label={type === 'project' ? 'Start Date' : 'Date'}
                       value={date}
@@ -715,7 +739,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
 
                 {type === 'ref-material' && (
-                  <div className="space-y-2 py-1">
+                  <div className="space-y-3 py-1.5">
                   <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
@@ -777,10 +801,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           <>
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               {/* ── TOP: Title and Date (always first) ── */}
-              <div className="mb-6 shrink-0 space-y-5 py-1">
+              <div className="mb-7 shrink-0 space-y-6 py-2">
 
                 {showTitle && (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                       {type === 'topic-note' ? 'Title' : 'Name'}
                     </label>
@@ -794,19 +818,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
 
                 {isNoteType && !isHabit && (
-                  <div className="py-1">
+                  <div className="py-1.5">
                     {tagsEditor}
                   </div>
                 )}
 
                 {isHabit && (
-                  <div className="py-1">
+                  <div className="py-1.5">
                     {tagsEditor}
                   </div>
                 )}
 
                 {showDate && (
-                  <div className="w-full max-w-[320px] py-1">
+                  <div className="w-full max-w-[320px] py-1.5">
                       <DatePicker
                         label="Date"
                         value={date}
@@ -903,7 +927,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 autoFocus
                 ref={tagInputRef}
                 value={newTag}
-                onChange={(e) => setNewTag(e.target.value.toLowerCase())}
+                onChange={(e) => {
+                  setTagDialogError(null);
+                  setNewTag(e.target.value.toLowerCase());
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
@@ -917,6 +944,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   }
                 }}
               />
+              {tagDialogError ? (
+                <Alert variant="destructive" className="py-2 text-xs">
+                  {tagDialogError}
+                </Alert>
+              ) : null}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={closeTagDialog}>Cancel</Button>
@@ -932,7 +964,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         ) : null}
       </Dialog>
 
-      <Dialog open={!!pendingNavigation} onOpenChange={(open) => { if (!open) setPendingNavigation(null); }}>
+      <Dialog open={!!pendingNavigation} onOpenChange={(open) => { if (!open) { setPendingNavigation(null); setNavigationDialogError(null); } }}>
         {pendingNavigation ? (
           <DialogContent className="max-w-sm" aria-label="Unsaved Changes">
             <DialogHeader>
@@ -941,8 +973,13 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 You have unsaved changes. Save before opening the linked object?
               </DialogDescription>
             </DialogHeader>
+            {navigationDialogError ? (
+              <Alert variant="destructive" className="py-2 text-xs">
+                {navigationDialogError}
+              </Alert>
+            ) : null}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPendingNavigation(null)}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setPendingNavigation(null); setNavigationDialogError(null); }}>Cancel</Button>
               <Button variant="destructive" onClick={() => { void handleDiscardAndNavigate(); }}>
                 Discard
               </Button>
@@ -957,7 +994,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       <Dialog
         open={!!pendingDeleteReason}
         onOpenChange={(open) => {
-          if (!open && !saving) setPendingDeleteReason(null);
+          if (!open && !saving) {
+            setPendingDeleteReason(null);
+            setDeleteDialogError(null);
+          }
         }}
       >
         {pendingDeleteReason ? (
@@ -970,8 +1010,13 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   : 'This habit has no tags. Delete it instead of saving?'}
               </DialogDescription>
             </DialogHeader>
+            {deleteDialogError ? (
+              <Alert variant="destructive" className="py-2 text-xs">
+                {deleteDialogError}
+              </Alert>
+            ) : null}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPendingDeleteReason(null)} disabled={saving}>Cancel</Button>
+              <Button variant="outline" onClick={() => { setPendingDeleteReason(null); setDeleteDialogError(null); }} disabled={saving}>Cancel</Button>
               <Button variant="destructive" onClick={() => { void handleConfirmDeleteOnSave(); }} disabled={saving}>
                 {saving ? 'Deleting…' : 'Delete'}
               </Button>

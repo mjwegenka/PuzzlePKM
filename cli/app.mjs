@@ -59,6 +59,7 @@ const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const INBOX_TAG_NAME = 'Inbox';
+const PINNED_TAG_NAME = 'pinned';
 const SCRIPTURE_TYPE = 'scripture';
 const ROOT_RELATIVE_APP_PATTERN = /^puzzlepkm\//i;
 const DEFAULT_LOCAL_STORAGE_DIR = platform() === 'darwin'
@@ -387,6 +388,18 @@ function addInboxTagForHabit(tagNames) {
   const names = Array.isArray(tagNames) ? tagNames : [];
   const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
   return hasInbox ? names : [INBOX_TAG_NAME, ...names];
+}
+
+function normalizeTagNameForComparison(value) {
+  return String(value ?? '').trim().replace(/^#/, '').toLowerCase();
+}
+
+function assertPinnedTagAllowedForObjectType(objectType, tagNames) {
+  if (objectType !== 'habit' && objectType !== 'tag') return;
+  const hasPinnedTag = (Array.isArray(tagNames) ? tagNames : [])
+    .some((tag) => normalizeTagNameForComparison(tag) === PINNED_TAG_NAME);
+  if (!hasPinnedTag) return;
+  throw new Error(`${objectType} objects cannot use the reserved "Pinned" tag.`);
 }
 
 function decodeUriComponentSafe(value) {
@@ -1349,6 +1362,7 @@ function ensureTagIds(db, displayNames) {
 }
 
 function syncObjectTags(db, objectId, objectType, tagNames) {
+  assertPinnedTagAllowedForObjectType(objectType, tagNames);
   db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(objectId);
   if (!tagNames) return;
   const tagIds = ensureTagIds(db, tagNames);

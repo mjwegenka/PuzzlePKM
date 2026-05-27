@@ -82,7 +82,7 @@ export default function ObjectList({
                             {item.tags.slice(0, 2).map((tag) => (
                               <span
                                 key={tag}
-                                className="rounded-[6px] px-2 py-0.5 text-xs"
+                                className="ui-tag-text rounded-[6px] px-2 py-0.5 text-xs"
                                 style={{ backgroundColor: token.bg, color: token.text }}
                               >
                                 #{tag}

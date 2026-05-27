@@ -1,5 +1,6 @@
 export function createTagRepository(deps) {
   const { getIsoNow, normalize, withTransaction } = deps;
+  const RESERVED_PINNED_TAG = 'pinned';
 
   function getTag(db, reference) {
     const row = db.prepare('SELECT * FROM tags WHERE id = ? OR name = ?').get(reference, reference.toLowerCase());
@@ -41,6 +42,9 @@ export function createTagRepository(deps) {
   function createTagRecord(db, displayName) {
     const name = normalize(displayName).toLowerCase();
     if (!name) throw new Error('Tag display name is required');
+    if (name === RESERVED_PINNED_TAG) {
+      throw new Error('The "Pinned" tag is reserved and cannot be created manually.');
+    }
     const existing = db.prepare('SELECT id FROM tags WHERE name = ?').get(name);
     if (existing?.id) return getTag(db, existing.id);
     const id = deps.randomUUID();
@@ -56,6 +60,9 @@ export function createTagRepository(deps) {
     if (!existing) return null;
     const nextDisplayName = normalize(input.displayName);
     if (!nextDisplayName) throw new Error('Tag display name is required');
+    if (nextDisplayName.toLowerCase() === RESERVED_PINNED_TAG) {
+      throw new Error('The "Pinned" tag is reserved and cannot be set manually.');
+    }
     const duplicate = db.prepare('SELECT id FROM tags WHERE name = ? AND id != ?').get(nextDisplayName.toLowerCase(), existing.id);
     if (duplicate?.id) throw new Error(`Another tag already uses ${nextDisplayName}`);
     db.prepare('UPDATE tags SET name = ?, display_name = ? WHERE id = ?').run(nextDisplayName.toLowerCase(), nextDisplayName, existing.id);

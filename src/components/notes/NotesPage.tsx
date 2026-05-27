@@ -52,8 +52,9 @@ import {
   listTopicNoteMeta,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
-import { formatDatePretty, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
+import { formatDatePretty, formatWeekdayFull, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
 import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
+import { cn } from '@/lib/utils'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -231,6 +232,17 @@ function deriveTopicCardTitle(title: string, preview: string, date?: string): st
 
   if (date) return formatDatePretty(date)
   return 'Topic Note'
+}
+
+function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
+  const primaryTag = tags
+    .map((tag) => String(tag ?? '').trim())
+    .find(Boolean)
+
+  if (primaryTag && date) return `${primaryTag} - ${date}`
+  if (primaryTag) return primaryTag
+  if (date) return date
+  return sanitizeCardText(text) || '(no text)'
 }
 
 function toSortTimestamp(...values: Array<string | undefined>): number {
@@ -716,8 +728,8 @@ export default function NotesPage({
           id: n.id,
           type: 'topic-note' as NoteType,
           title,
-          weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
           metadata: n.date ? formatDatePretty(n.date) : undefined,
+          metadataAccent: Boolean(n.date),
           snippet,
           tags: n.tags,
           sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
@@ -731,7 +743,7 @@ export default function NotesPage({
         id: n.id,
         type: 'daily-note' as NoteType,
         title: formatDatePretty(n.date),
-        weekdayLabel: formatWeekdayShort(n.date),
+        weekdayLabel: formatWeekdayFull(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
         sortTimestamp: toSortTimestamp(n.date),
@@ -742,9 +754,10 @@ export default function NotesPage({
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
-        title: sanitizeCardText(n.text) || '(no text)',
+        title: deriveHabitCardTitle(n.tags, n.date, n.text),
         weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
         metadata: n.date ? formatDatePretty(n.date) : undefined,
+        metadataAccent: Boolean(n.date),
         tags: n.tags,
         sortTimestamp: toSortTimestamp(n.date),
       }))
@@ -756,8 +769,9 @@ export default function NotesPage({
         type: f.type,
         title: f.name || (f.type === 'project' ? 'Project' : 'Reference Material'),
         metadata: f.type === 'project'
-          ? (f.startDate ? formatDatePretty(f.startDate) : 'Project')
-          : (f.author ? `by ${f.author}` : 'Reference'),
+          ? (f.startDate ? formatDatePretty(f.startDate) : undefined)
+          : (f.author ? `by ${f.author}` : undefined),
+        metadataAccent: f.type === 'project' && Boolean(f.startDate),
         snippet: f.syncPath || undefined,
         tags: f.tags,
         sortTimestamp: toSortTimestamp(f.startDate),
@@ -820,7 +834,10 @@ export default function NotesPage({
       return value ? formatDatePretty(value) : 'Daily Note'
     }
     if (item.type === 'habit') {
-      return (item.object.text as string | undefined)?.trim() || 'Habit'
+      const tags = Array.isArray(item.object.tags) ? item.object.tags as string[] : []
+      const date = String(item.object.date ?? '').trim()
+      const text = String(item.object.text ?? '').trim()
+      return deriveHabitCardTitle(tags, date, text)
     }
     if (item.type === 'project') {
       return (item.object.name as string | undefined)?.trim() || 'Project'
@@ -840,7 +857,7 @@ export default function NotesPage({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden pl-1.5">
-      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-2.5 px-4 py-3" style={{ borderBottom: 'none' }}>
+      <div className="ui-toolbar-panel mb-2 flex flex-wrap items-center gap-2 px-4 pb-1.5 pt-0" style={{ borderBottom: 'none' }}>
         <TooltipProvider>
           <Tooltip>
             <DropdownMenu>
@@ -960,92 +977,89 @@ export default function NotesPage({
         className={`flex min-h-0 w-full min-w-0 gap-1.5 ${activeObject && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
       >
         <div
-          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col bg-[var(--color-surface-app)]"
+          className="flex min-h-0 min-w-0 flex-col"
           style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
-          {activeObject && !isSmallScreen ? (
-            <div
-              onMouseDown={handleFileListResizeStart}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize file list"
-              className="absolute right-0 top-0 z-[2] h-full w-[6px] cursor-col-resize"
-            >
+          <div className="ui-shell-panel relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-surface-app)]">
+            {activeObject && !isSmallScreen ? (
               <div
-                className="absolute right-[2px] top-0 h-full w-px transition-colors"
-                style={{ backgroundColor: isResizingFileList ? 'rgba(243, 239, 231, 0.95)' : 'transparent' }}
-              />
-            </div>
-          ) : null}
-          <div className="border-b border-[var(--color-border-subtle)] px-5 pb-3 pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 pr-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--color-text-primary)]">All items</div>
-              </div>
-              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
-                {resultsLabel}
-              </div>
-            </div>
-            {showInbox && (
-              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
-                Inbox only — showing imported objects tagged Inbox
-              </div>
-            )}
-          </div>
-
-          <div className="ui-scroller flex-1 overflow-auto px-3 py-3">
-            {loading ? (
-              <div className="flex h-full min-h-[240px] items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
-              </div>
-            ) : allCards.length === 0 ? (
-              <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
-                {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
-              </div>
-            ) : isGalleryMode ? (
-              <div
-                className="mx-auto w-full"
-                style={{
-                  columnWidth: '272px',
-                  columnGap: '12px',
-                  maxWidth: '100%',
-                }}
+                onMouseDown={handleFileListResizeStart}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize file list"
+                className="absolute right-0 top-0 z-[2] h-full w-[6px] cursor-col-resize"
               >
-                {allCards.map((card) => {
-                  const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
-                  return (
-                    <div
-                      key={`${card.type}:${card.id}`}
-                      className="mb-3 w-full break-inside-avoid inline-block"
-                    >
+                <div
+                  className="absolute right-[2px] top-0 h-full w-px transition-colors"
+                  style={{ backgroundColor: isResizingFileList ? 'rgba(243, 239, 231, 0.95)' : 'transparent' }}
+                />
+              </div>
+            ) : null}
+
+            <div className="ui-scroller flex-1 overflow-auto px-3 py-2">
+              {loading ? (
+                <div className="flex h-full min-h-[240px] items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+                </div>
+              ) : allCards.length === 0 ? (
+                <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+                  {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
+                </div>
+              ) : isGalleryMode ? (
+                <div
+                  className="mx-auto w-full"
+                  style={{
+                    columnWidth: '272px',
+                    columnGap: '12px',
+                    maxWidth: '100%',
+                  }}
+                >
+                  {allCards.map((card) => {
+                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
+                    return (
+                      <div
+                        key={`${card.type}:${card.id}`}
+                        className="mb-3 w-full break-inside-avoid inline-block"
+                      >
+                        <NoteCard
+                          card={card}
+                          isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                          onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
+                          title={isOpenable ? 'Click to open in the detail pane' : undefined}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="mx-auto flex w-full max-w-[960px] flex-col gap-2.5">
+                  {allCards.map((card) => {
+                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
+                    return (
                       <NoteCard
+                        key={`${card.type}:${card.id}`}
                         card={card}
                         isSelected={activeNoteId === card.id && activeNoteType === card.type}
                         onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
                         title={isOpenable ? 'Click to open in the detail pane' : undefined}
                       />
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="mx-auto flex w-full max-w-[960px] flex-col gap-2.5">
-                {allCards.map((card) => {
-                  const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
-                  return (
-                    <NoteCard
-                      key={`${card.type}:${card.id}`}
-                      card={card}
-                      isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                      onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
-                      title={isOpenable ? 'Click to open in the detail pane' : undefined}
-                    />
-                  )
-                })}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="px-3 pb-1 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs text-[var(--color-text-secondary)]">{resultsLabel}</div>
+              {showInbox && (
+                <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                  <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
+                  Inbox only — showing imported objects tagged Inbox
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1057,7 +1071,7 @@ export default function NotesPage({
                   <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
                   </div>
-                  <div className="mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]">
+                  <div className={cn('mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]', activeObject.type === 'tag' || activeObject.type === 'habit' ? 'ui-tag-text' : undefined)}>
                     {getObjectPanelLabel(activeObject)}
                   </div>
                 </div>

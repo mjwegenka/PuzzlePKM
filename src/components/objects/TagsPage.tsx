@@ -188,7 +188,7 @@ export default function TagsPage() {
                   type="button"
                   key={tag}
                   onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                  className="inline-flex h-[22px] items-center rounded-full border px-2.5 text-sm text-[var(--color-text-secondary)] transition-[filter,background-color,border-color] hover:brightness-110"
+                  className="ui-tag-text inline-flex h-[22px] items-center rounded-full border px-2.5 text-sm text-[var(--color-text-secondary)] transition-[filter,background-color,border-color] hover:brightness-110"
                   style={{
                     backgroundColor: selectedTag === tag ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-sunken)',
                     borderColor: selectedTag === tag ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
@@ -210,13 +210,13 @@ export default function TagsPage() {
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
           <div className="shrink-0 border-b border-[var(--color-border-subtle)] px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
-              {selectedTag ? `#${selectedTag} — ${filteredItems.length} objects` : `All objects (${items.length})`}
+              {selectedTag ? <><span className="ui-tag-text">#{selectedTag}</span> — {filteredItems.length} objects</> : `All objects (${items.length})`}
             </p>
           </div>
           <div className="flex-1 overflow-auto">
             {filteredItems.length === 0 ? (
               <p className="block py-6 text-center text-xs text-[var(--color-text-disabled)]">
-                {selectedTag ? `No objects tagged #${selectedTag}` : 'No objects'}
+                {selectedTag ? <>No objects tagged <span className="ui-tag-text">#{selectedTag}</span></> : 'No objects'}
               </p>
             ) : (
               filteredItems.map((item, idx) => (
@@ -236,7 +236,7 @@ export default function TagsPage() {
                       {item.tags.slice(0, 2).map((t) => (
                         <span
                           key={t}
-                          className="rounded-[3px] px-1.5 py-0.5 text-xs"
+                          className="ui-tag-text rounded-[3px] px-1.5 py-0.5 text-xs"
                           style={{ backgroundColor: getObjectColor(item.type).bg, color: getObjectColor(item.type).text }}
                         >
                           #{t}
@@ -269,7 +269,7 @@ export default function TagsPage() {
             <Tag className="h-11 w-11 text-[var(--color-accent-selected)] opacity-25" />
             <p className="text-center text-sm text-[var(--color-text-disabled)]">
               {selectedTag
-                ? `Select an object tagged #${selectedTag} to edit it`
+                ? <>Select an object tagged <span className="ui-tag-text">#{selectedTag}</span> to edit it</>
                 : 'Select a tag to filter, then click an object to edit'}
             </p>
           </div>

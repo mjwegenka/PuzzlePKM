@@ -1,5 +1,5 @@
 import React from 'react'
-import { CalendarDays, NotebookPen, Repeat } from 'lucide-react'
+import { BookOpenText, CalendarDays, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
 import { Badge } from './badge'
 import { cn } from '@/lib/utils'
@@ -17,6 +17,8 @@ export interface NoteCardData {
    * habits. Leave undefined to show only the type icon + tags.
    */
   metadata?: string
+  /** Whether metadata should use the warm accent treatment instead of the default metadata tone. */
+  metadataAccent?: boolean
   /** Primary title or date — rendered large and prominent (18–20 px). */
   title: string
   /** Body preview rendered as regular body text (~14 px). */
@@ -39,8 +41,8 @@ export interface NoteCardProps {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
-  'topic-note': 'Note',
-  'daily-note': 'Daily',
+  'topic-note': 'Topic Note',
+  'daily-note': 'Daily Note',
   'habit': 'Habit',
   'project': 'Project',
   'ref-material': 'Reference',
@@ -182,7 +184,11 @@ function TypeIcon({ type }: { type: ObjectType }) {
   if (type === 'topic-note') return <NotebookPen className="h-3 w-3" />
   if (type === 'daily-note') return <CalendarDays className="h-3 w-3" />
   if (type === 'habit') return <Repeat className="h-3 w-3" />
-  return null
+  if (type === 'project') return <Folder className="h-3 w-3" />
+  if (type === 'ref-material') return <BookOpenText className="h-3 w-3" />
+  if (type === 'scripture') return <ScrollText className="h-3 w-3" />
+  if (type === 'tag') return <Hash className="h-3 w-3" />
+  return <NotebookPen className="h-3 w-3" />
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -190,10 +196,10 @@ function TypeIcon({ type }: { type: ObjectType }) {
 /**
  * Reusable card shell component.
  *
- * Content order: metadata → title → snippet → media
+ * Content order: title → metadata → snippet → media
  *
- * - Metadata row  : type icon + type label + optional metadata string + tags (caption style, 12 px)
  * - Title row     : primary text/date (prominent, 19 px)
+ * - Metadata row  : type icon + type label + optional weekday / metadata string + tags (caption style, 12 px)
  * - Snippet row   : body preview text (~14 px)
  * - Media row     : image thumbnail (bottom, if mediaUrl is provided)
  */
@@ -202,6 +208,10 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
   const contentToneClass = 'text-[var(--color-text-primary)]'
   const metaToneClass = isSelected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]'
+  const emphasizedMetadataClass = card.type === 'topic-note' || card.type === 'project'
+    ? 'font-semibold uppercase tracking-[0.08em]'
+    : undefined
+  const metadataToneClass = card.metadataAccent ? 'text-[var(--color-accent-metadata)]' : 'text-inherit'
   const chipClassName = isSelected
     ? 'border-[rgba(242,203,99,0.14)] bg-[rgba(242,203,99,0.08)] text-[var(--color-text-secondary)]'
     : 'border-[var(--color-border-subtle)] bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)]'
@@ -222,9 +232,23 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         transition: CARD_TRANSITION,
       }}
     >
-      {/* 1. Metadata row — type icon + label + optional metadata string + tags */}
+      {/* 1. Title / date — large, prominent */}
+      <div style={{ marginBottom: card.snippet || card.mediaUrl || tags.length > 0 || card.metadata || card.weekdayLabel ? '0.7rem' : 0 }}>
+        <span
+          className={cn('w-full break-words text-xl font-semibold leading-[1.25]', contentToneClass, card.type === 'tag' || card.type === 'habit' ? 'ui-tag-text' : undefined)}
+          style={{
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: 3,
+            overflow: 'hidden',
+          }}
+        >
+          {card.title || '(untitled)'}
+        </span>
+      </div>
+
+      {/* 2. Metadata row — type icon + label + optional weekday / metadata string + tags */}
       <div className={cn('mb-2.5 flex flex-wrap items-center gap-1.5', metaToneClass)}>
-        {/* Type badge */}
         <div className="flex shrink-0 items-center gap-1 text-inherit">
           <TypeIcon type={card.type} />
           <span className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'inherit' }}>
@@ -232,19 +256,23 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           </span>
         </div>
 
-        {/* Optional metadata string (e.g. formatted date for topic/habit) */}
+        {card.weekdayLabel && (
+          <span className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-accent-metadata)]">
+            {card.weekdayLabel}
+          </span>
+        )}
+
         {card.metadata && (
-          <span className="text-xs" style={{ color: 'inherit' }}>
+          <span className={cn('text-xs', emphasizedMetadataClass, metadataToneClass)} style={{ color: card.metadataAccent ? undefined : 'inherit' }}>
             · {card.metadata}
           </span>
         )}
 
-        {/* Tag chips */}
         {tags.slice(0, 3).map((tag) => (
           <Badge
             key={tag}
             variant="outline"
-            className={cn('h-5 rounded-[8px] px-2 text-xs font-medium', chipClassName)}
+            className={cn('ui-tag-text h-5 rounded-[8px] px-2 text-xs font-medium', chipClassName)}
           >
             {tag}
           </Badge>
@@ -259,34 +287,11 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         )}
       </div>
 
-      <div className={cn('flex items-start', card.weekdayLabel ? 'flex-col gap-1' : 'flex-col')} style={{ marginBottom: card.snippet || card.mediaUrl ? '0.7rem' : 0 }}>
-        {card.weekdayLabel && (
-          <span
-            className={cn('text-xs font-bold uppercase tracking-[0.08em]', 'text-[var(--color-accent-metadata)]')}
-          >
-            {card.weekdayLabel}
-          </span>
-        )}
-
-        {/* 2. Title / date — large, prominent */}
-        <span
-          className={cn('w-full break-words leading-[1.25]', contentToneClass, card.type === 'daily-note' ? 'text-xl font-semibold' : 'text-lg font-semibold')}
-          style={{
-            display: '-webkit-box',
-            WebkitBoxOrient: 'vertical',
-            WebkitLineClamp: card.type === 'daily-note' ? 2 : 3,
-            overflow: 'hidden',
-          }}
-        >
-          {card.title || '(untitled)'}
-        </span>
-      </div>
-
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <div
           className={cn('block break-words text-sm leading-[1.45] text-[var(--color-text-secondary)]')}
-          style={{ marginBottom: card.mediaUrl ? '0.25rem' : 0, overflowWrap: 'anywhere' }}
+          style={{ marginTop: '0.375rem', marginBottom: card.mediaUrl ? '0.25rem' : 0, overflowWrap: 'anywhere' }}
         >
           <MarkdownSnippet text={card.snippet} />
         </div>

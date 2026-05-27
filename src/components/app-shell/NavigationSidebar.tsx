@@ -113,6 +113,14 @@ function objectIcon(type: PinnedType): React.ReactNode {
   return <FileText className="h-4 w-4" />;
 }
 
+function deriveHabitTitle(tags: string[], date: string, fallbackText: string): string {
+  const primaryTag = tags.map((tag) => String(tag ?? '').trim()).find(Boolean);
+  if (primaryTag && date) return `${primaryTag} - ${date}`;
+  if (primaryTag) return primaryTag;
+  if (date) return date;
+  return fallbackText.trim() || 'Habit';
+}
+
 export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned, tagFilters, onToggleTagFilter }: NavigationSidebarProps) {
   const { syncing, lastSyncedAt, syncError, triggerSync } = useSyncStatus();
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
@@ -221,7 +229,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         ...habits.map((item) => ({
           id: item.id,
           type: 'habit' as const,
-          title: item.text || formatDatePretty(item.date),
+          title: deriveHabitTitle(item.tags ?? [], item.date, item.text || ''),
           tags: item.tags ?? [],
         })),
         ...files.map((item) => ({
@@ -384,7 +392,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
                     {objectIcon(item.type)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-sm leading-[1.25]">{item.title}</span>
+                  <span className={cn('min-w-0 flex-1 truncate pr-2 text-left text-sm leading-[1.25]', item.type === 'habit' ? 'ui-tag-text' : undefined)}>{item.title}</span>
                   <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       type="button"
@@ -442,9 +450,9 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             ) : null}
             <div className="flex flex-wrap gap-1.5 px-2 py-2">
               {tags.map((tag) => {
-                const value = normalizeTagFilterValue(tag.name || tag.displayName);
-                const mode = tagFilters[value];
                 const label = tag.displayName || tag.name;
+                const value = normalizeTagFilterValue(label);
+                const mode = tagFilters[value];
                 const displayLabel = label.startsWith('#') ? label : `#${label}`;
                 return (
                   <Button
@@ -463,7 +471,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     )}
                     title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
                   >
-                    <span className="truncate leading-none">{displayLabel}</span>
+                    <span className="ui-tag-text truncate leading-none">{displayLabel}</span>
                   </Button>
                 );
               })}

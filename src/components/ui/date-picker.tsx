@@ -35,7 +35,7 @@ export default function DatePicker({
   }, [value])
 
   return (
-    <div className={cn('space-y-1.5', className)}>
+    <div className={cn('space-y-2.5', className)}>
       <label className="block text-sm font-medium text-[var(--color-text-primary)]">{label}</label>
       <div className="flex items-center gap-2">
         <Popover.Root open={open} onOpenChange={setOpen}>
@@ -79,7 +79,7 @@ export default function DatePicker({
           </button>
         )}
       </div>
-      {helperText && <p className="text-xs text-[var(--color-text-disabled)]">{helperText}</p>}
+      {helperText && <p className="pt-1 text-xs text-[var(--color-text-disabled)]">{helperText}</p>}
     </div>
   )
 }

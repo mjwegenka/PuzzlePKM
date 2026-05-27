@@ -595,10 +595,11 @@ export async function listTags(): Promise<TagSummary[]> {
         const parts = line.split('\t');
         const id = parts[0] ?? '';
         const displayName = parts[1] ?? id;
+        const name = displayName || id;
         const countMatch = /^(\d+)/.exec(parts[2] ?? '0');
         return {
           id,
-          name: id,
+          name,
           displayName,
           objectCount: countMatch ? Number.parseInt(countMatch[1], 10) : 0,
         };

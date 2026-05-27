@@ -67,7 +67,7 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           <p className="text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
             {header}
           </p>
-          <h2 className="mt-1 text-xl font-bold leading-[1.2] text-[var(--color-text-primary)]">
+          <h2 className={type === 'tag' ? 'ui-tag-text mt-1 text-xl font-bold leading-[1.2] text-[var(--color-text-primary)]' : 'mt-1 text-xl font-bold leading-[1.2] text-[var(--color-text-primary)]'}>
             {title}
           </h2>
           <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
