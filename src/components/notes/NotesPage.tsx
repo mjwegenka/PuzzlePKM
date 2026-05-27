@@ -819,7 +819,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0, pl: 1.5 }}>
-      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-2.5 px-4 py-3">
+      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-2.5 px-4 py-3" style={{ borderBottom: 'none' }}>
         <TooltipProvider>
           <Tooltip>
             <DropdownMenu>
@@ -1050,14 +1050,13 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
               <Stack
                 direction="row"
                 alignItems="center"
-                gap={1}
-                sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.sunken' }}
+                sx={{ px: 2.5, pt: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.sunken' }}
               >
                 <div className="min-w-0 flex-1 px-2">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
                   </div>
-                  <div className="mt-1 truncate text-[15px] font-semibold text-[var(--color-text-primary)]">
+                  <div className="mt-1 truncate text-[16px] font-semibold text-[var(--color-text-primary)] leading-[1.2]">
                     {getObjectPanelLabel(activeObject)}
                   </div>
                 </div>

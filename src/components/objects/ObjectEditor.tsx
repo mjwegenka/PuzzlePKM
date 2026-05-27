@@ -24,7 +24,7 @@ import {
 import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../../lib/cliService'
-import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
+import { getTodayDate } from '../../lib/dateUtils'
 import { useSyncStatus } from '../../lib/syncContext'
 import type { NoteBlock } from '../../shared/types'
 
@@ -808,11 +808,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
               {/* ── TOP: Title and Date (always first) ── */}
               <Box sx={{ mb: 2.5, flexShrink: 0 }}>
-                {type === 'daily-note' && date && (
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
-                    {formatDatePretty(date)}
-                  </Typography>
-                )}
 
                 {showTitle && (
                   <div className="mb-6 space-y-1">

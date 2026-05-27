@@ -18,8 +18,9 @@
         "minWidth": 980,
         "minHeight": 640,
         "decorations": true,
+        "titleBarStyle": "Transparent",
         "resizable": true,
-        "backgroundColor": "#1b1d20"
+        "backgroundColor": "#1c1c1e"
       }
     ],
     "security": {

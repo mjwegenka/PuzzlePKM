@@ -50,7 +50,7 @@ const PINNED_ORDER_STORAGE_KEY = 'puzzlepkm:pinned-order:v1';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'puzzlepkm:sidebar-width:v1';
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 360;
-const SIDEBAR_DEFAULT_WIDTH = 272;
+const SIDEBAR_DEFAULT_WIDTH = SIDEBAR_MIN_WIDTH;
 
 const navItems: NavigationItem[] = [
   { id: 'library', label: 'Library', icon: <BookOpen className="h-[21px] w-[21px]" /> },
@@ -301,7 +301,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   return (
     <TooltipProvider>
       <aside
-        className="relative flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] px-2 pb-2"
+        className="relative flex shrink-0 flex-col overflow-hidden bg-[var(--color-surface-app)] px-2 pb-2"
         style={{
           width: sidebarWidth,
           paddingTop: '12px',
@@ -440,7 +440,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             {tags.length === 0 && !loadingTags ? (
               <div className="px-2.5 py-2 text-[11px] text-[var(--color-text-disabled)]">No tags yet</div>
             ) : null}
-            <div className="flex flex-wrap gap-2 px-2 py-2">
+            <div className="flex flex-wrap gap-1.5 px-2 py-2">
               {tags.map((tag) => {
                 const value = normalizeTagFilterValue(tag.name || tag.displayName);
                 const mode = tagFilters[value];
@@ -454,7 +454,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     onClick={() => onToggleTagFilter(value)}
                     aria-pressed={Boolean(mode)}
                     className={cn(
-                      'h-auto min-h-[36px] max-w-full justify-start rounded-[12px] border px-3 py-1.5 text-[12px] font-semibold transition-[background-color,border-color,color]',
+                      'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-[8px] font-semibold leading-none transition-[background-color,border-color,color]',
                       mode === 'include'
                         ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
                         : mode === 'exclude'
@@ -463,7 +463,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     )}
                     title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
                   >
-                    <span className="truncate">{displayLabel}</span>
+                    <span className="truncate leading-none">{displayLabel}</span>
                   </Button>
                 );
               })}
