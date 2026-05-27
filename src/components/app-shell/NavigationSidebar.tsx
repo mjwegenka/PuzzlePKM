@@ -85,6 +85,15 @@ function formatLastSynced(date: Date | null): string {
   return `Synced ${Math.floor(diff / 3600)}h ago`;
 }
 
+function formatSyncStatusCompact(date: Date | null): string {
+  if (!date) return 'Never';
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 5) return 'Just now';
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
 function makePinnedKey(item: { id: string; type: PinnedType }): string {
   return `${item.type}:${item.id}`;
 }
@@ -287,6 +296,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   }, [persistPinnedOrder]);
 
   const syncTooltip = syncError ?? (syncing ? 'Syncing…' : formatLastSynced(lastSyncedAt));
+  const hasActiveTagSelection = Object.values(tagFilters).some(Boolean);
 
   return (
     <TooltipProvider>
@@ -311,7 +321,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         </div>
 
         <div className="ui-scroller flex flex-1 flex-col overflow-auto px-0.5 pb-2">
-          <div className="mb-3 px-0.5 pb-2">
+          <div className="mb-4 px-1 pb-2">
           {navItems.map((item) => {
             const selected = currentSection === item.id;
             return (
@@ -321,16 +331,23 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 variant="ghost"
                 onClick={() => onNavigate(item.id)}
                 className={cn(
-                  'mb-0.5 h-9 w-full justify-start rounded-[8px] px-3 py-1 text-[13px] font-medium transition-[background-color,color]',
+                  'mb-1 h-10 w-full justify-start gap-3 rounded-[12px] border px-3 py-2 text-[13px] font-semibold transition-[background-color,border-color,color]',
                   selected
-                    ? 'bg-[var(--color-surface-control)] text-[var(--color-accent-metadata)]'
-                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                    ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
+                    : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
                 )}
               >
-                <span className={cn('mr-2 flex h-5 w-5 items-center justify-center', selected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')}>
+                <span
+                  className={cn(
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-transparent bg-[var(--color-surface-sunken)]/60',
+                    selected
+                      ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
+                      : 'text-[var(--color-text-disabled)]',
+                  )}
+                >
                   {item.icon}
                 </span>
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </Button>
             );
           })}
@@ -362,12 +379,12 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   type="button"
                   variant="ghost"
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  className="relative mb-0.5 h-8 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  className="relative mb-0.5 h-7.5 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
                 >
                   <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
                     {objectIcon(item.type)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-[12px] leading-[1.25]">{item.title}</span>
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-[11px] leading-[1.25]">{item.title}</span>
                   <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       type="button"
@@ -419,43 +436,42 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           ) : null}
 
           <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
-            <StackedTagsHeader loadingTags={loadingTags} count={tags.length} />
+            <StackedTagsHeader loadingTags={loadingTags} count={tags.length} hasActiveFilters={hasActiveTagSelection} />
             {tags.length === 0 && !loadingTags ? (
               <div className="px-2.5 py-2 text-[11px] text-[var(--color-text-disabled)]">No tags yet</div>
             ) : null}
-            {tags.map((tag) => {
-              const value = normalizeTagFilterValue(tag.name || tag.displayName);
-              const mode = tagFilters[value];
-              return (
-                <Button
-                  key={tag.id}
-                  type="button"
-                  variant="ghost"
-                  onClick={() => onToggleTagFilter(value)}
-                  aria-pressed={Boolean(mode)}
-                  className={cn(
-                    'mb-0.5 h-8 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[12px] font-medium transition-[background-color,border-color,color]',
-                    mode === 'include'
-                      ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]'
-                      : mode === 'exclude'
-                        ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
-                        : 'text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
-                  )}
-                  title={mode === 'include' ? 'Included in current filter. Click to exclude.' : mode === 'exclude' ? 'Excluded from current filter. Click to clear.' : 'Click to include this tag.'}
-                >
-                  <Hash className={cn('h-3.5 w-3.5 shrink-0', mode === 'include' ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')} />
-                  <span className="min-w-0 flex-1 truncate text-left">{tag.displayName || tag.name}</span>
-                  <span className="text-[10px] text-[var(--color-text-disabled)] no-underline">{tag.objectCount}</span>
-                </Button>
-              );
-            })}
+            <div className="flex flex-wrap gap-2 px-2 py-2">
+              {tags.map((tag) => {
+                const value = normalizeTagFilterValue(tag.name || tag.displayName);
+                const mode = tagFilters[value];
+                const label = tag.displayName || tag.name;
+                const displayLabel = label.startsWith('#') ? label : `#${label}`;
+                return (
+                  <Button
+                    key={tag.id}
+                    type="button"
+                    variant="ghost"
+                    onClick={() => onToggleTagFilter(value)}
+                    aria-pressed={Boolean(mode)}
+                    className={cn(
+                      'h-auto min-h-[36px] max-w-full justify-start rounded-[12px] border px-3 py-1.5 text-[12px] font-semibold transition-[background-color,border-color,color]',
+                      mode === 'include'
+                        ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
+                        : mode === 'exclude'
+                          ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
+                          : 'border-transparent bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                    )}
+                    title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
+                  >
+                    <span className="truncate">{displayLabel}</span>
+                  </Button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        <div className="mb-2 border-t border-[var(--color-border-subtle)]/80 px-2 py-3">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-            Sync
-          </div>
+        <div className="mb-2 border-t border-[var(--color-border-subtle)]/80 px-2 py-2.5">
           <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -477,14 +493,11 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </Tooltip>
           <div className="min-w-0 flex-1">
             <span
-               className="block truncate whitespace-nowrap text-[11px] font-medium leading-[1.35]"
+               className="block truncate whitespace-nowrap text-[10px] font-medium leading-[1.35]"
                style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
             >
-              {syncing ? 'Syncing…' : syncError ? 'Sync error' : formatLastSynced(lastSyncedAt)}
+              {syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last sync ${formatSyncStatusCompact(lastSyncedAt)}`}
             </span>
-                <span className="block truncate text-[10px] leading-[1.35] text-[var(--color-text-disabled)]">
-                  Keep local changes and sync state aligned.
-                </span>
           </div>
           </div>
         </div>
@@ -494,7 +507,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   );
 }
 
-function StackedTagsHeader({ loadingTags, count }: { loadingTags: boolean; count: number }) {
+function StackedTagsHeader({ loadingTags, count, hasActiveFilters }: { loadingTags: boolean; count: number; hasActiveFilters: boolean }) {
   return (
     <div className="flex min-h-[28px] items-center gap-1.5 px-2 py-1">
       <Hash className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
@@ -502,8 +515,8 @@ function StackedTagsHeader({ loadingTags, count }: { loadingTags: boolean; count
         Tags
       </span>
       {loadingTags ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
-        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-text-disabled)]">
-          {count}
+        <span className="text-[10px] font-medium text-[var(--color-accent-metadata)]">
+          {count === 0 ? 'No tags' : hasActiveFilters ? 'Filtered' : 'All selected'}
         </span>
       )}
     </div>

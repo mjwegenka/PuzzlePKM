@@ -793,12 +793,6 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   const activeNoteId = activeObject?.objectId ?? null
   const isGalleryMode = !activeObject
   const resultsLabel = allCards.length === 1 ? '1 item' : `${allCards.length} items`
-  const boardStatusLabel = loading
-    ? 'Loading library'
-    : boardFilter || showInbox || hasActiveBoardFilters
-      ? `Filtered • ${resultsLabel}`
-      : resultsLabel
-
   const getObjectPanelLabel = (item: ActiveLibraryObject) => {
     if (item.type === 'daily-note') {
       const value = item.object.date as string | undefined
@@ -824,14 +818,68 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0 }}>
-      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3">
-        <div className="min-w-[180px] flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Library</div>
-          <div className="mt-1 text-sm text-[var(--color-text-secondary)]">{boardStatusLabel}</div>
-        </div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0, pl: 1.5 }}>
+      <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-2.5 px-4 py-3">
+        <TooltipProvider>
+          <Tooltip>
+            <DropdownMenu>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Create a new object"
+                    className="h-10 w-10 rounded-[10px]"
+                  >
+                    <SquarePen className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
+                  <span className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-2">
+                      <NotebookPen className="h-4 w-4" />
+                      Topic Note
+                    </span>
+                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a titled note</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
+                  <span className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-2">
+                      <CalendarDays className="h-4 w-4" />
+                      Daily Note
+                    </span>
+                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
+                  <span className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-2">
+                      <Repeat2 className="h-4 w-4" />
+                      Habit
+                    </span>
+                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <TooltipContent>Create a new object</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
-        <div className="ui-scroller flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
+        <Button
+          size="icon"
+          variant={showInbox ? 'outline' : 'ghost'}
+          onClick={() => setShowInbox((v) => !v)}
+          title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+          className={showInbox ? 'h-10 w-10 rounded-[10px] border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : 'h-10 w-10 rounded-[10px]'}
+        >
+          <Inbox className="h-[18px] w-[18px]" />
+        </Button>
+
+        <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <FilterChip
@@ -858,19 +906,6 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
             </DropdownMenuContent>
           </DropdownMenu>
 
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative w-[248px] max-w-full shrink-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
-            <Input
-              placeholder="Search"
-              value={boardFilter}
-              onChange={(e) => setBoardFilter(e.target.value)}
-              className="h-10 w-full rounded-[10px] pl-10 pr-4 text-sm"
-            />
-          </div>
-
           <Select value={boardSort} onValueChange={(value) => setBoardSort(value as BoardSort)}>
             <SelectTrigger aria-label="Sort notes" className="h-10 w-[168px] rounded-[10px] border-[var(--color-border-subtle)] bg-[var(--color-surface-control)]/88 text-xs text-[var(--color-text-primary)]">
               <span className="flex items-center gap-2">
@@ -885,65 +920,17 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
               <SelectItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</SelectItem>
             </SelectContent>
           </Select>
+        </div>
 
-          <TooltipProvider>
-            <Tooltip>
-              <DropdownMenu>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      aria-label="Create a new object"
-                      className="h-10 w-10 rounded-[10px]"
-                    >
-                      <SquarePen className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
-                    <span className="flex flex-col gap-0.5">
-                      <span className="flex items-center gap-2">
-                        <NotebookPen className="h-4 w-4" />
-                        Topic Note
-                      </span>
-                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a titled note</span>
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
-                    <span className="flex flex-col gap-0.5">
-                      <span className="flex items-center gap-2">
-                        <CalendarDays className="h-4 w-4" />
-                        Daily Note
-                      </span>
-                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
-                    <span className="flex flex-col gap-0.5">
-                      <span className="flex items-center gap-2">
-                        <Repeat2 className="h-4 w-4" />
-                        Habit
-                      </span>
-                      <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
-                    </span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <TooltipContent>Create a new object</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <Button
-            size="icon"
-            variant={showInbox ? 'outline' : 'ghost'}
-            onClick={() => setShowInbox((v) => !v)}
-            title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-            className={showInbox ? 'h-11 w-11 rounded-[10px] border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : 'h-11 w-11 rounded-[10px]'}
-          >
-            <Inbox className="h-[18px] w-[18px]" />
-          </Button>
+        <div className="relative ml-auto w-[248px] max-w-full min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+          <Input
+            placeholder="Search"
+            value={boardFilter}
+            onChange={(e) => setBoardFilter(e.target.value)}
+            className="h-10 w-full rounded-[10px] pr-4 text-sm"
+            style={{ paddingLeft: '2.5rem' }}
+          />
         </div>
       </div>
 
@@ -974,15 +961,15 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
           <div className="border-b border-[var(--color-border-subtle)] px-5 pb-3 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 pr-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
-                <div className="mt-1 text-base font-semibold text-[var(--color-text-primary)]">All items</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
+                <div className="mt-1 text-[15px] font-semibold text-[var(--color-text-primary)]">All items</div>
               </div>
-              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-[11px] leading-none text-[var(--color-text-secondary)]">
+              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-[10px] leading-none text-[var(--color-text-secondary)]">
                 {resultsLabel}
               </div>
             </div>
             {showInbox && (
-              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
+              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-[10px] text-[var(--color-text-secondary)]">
                 <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
                 Inbox only — showing imported objects tagged Inbox
               </div>
@@ -1012,7 +999,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                   return (
                     <div
                       key={`${card.type}:${card.id}`}
-                      className="mb-3 w-full break-inside-avoid"
+                      className="mb-3 w-full break-inside-avoid inline-block"
                     >
                       <NoteCard
                         card={card}
@@ -1067,15 +1054,15 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                 sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.sunken' }}
               >
                 <div className="min-w-0 flex-1 px-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
                   </div>
-                  <div className="mt-1 truncate text-base font-semibold text-[var(--color-text-primary)]">
+                  <div className="mt-1 truncate text-[15px] font-semibold text-[var(--color-text-primary)]">
                     {getObjectPanelLabel(activeObject)}
                   </div>
                 </div>
                 {activeObject.isDirty ? (
-                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[11px] leading-none text-[var(--color-text-secondary)]">
+                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[10px] leading-none text-[var(--color-text-secondary)]">
                     Unsaved
                   </div>
                 ) : null}

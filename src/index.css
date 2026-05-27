@@ -117,7 +117,6 @@
 * {
   box-sizing: border-box;
   margin: 0;
-  padding: 0;
   border-color: hsl(var(--border));
 }
 
@@ -171,8 +170,8 @@ textarea {
 .ProseMirror {
   outline: none;
   min-height: 200px;
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.65;
   color: var(--color-text-primary);
   padding: 0.1rem 0;
 }

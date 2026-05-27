@@ -78,10 +78,10 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
             {header}
           </Typography>
-          <Typography variant="h4" sx={{ fontSize: '1.8rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2, mt: 0.5 }}>
+          <Typography variant="h4" sx={{ fontSize: '1.45rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2, mt: 0.5 }}>
             {title}
           </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75, fontSize: '0.85rem' }}>
             {subtitle}
           </Typography>
           {type === 'scripture' && String(object?.passageUrl ?? '').trim() && (
@@ -125,10 +125,10 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
                     className="h-auto w-full justify-start rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-2 text-left"
                   >
                     <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                      <span className="truncate text-sm font-medium text-[var(--color-text-primary)]">
+                        <span className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">
                         {primaryLabel}
                       </span>
-                      <span className="truncate text-[11px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                        <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                         {secondaryLabel || 'object'}
                       </span>
                     </span>

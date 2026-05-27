@@ -718,14 +718,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           <Stack sx={{ flex: 1, minHeight: 0, gap: 0, overflow: 'hidden' }}>
             <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
               <div className="mb-6 space-y-1">
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
                 </label>
                 <Input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
-                  className="h-11 text-base font-semibold"
+                  className="h-10 text-[15px] font-semibold"
                 />
               </div>
 
@@ -747,7 +747,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
               {type === 'ref-material' && (
                 <div className="mt-7 space-y-1">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                  <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
                   <Input
@@ -809,21 +809,21 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               {/* ── TOP: Title and Date (always first) ── */}
               <Box sx={{ mb: 2.5, flexShrink: 0 }}>
                 {type === 'daily-note' && date && (
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
                     {formatDatePretty(date)}
                   </Typography>
                 )}
 
                 {showTitle && (
                   <div className="mb-6 space-y-1">
-                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                       {type === 'topic-note' ? 'Title' : 'Name'}
                     </label>
                     <Input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
-                      className="h-11 text-base font-semibold"
+                      className="h-10 text-[15px] font-semibold"
                     />
                   </div>
                 )}
@@ -941,7 +941,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1">
-              <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+              <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                 Tag name
               </label>
               <Input
