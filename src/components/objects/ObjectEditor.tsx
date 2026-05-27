@@ -844,24 +844,36 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
               {/* ── MIDDLE: Main content (fills remaining space) ── */}
               {showContent && (
-                <div className="relative mb-2 flex min-h-0 overflow-hidden">
-                  <RichMarkdownEditor
-                    label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
-                    value={content}
-                    onChange={setContent}
-                    placeholder={
-                      isNoteType
-                        ? 'Write your note… type @ to link another object'
-                        : type === 'habit' ? 'Optional habit notes…' : 'Any notes…'
-                    }
-                    mentionEnabled={isNoteType}
-                    resolveMentionHref={resolveMentionHref}
-                    blocks={isNoteType ? noteBlocks : undefined}
-                    onBlocksChange={isNoteType ? setNoteBlocks : undefined}
-                    maxLength={type === 'habit' ? 255 : undefined}
-                    onShiftClickLink={handleShiftClickLink}
-                  />
-                </div>
+                isHabit ? (
+                  <div className="mb-2 space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                      Habit text (optional)
+                    </label>
+                    <Input
+                      value={content}
+                      onChange={(e) => setContent(e.target.value.replace(/\r?\n/g, ' '))}
+                      placeholder="Habit text…"
+                      maxLength={255}
+                    />
+                    <p className="text-xs text-[var(--color-text-disabled)]">
+                      {content.length}/255
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative mb-2 flex min-h-0 overflow-hidden">
+                    <RichMarkdownEditor
+                      label="Content"
+                      value={content}
+                      onChange={setContent}
+                      placeholder="Write your note… type @ to link another object"
+                      mentionEnabled={isNoteType}
+                      resolveMentionHref={resolveMentionHref}
+                      blocks={isNoteType ? noteBlocks : undefined}
+                      onBlocksChange={isNoteType ? setNoteBlocks : undefined}
+                      onShiftClickLink={handleShiftClickLink}
+                    />
+                  </div>
+                )
               )}
 
               {/* ── BOTTOM: Relationships + Tags ── */}

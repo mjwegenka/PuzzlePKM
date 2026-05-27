@@ -115,9 +115,10 @@ function objectIcon(type: PinnedType): React.ReactNode {
 
 function deriveHabitTitle(tags: string[], date: string, fallbackText: string): string {
   const primaryTag = tags.map((tag) => String(tag ?? '').trim()).find(Boolean);
-  if (primaryTag && date) return `${primaryTag} - ${date}`;
+  const friendlyDate = date ? formatDatePretty(date) : '';
+  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`;
   if (primaryTag) return primaryTag;
-  if (date) return date;
+  if (friendlyDate) return friendlyDate;
   return fallbackText.trim() || 'Habit';
 }
 

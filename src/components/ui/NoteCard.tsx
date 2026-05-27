@@ -27,6 +27,8 @@ export interface NoteCardData {
   mediaUrl?: string
   /** Tag display names shown as small chips in the metadata row. */
   tags: string[]
+  /** Hide rendered tag chips while retaining tags in the backing card payload. */
+  hideTags?: boolean
 }
 
 export interface NoteCardProps {
@@ -205,7 +207,9 @@ function TypeIcon({ type }: { type: ObjectType }) {
  */
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
   const tags = card.tags ?? []
+  const visibleTags = card.hideTags || card.type === 'tag' ? [] : tags
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
+  const isTagCard = card.type === 'tag'
   const contentToneClass = 'text-[var(--color-text-primary)]'
   const metaToneClass = isSelected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]'
   const emphasizedMetadataClass = card.type === 'topic-note' || card.type === 'project'
@@ -233,9 +237,9 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       }}
     >
       {/* 1. Title / date — large, prominent */}
-      <div style={{ marginBottom: card.snippet || card.mediaUrl || tags.length > 0 || card.metadata || card.weekdayLabel ? '0.7rem' : 0 }}>
+      <div style={{ marginBottom: card.snippet || card.mediaUrl || visibleTags.length > 0 || card.metadata || card.weekdayLabel ? '0.7rem' : 0 }}>
         <span
-          className={cn('w-full break-words text-xl font-semibold leading-[1.25]', contentToneClass, card.type === 'tag' || card.type === 'habit' ? 'ui-tag-text' : undefined)}
+          className={cn('w-full break-words text-xl font-semibold leading-[1.25]', contentToneClass, card.type === 'tag' ? 'ui-tag-text' : undefined)}
           style={{
             display: '-webkit-box',
             WebkitBoxOrient: 'vertical',
@@ -263,12 +267,19 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         )}
 
         {card.metadata && (
-          <span className={cn('text-xs', emphasizedMetadataClass, metadataToneClass)} style={{ color: card.metadataAccent ? undefined : 'inherit' }}>
-            · {card.metadata}
+          <span
+            className={cn(
+              'text-xs',
+              isTagCard ? 'font-bold uppercase tracking-[0.08em] text-[var(--color-accent-metadata)]' : emphasizedMetadataClass,
+              isTagCard ? undefined : metadataToneClass,
+            )}
+            style={{ color: card.metadataAccent || isTagCard ? undefined : 'inherit' }}
+          >
+            {isTagCard ? card.metadata : `· ${card.metadata}`}
           </span>
         )}
 
-        {tags.slice(0, 3).map((tag) => (
+        {visibleTags.slice(0, 3).map((tag) => (
           <Badge
             key={tag}
             variant="outline"
@@ -277,12 +288,12 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
             {tag}
           </Badge>
         ))}
-        {tags.length > 3 && (
+        {visibleTags.length > 3 && (
           <Badge
             variant="outline"
             className={cn('h-5 rounded-[8px] px-2 text-xs font-medium', chipClassName)}
           >
-            +{tags.length - 3}
+            +{visibleTags.length - 3}
           </Badge>
         )}
       </div>

@@ -52,7 +52,7 @@ import {
   listTopicNoteMeta,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
-import { formatDatePretty, formatWeekdayFull, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
+import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
 import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
 import { cn } from '@/lib/utils'
 
@@ -238,10 +238,11 @@ function deriveHabitCardTitle(tags: string[], date: string, text: string): strin
   const primaryTag = tags
     .map((tag) => String(tag ?? '').trim())
     .find(Boolean)
+  const friendlyDate = date ? formatDatePretty(date) : ''
 
-  if (primaryTag && date) return `${primaryTag} - ${date}`
+  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
   if (primaryTag) return primaryTag
-  if (date) return date
+  if (friendlyDate) return friendlyDate
   return sanitizeCardText(text) || '(no text)'
 }
 
@@ -755,10 +756,10 @@ export default function NotesPage({
         id: n.id,
         type: 'habit' as NoteType,
         title: deriveHabitCardTitle(n.tags, n.date, n.text),
-        weekdayLabel: n.date ? formatWeekdayShort(n.date) : undefined,
-        metadata: n.date ? formatDatePretty(n.date) : undefined,
-        metadataAccent: Boolean(n.date),
+        weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
+        snippet: sanitizeCardPreview(n.text) || undefined,
         tags: n.tags,
+        hideTags: true,
         sortTimestamp: toSortTimestamp(n.date),
       }))
 
@@ -1066,7 +1067,7 @@ export default function NotesPage({
         {activeObject && (
           <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
             <>
-              <div className="flex items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 pb-1.5 pt-2">
+              <div className="flex items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 pb-3 pt-3">
                 <div className="min-w-0 flex-1 px-2">
                   <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
