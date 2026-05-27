@@ -1,9 +1,8 @@
 import React from 'react'
-import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
-import NoteAddIcon from '@mui/icons-material/NoteAdd'
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
-import RepeatIcon from '@mui/icons-material/Repeat'
+import { CalendarDays, NotebookPen, Repeat } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
+import { Badge } from './badge'
+import { cn } from '@/lib/utils'
 import { cardSpacingTokens } from '@/theme'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,7 +49,6 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'tag': 'Tag',
 }
 
-const CARD_HOVER_SHADOW = '0 8px 18px rgba(3, 10, 21, 0.18)'
 const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
 const MARKDOWN_LINK_REGEX = /!\[([^]]*)]\(([^)\s]+)\)|\[([^]]+)]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g
 
@@ -88,16 +86,16 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
       const label = imageAlt || imageHref
       if (safeHref) {
         nodes.push(
-          <Box
+          <a
             key={`${keyPrefix}-media-${start}`}
-            component="a"
             href={safeHref}
             target="_blank"
             rel="noreferrer"
-            sx={{ color: 'accent.link', textDecoration: 'underline', fontStyle: 'italic' }}
+            className="italic underline"
+            style={{ color: 'var(--color-accent-link)' }}
           >
             media: {label}
-          </Box>,
+          </a>,
         )
       } else {
         nodes.push(<React.Fragment key={`${keyPrefix}-media-text-${start}`}>media: {label}</React.Fragment>)
@@ -107,29 +105,29 @@ function renderMarkdownInline(text: string, keyPrefix: string): React.ReactNode[
       const isMedia = isMediaHref(linkHref)
       if (safeHref) {
         nodes.push(
-          <Box
+          <a
             key={`${keyPrefix}-link-${start}`}
-            component="a"
             href={safeHref}
             target="_blank"
             rel="noreferrer"
-            sx={{ color: 'accent.link', textDecoration: 'underline', fontStyle: isMedia ? 'italic' : 'normal' }}
+            className={cn('underline', isMedia ? 'italic' : undefined)}
+            style={{ color: 'var(--color-accent-link)' }}
           >
             {isMedia ? `media: ${linkLabel}` : linkLabel}
-          </Box>,
+          </a>,
         )
       } else {
         nodes.push(<React.Fragment key={`${keyPrefix}-link-text-${start}`}>{linkLabel}</React.Fragment>)
       }
     } else if (inlineCode) {
       nodes.push(
-        <Box
+        <code
           key={`${keyPrefix}-code-${start}`}
-          component="code"
-          sx={{ px: 0.5, borderRadius: 0.5, bgcolor: 'action.hover', color: 'accent.link', fontFamily: 'monospace' }}
+          className="rounded-sm px-0.5 font-mono"
+          style={{ backgroundColor: 'var(--color-action-hover)', color: 'var(--color-accent-link)' }}
         >
           {inlineCode}
-        </Box>,
+        </code>,
       )
     } else if (boldA || boldB) {
       nodes.push(<strong key={`${keyPrefix}-bold-${start}`}>{boldA || boldB}</strong>)
@@ -153,34 +151,33 @@ function MarkdownSnippet({ text }: { text: string }) {
   const lines = text.split('\n')
 
   return (
-    <Box sx={{ display: 'grid', gap: 0.25 }}>
+    <div className="grid gap-1">
       {lines.map((line, index) => {
         const trimmed = line.trim()
         const bulletMatch = /^\s*[-*+]\s+(.*)$/.exec(line)
         const orderedMatch = /^\s*(\d+)[.)]\s+(.*)$/.exec(line)
         const content = bulletMatch?.[1] ?? orderedMatch?.[2] ?? line
 
-        if (!trimmed) return <Box key={`line-${index}`} sx={{ minHeight: '1em' }} />
+        if (!trimmed) return <div key={`line-${index}`} className="min-h-[1em]" />
 
         return (
-          <Box key={`line-${index}`} sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
-            {bulletMatch && <Box component="span" sx={{ color: 'accent.link', minWidth: '0.75em' }}>•</Box>}
-            {orderedMatch && <Box component="span" sx={{ color: 'accent.link', minWidth: '1.35em' }}>{orderedMatch[1]}.</Box>}
-            <Box component="span" sx={{ minWidth: 0 }}>
+          <div key={`line-${index}`} className="flex items-start gap-3">
+            {bulletMatch && <span style={{ color: 'var(--color-accent-link)', minWidth: '0.75em' }}>•</span>}
+            {orderedMatch && <span style={{ color: 'var(--color-accent-link)', minWidth: '1.35em' }}>{orderedMatch[1]}.</span>}
+            <span className="min-w-0">
               {renderMarkdownInline(content, `line-${index}`)}
-            </Box>
-          </Box>
+            </span>
+          </div>
         )
       })}
-    </Box>
+    </div>
   )
 }
 
 function TypeIcon({ type }: { type: ObjectType }) {
-  const sx = { fontSize: 11 }
-  if (type === 'topic-note') return <NoteAddIcon sx={sx} />
-  if (type === 'daily-note') return <CalendarTodayIcon sx={sx} />
-  if (type === 'habit') return <RepeatIcon sx={sx} />
+  if (type === 'topic-note') return <NotebookPen className="h-3 w-3" />
+  if (type === 'daily-note') return <CalendarDays className="h-3 w-3" />
+  if (type === 'habit') return <Repeat className="h-3 w-3" />
   return null
 }
 
@@ -199,173 +196,96 @@ function TypeIcon({ type }: { type: ObjectType }) {
 export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardProps) {
   const tags = card.tags ?? []
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
-  const interactiveProps = onClick
-    ? ({ component: 'button', type: 'button' } as const)
-    : ({ component: 'div' } as const)
 
   return (
-    <Paper
-      {...interactiveProps}
+    <div
       onClick={onClick}
       title={title}
-      sx={(theme) => ({
-        bgcolor: theme.palette.surface.elevated,
-        border: `1px solid ${isSelected ? theme.palette.accent.selected : theme.palette.border.subtle}`,
-        boxShadow: isSelected
-          ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}`
-          : 'none',
-        borderRadius: '10px',
-        p: cardSpacingTokens.cardPadding,
-        cursor: onClick ? 'pointer' : 'default',
+      className={cn(
+        'w-full break-inside-avoid rounded-[10px] border bg-[var(--color-surface-elevated)] text-left transition-[background-color,border-color,box-shadow]',
+        onClick ? 'cursor-pointer hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-sunken)]' : 'cursor-default',
+      )}
+      style={{
+        padding: cardSpacingTokens.cardPadding,
+        borderColor: isSelected ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
+        boxShadow: isSelected ? '0 0 0 1px var(--color-accent-selected), 0 0 10px var(--color-action-focus)' : 'none',
         transition: CARD_TRANSITION,
-        breakInside: 'avoid',
-        textAlign: onClick ? 'left' : undefined,
-        width: '100%',
-        font: onClick ? 'inherit' : undefined,
-        appearance: onClick ? 'none' : undefined,
-        '&:hover': onClick
-          ? {
-              bgcolor: theme.palette.surface.sunken,
-              borderColor: isSelected ? theme.palette.accent.selected : theme.palette.border.strong,
-              boxShadow: isSelected
-                ? `0 0 0 1px ${theme.palette.accent.selected}, 0 0 10px ${theme.palette.action.focus}, ${CARD_HOVER_SHADOW}`
-                : CARD_HOVER_SHADOW,
-            }
-          : {},
-      })}
+      }}
     >
       {/* 1. Metadata row — type icon + label + optional metadata string + tags */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        flexWrap="wrap"
-        gap={0.5}
-        sx={{ mb: 0.75, color: 'text.disabled' }}
-      >
+      <div className="mb-3 flex flex-wrap items-center gap-0.5 text-[var(--color-text-disabled)]">
         {/* Type badge */}
-        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ color: 'inherit', flexShrink: 0 }}>
+        <div className="flex shrink-0 items-center gap-0.5 text-inherit">
           <TypeIcon type={card.type} />
-          <Typography
-            component="span"
-            variant="metadata-caption"
-            sx={{
-              color: 'inherit',
-              textTransform: 'uppercase',
-            }}
-          >
+          <span className="text-[11px] uppercase" style={{ color: 'inherit' }}>
             {typeLabel}
-          </Typography>
-        </Stack>
+          </span>
+        </div>
 
         {/* Optional metadata string (e.g. formatted date for topic/habit) */}
         {card.metadata && (
-          <Typography
-            component="span"
-            variant="metadata-caption"
-            sx={{ color: 'inherit' }}
-          >
+          <span className="text-[11px]" style={{ color: 'inherit' }}>
             · {card.metadata}
-          </Typography>
+          </span>
         )}
 
         {/* Tag chips */}
         {tags.slice(0, 3).map((tag) => (
-          <Chip
+          <Badge
             key={tag}
-            label={tag}
-            size="small"
-            sx={{
-              height: 16,
-              fontSize: '9px',
-              bgcolor: 'surface.sunken',
-              color: 'text.secondary',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-            }}
-          />
+            variant="outline"
+            className="h-4 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-1.5 text-[9px] text-[var(--color-text-secondary)]"
+          >
+            {tag}
+          </Badge>
         ))}
         {tags.length > 3 && (
-          <Chip
-            label={`+${tags.length - 3}`}
-            size="small"
-            sx={{
-              height: 16,
-              fontSize: '9px',
-              bgcolor: 'surface.sunken',
-              color: 'text.secondary',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-            }}
-          />
+          <Badge
+            variant="outline"
+            className="h-4 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-1.5 text-[9px] text-[var(--color-text-secondary)]"
+          >
+            +{tags.length - 3}
+          </Badge>
         )}
-      </Stack>
+      </div>
 
-      <Stack
-        alignItems="flex-start"
-        spacing={card.weekdayLabel ? 0.25 : 0}
-        sx={{ mb: card.snippet || card.mediaUrl ? 0.75 : 0 }}
-      >
+      <div className={cn('flex items-start', card.weekdayLabel ? 'flex-col gap-1' : 'flex-col')} style={{ marginBottom: card.snippet || card.mediaUrl ? '0.75rem' : 0 }}>
         {card.weekdayLabel && (
-          <Typography
-            variant="metadata-caption"
-            sx={{
-              color: 'accent.metadata',
-              fontSize: '10px',
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
+          <span
+            className="text-[10px] font-bold uppercase tracking-[0.08em]"
+            style={{ color: 'var(--color-accent-metadata)' }}
           >
             {card.weekdayLabel}
-          </Typography>
+          </span>
         )}
 
         {/* 2. Title / date — large, prominent */}
-        <Typography
-          variant={card.type === 'daily-note' ? 'card-date' : 'card-title'}
-          sx={{
-            color: 'text.primary',
-            wordBreak: 'break-word',
-            width: '100%',
-          }}
+        <span
+          className={cn('w-full break-words text-[var(--color-text-primary)]', card.type === 'daily-note' ? 'text-[20px] font-bold' : 'text-[19px] font-semibold')}
         >
           {card.title || '(untitled)'}
-        </Typography>
-      </Stack>
+        </span>
+      </div>
 
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
-        <Box
-          sx={(theme) => ({
-            ...theme.typography['snippet-body'],
-            color: 'text.secondary',
-            wordBreak: 'break-word',
-            display: 'block',
-            overflow: 'hidden',
-            maxHeight: '5.6em',
-            mb: card.mediaUrl ? 1 : 0,
-          })}
+        <div
+          className="block max-h-[5.6em] overflow-hidden break-words text-sm leading-5 text-[var(--color-text-secondary)]"
+          style={{ marginBottom: card.mediaUrl ? '0.25rem' : 0 }}
         >
           <MarkdownSnippet text={card.snippet} />
-        </Box>
+        </div>
       )}
 
       {/* 4. Media thumbnail — at the bottom if present */}
       {card.mediaUrl && (
-        <Box
-          component="img"
+        <img
           src={card.mediaUrl}
           alt=""
-          sx={{
-            width: '100%',
-            borderRadius: '6px',
-            objectFit: 'cover',
-            maxHeight: 140,
-            display: 'block',
-          }}
+          className="block max-h-[140px] w-full rounded-[6px] object-cover"
         />
       )}
-    </Paper>
+    </div>
   )
 }
 
