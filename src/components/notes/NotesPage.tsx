@@ -385,6 +385,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
   const [createMenuAnchorEl, setCreateMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [objectTypeMenuAnchorEl, setObjectTypeMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [tagMenuAnchorEl, setTagMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
 
   // Inbox filter
@@ -394,12 +395,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [boardFilter, setBoardFilter] = useState('')
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
-  const [activeFilterChips, setActiveFilterChips] = useState<{ tags: boolean; untagged: boolean; custom: boolean }>({
-    tags: false,
-    untagged: false,
-    custom: false,
-  })
-  const [showCustomFilterChip, setShowCustomFilterChip] = useState(true)
+  const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([])
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
@@ -416,6 +412,41 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         .map((option) => option.value)
         .filter((value) => next.has(value))
     })
+  }, [])
+
+  const availableTagOptions = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>()
+    const registerTags = (tags: string[]) => {
+      for (const rawTag of tags ?? []) {
+        const label = String(rawTag ?? '').trim()
+        if (!label) continue
+        const key = label.toLowerCase()
+        const existing = counts.get(key)
+        if (existing) {
+          existing.count += 1
+          continue
+        }
+        counts.set(key, { label, count: 1 })
+      }
+    }
+
+    for (const item of topicNotes) registerTags(item.tags)
+    for (const item of dailyNotes) registerTags(item.tags)
+    for (const item of habits) registerTags(item.tags)
+    for (const item of files) registerTags(item.tags)
+
+    return [...counts.entries()]
+      .map(([value, meta]) => ({ value, label: meta.label, count: meta.count }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  }, [topicNotes, dailyNotes, habits, files])
+  const selectedTagFilterSet = useMemo(() => new Set(selectedTagFilters), [selectedTagFilters])
+  const isTagFilterCustomized = selectedTagFilters.length > 0
+  const toggleTagFilter = useCallback((tagValue: string) => {
+    setSelectedTagFilters((prev) => (
+      prev.includes(tagValue)
+        ? prev.filter((value) => value !== tagValue)
+        : [...prev, tagValue]
+    ))
   }, [])
 
   const loadAll = useCallback(async () => {
@@ -630,7 +661,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     }
     return visibleObjectTypeSet
   }, [showInbox, visibleObjectTypeSet])
-  const hasActiveBoardFilters = isObjectTypeFilterCustomized || activeFilterChips.tags || activeFilterChips.untagged || activeFilterChips.custom
+  const hasActiveBoardFilters = isObjectTypeFilterCustomized || isTagFilterCustomized
   const allCards = useMemo((): BoardCard[] => {
     const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
     const topicCards: BoardCard[] = topicNotes
@@ -728,9 +759,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
         return isInboxEligibleCardType(card.type) && hasInboxTag(card.tags ?? [])
       }
 
-      const hasTags = (card.tags?.length ?? 0) > 0
-      if (activeFilterChips.tags !== activeFilterChips.untagged) {
-        return activeFilterChips.tags ? hasTags : !hasTags
+      if (selectedTagFilterSet.size > 0) {
+        return (card.tags ?? []).some((tag) => selectedTagFilterSet.has(String(tag ?? '').trim().toLowerCase()))
       }
 
       return true
@@ -741,7 +771,7 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, activeFilterChips, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, selectedTagFilterSet, effectiveVisibleObjectTypeSet])
   const activeTab = openTabs.find((tab) => tab.tabId === activeTabId) ?? null
   const activeNoteType = activeTab?.type === 'topic-note' || activeTab?.type === 'daily-note' || activeTab?.type === 'habit' || activeTab?.type === 'project' || activeTab?.type === 'ref-material' || activeTab?.type === 'scripture' || activeTab?.type === 'tag'
     ? activeTab.type
@@ -804,35 +834,8 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
              icon={<LabelIcon />}
              label="Tags"
              showCaret
-             selected={activeFilterChips.tags}
-             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, tags: !prev.tags }))}
-           />
-           <FilterChip
-             icon={<LabelIcon />}
-             label="Untagged"
-             selected={activeFilterChips.untagged}
-             onToggle={() => setActiveFilterChips((prev) => ({ ...prev, untagged: !prev.untagged }))}
-           />
-           {showCustomFilterChip && (
-             <FilterChip
-               icon={<TuneIcon />}
-               label="Custom"
-               selected={activeFilterChips.custom}
-               onToggle={() => setActiveFilterChips((prev) => ({ ...prev, custom: !prev.custom }))}
-               onDismiss={() => {
-                 setShowCustomFilterChip(false)
-                 setActiveFilterChips((prev) => ({ ...prev, custom: false }))
-               }}
-             />
-           )}
-           <FilterChip
-             icon={<AddCircleOutlineIcon />}
-             label="New filter"
-             showCaret
-             onToggle={() => {
-               setShowCustomFilterChip(true)
-               setActiveFilterChips((prev) => ({ ...prev, custom: true }))
-             }}
+             selected={isTagFilterCustomized}
+             onToggle={(event) => setTagMenuAnchorEl((event?.currentTarget as HTMLElement) ?? null)}
            />
          </Stack>
 
@@ -853,6 +856,39 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
                 </MenuItem>
               )
             })}
+          </Menu>
+
+          <Menu
+            anchorEl={tagMenuAnchorEl}
+            open={Boolean(tagMenuAnchorEl)}
+            onClose={() => setTagMenuAnchorEl(null)}
+            slotProps={{ list: { dense: true, 'aria-label': 'Filter by tags' } }}
+          >
+            {availableTagOptions.length === 0 ? (
+              <MenuItem disabled>
+                <ListItemText primary="No tags yet" />
+              </MenuItem>
+            ) : (
+              availableTagOptions.map((option) => (
+                <MenuItem key={option.value} onClick={() => toggleTagFilter(option.value)}>
+                  <ListItemIcon sx={{ minWidth: 30 }}>
+                    <Checkbox edge="start" checked={selectedTagFilterSet.has(option.value)} tabIndex={-1} disableRipple size="small" />
+                  </ListItemIcon>
+                  <ListItemText primary={`#${option.label}`} secondary={`${option.count} ${option.count === 1 ? 'object' : 'objects'}`} />
+                </MenuItem>
+              ))
+            )}
+            {availableTagOptions.length > 0 && (
+              <>
+                <Divider />
+                <MenuItem
+                  disabled={selectedTagFilters.length === 0}
+                  onClick={() => setSelectedTagFilters([])}
+                >
+                  <ListItemText primary="Clear selection" />
+                </MenuItem>
+              </>
+            )}
           </Menu>
 
         <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
