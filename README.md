@@ -26,9 +26,9 @@ A local-first knowledge management app with folder-based sync. The core product 
 | CLI | Pure Node.js (`cli.mjs`) — no build step required |
 | Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
 | Companion web shell | React 18 + TypeScript + Vite |
-| Desktop UI | shadcn/ui (primary) + Material UI (migration compatibility) |
+| Desktop UI | shadcn/ui (Radix primitives + Tailwind variants) |
 | Local store | node:sqlite (built-in SQLite) |
-| Styling | TailwindCSS v4 + shadcn/ui tokens (Material UI theme adapters during migration) |
+| Styling | TailwindCSS v4 + shadcn/ui tokens |
 | Secure storage | app-managed secrets file (see `DEC-03`) |
 | Sync transport | Local folder sync |
 | iOS mobile app | SwiftUI (iOS 17+) + SwiftyDropbox SDK |
@@ -74,6 +74,27 @@ import { Button } from '@/components/ui/button'
 
 <Button variant="secondary">Save</Button>
 ```
+
+## Temporary Material UI compatibility exceptions
+
+PuzzlePKM is now shadcn/ui-first, but a small set of legacy desktop surfaces still use Material UI while migration finishes. These exceptions are currently limited to:
+
+- `src/main.tsx`
+- `src/theme.ts`
+- `src/lib/objectColors.ts`
+- `src/components/app-shell/SettingsPage.tsx`
+- `src/components/common/DragHandle.tsx`
+- `src/components/common/EditorErrorBoundary.tsx`
+- `src/components/common/MentionPopup.tsx`
+- `src/components/common/RichMarkdownEditor.tsx`
+- `src/components/files/FileExplorer.tsx`
+- `src/components/notes/NewNotePage.tsx`
+- `src/components/notes/NotesPage.tsx`
+- `src/components/objects/ObjectDirectoryBrowser.tsx`
+- `src/components/objects/ObjectEditor.tsx`
+- `src/components/objects/ObjectList.tsx`
+- `src/components/objects/ObjectMetaDetailPanel.tsx`
+- `src/components/objects/TagsPage.tsx`
 
 ## Development Setup
 
