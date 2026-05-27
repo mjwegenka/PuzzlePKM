@@ -1,8 +1,7 @@
 import React from 'react'
-import { Chip, Stack, Typography } from '@mui/material'
-import { alpha } from '@mui/material/styles'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
-import CloseIcon from '@mui/icons-material/Close'
+import { ChevronDown, X } from 'lucide-react'
+
+import { cn } from '@/lib/utils'
 
 interface FilterChipProps {
   icon?: React.ReactElement
@@ -13,47 +12,45 @@ interface FilterChipProps {
   onDismiss?: () => void
 }
 
-export default function FilterChip({
+const FilterChip = React.forwardRef<HTMLButtonElement, FilterChipProps>(function FilterChip({
   icon,
   label,
   selected = false,
   showCaret = false,
   onToggle,
   onDismiss,
-}: FilterChipProps) {
+}: FilterChipProps, ref) {
   return (
-    <Chip
-      size="small"
-      icon={icon}
-      clickable={Boolean(onToggle)}
+    <button
+      ref={ref}
+      type="button"
       onClick={(event) => onToggle?.(event)}
-      onDelete={onDismiss}
-      deleteIcon={onDismiss ? <CloseIcon sx={{ fontSize: 14, color: 'text.disabled !important' }} /> : undefined}
-      label={(
-        <Stack direction="row" spacing={0.2} alignItems="center">
-          <Typography component="span" sx={{ fontSize: '11px', fontWeight: 500 }}>
-            {label}
-          </Typography>
-          {showCaret && !onDismiss && <KeyboardArrowDownIcon sx={{ fontSize: 14, color: 'text.disabled' }} />}
-        </Stack>
+      className={cn(
+        'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        selected
+          ? 'border-slate-500 bg-white/8 text-slate-100'
+          : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700 hover:bg-slate-900',
+        onToggle ? 'cursor-pointer' : 'cursor-default',
       )}
-      sx={(theme) => ({
-        height: 24,
-        borderRadius: '999px',
-        color: selected ? theme.palette.text.primary : theme.palette.text.secondary,
-        bgcolor: selected ? alpha(theme.palette.common.white, 0.08) : theme.palette.surface.sunken,
-        border: `1px solid ${selected ? theme.palette.border.strong : theme.palette.border.subtle}`,
-        '& .MuiChip-icon': {
-          fontSize: 13,
-          color: selected ? theme.palette.text.secondary : theme.palette.text.disabled,
-          ml: 0.6,
-        },
-        '& .MuiChip-label': { px: 0.75 },
-        '&:hover': {
-          bgcolor: selected ? alpha(theme.palette.common.white, 0.12) : theme.palette.surface.elevated,
-          borderColor: theme.palette.border.strong,
-        },
-      })}
-    />
+    >
+      {icon ? <span className="flex shrink-0 items-center text-slate-400">{icon}</span> : null}
+      <span>{label}</span>
+      {showCaret && !onDismiss ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500" /> : null}
+      {onDismiss ? (
+        <span
+          aria-hidden="true"
+          className="ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          onClick={(event) => {
+            event.stopPropagation()
+            onDismiss()
+          }}
+        >
+          <X className="h-3 w-3" />
+        </span>
+      ) : null}
+    </button>
   )
-}
+})
+
+export default FilterChip

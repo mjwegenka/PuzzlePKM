@@ -3,28 +3,26 @@ import {
   Box,
   Paper,
   Stack,
-  TextField,
   Typography,
-  Button,
   Chip,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   CircularProgress,
   Alert,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { DatePicker as MUIDatePicker } from '@mui/x-date-pickers/DatePicker';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, isValid, parseISO } from 'date-fns';
+import { Pencil, Plus, Save } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
+import { Button } from '../ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
+import DatePicker from '../ui/date-picker'
+import { Input } from '../ui/input'
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
 import { useSyncStatus } from '../../lib/syncContext'
@@ -552,24 +550,22 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const isOptionalDate = type === 'topic-note' || type === 'project';
   const showContent = type !== 'project' && type !== 'ref-material';
   const isHabit = type === 'habit';
-  const selectedDate = (() => {
-    if (!date) return null;
-    const parsed = parseISO(date);
-    return isValid(parsed) ? parsed : null;
-  })();
   const tagsEditor = (
     <>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
         <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
           Tags
         </Typography>
-        <IconButton
-          size="small"
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           onClick={() => setShowTagDialog(true)}
-          sx={{ p: 0.4, color: 'text.secondary', '&:hover': { color: 'text.primary' } }}
+          className="h-6 w-6 text-slate-400 hover:text-slate-100"
+          aria-label="Add tag"
         >
-          <AddIcon sx={{ fontSize: 16 }} />
-        </IconButton>
+          <Plus className="h-4 w-4" />
+        </Button>
       </Stack>
 
       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
@@ -702,19 +698,21 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   spacing={1}
                   sx={{ mb: 1.5 }}
                 >
-                  <TextField
-                    fullWidth
-                    size="small"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    label={type === 'project' ? 'Project name' : 'Reference name'}
-                    placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
-                  />
+                  <div className="space-y-1">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      {type === 'project' ? 'Project name' : 'Reference name'}
+                    </label>
+                    <Input
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
+                      placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
+                    />
+                  </div>
                   <Stack direction="row" spacing={1}>
-                    <Button variant="contained" size="small" onClick={() => { void handleSaveTitleEdit(); }} disabled={saving || !title.trim()}>
+                    <Button size="sm" onClick={() => { void handleSaveTitleEdit(); }} disabled={saving || !title.trim()}>
                       Save
                     </Button>
-                    <Button variant="text" size="small" onClick={handleCancelTitleEdit} disabled={saving}>
+                    <Button variant="ghost" size="sm" onClick={handleCancelTitleEdit} disabled={saving}>
                       Cancel
                     </Button>
                   </Stack>
@@ -729,21 +727,23 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     '&:focus-within .title-display': { pl: 3.5 },
                   }}
                 >
-                  <IconButton
-                    className="title-edit-button"
-                    size="small"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="title-edit-button h-7 w-7 text-slate-400 hover:text-slate-100"
                     onClick={() => setIsTitleEditing(true)}
-                    sx={{
+                    style={{
                       position: 'absolute',
                       left: 0,
                       top: -1,
                       opacity: 0,
                       transition: 'opacity 120ms ease',
-                      color: 'text.secondary',
                     }}
+                    aria-label={`Edit ${type === 'project' ? 'project' : 'reference'} title`}
                   >
-                    <EditIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Typography
                     className="title-display"
                     variant="h4"
@@ -758,59 +758,29 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
               {showDate && (
                 <Box sx={{ mt: 1.75 }}>
-                  <LocalizationProvider dateAdapter={AdapterDateFns}>
-                    <Stack direction="row" spacing={1} alignItems="flex-start">
-                      <Box sx={{ width: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
-                        <MUIDatePicker
-                          label={type === 'project' ? 'Start Date' : 'Date'}
-                          value={selectedDate}
-                          format="MMMM d, yyyy"
-                          onChange={(nextValue) => {
-                            if (!nextValue || !isValid(nextValue)) {
-                              setDate('');
-                              return;
-                            }
-                            setDate(format(nextValue, 'yyyy-MM-dd'));
-                          }}
-                          slotProps={{
-                            textField: {
-                              variant: 'standard',
-                              helperText: !date && isOptionalDate ? 'No date set' : undefined,
-                              sx: {
-                                width: '100%',
-                                '& .MuiInputBase-root': {
-                                  pr: 0.5,
-                                },
-                              },
-                            },
-                          }}
-                        />
-                      </Box>
-                      {isOptionalDate && date && (
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => setDate('')}
-                          sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
-                        >
-                          Clear
-                        </Button>
-                      )}
-                    </Stack>
-                  </LocalizationProvider>
+                  <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
+                    <DatePicker
+                      label={type === 'project' ? 'Start Date' : 'Date'}
+                      value={date}
+                      onChange={setDate}
+                      helperText={!date && isOptionalDate ? 'No date set' : undefined}
+                      allowClear={isOptionalDate}
+                    />
+                  </Box>
                 </Box>
               )}
 
               {type === 'ref-material' && (
-                <TextField
-                  fullWidth
-                  label="Author (optional)"
-                  value={author}
-                  onChange={(event) => setAuthor(event.target.value)}
-                  variant="standard"
-                  placeholder="Author name…"
-                  sx={{ mt: 1.75 }}
-                />
+                <div className="mt-7 space-y-1">
+                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    Author (optional)
+                  </label>
+                  <Input
+                    value={author}
+                    onChange={(event) => setAuthor(event.target.value)}
+                    placeholder="Author name…"
+                  />
+                </div>
               )}
             </Box>
 
@@ -833,15 +803,17 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               )}
 
               {showTitle && (
-                <TextField
-                  fullWidth
-                  label={type === 'topic-note' ? 'Title' : 'Name'}
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  variant="standard"
-                  placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
-                  sx={{ mb: 1.5, '& input': { fontSize: '1.15rem', fontWeight: 600 } }}
-                />
+                <div className="mb-6 space-y-1">
+                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    {type === 'topic-note' ? 'Title' : 'Name'}
+                  </label>
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
+                    className="h-11 text-base font-semibold"
+                  />
+                </div>
               )}
 
               {isNoteType && !isHabit && (
@@ -858,46 +830,15 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
               {showDate && (
                 <Box sx={{ mb: 1.5 }}>
-                  <LocalizationProvider dateAdapter={AdapterDateFns}>
-                    <Stack direction="row" spacing={1} alignItems="flex-start">
-                      <Box sx={{ width: { xs: '100%', sm: 260 }, maxWidth: '100%' }}>
-                        <MUIDatePicker
-                          label="Date"
-                          value={selectedDate}
-                          format="MMMM d, yyyy"
-                          onChange={(nextValue) => {
-                            if (!nextValue || !isValid(nextValue)) {
-                              setDate('');
-                              return;
-                            }
-                            setDate(format(nextValue, 'yyyy-MM-dd'));
-                          }}
-                          slotProps={{
-                            textField: {
-                              variant: 'standard',
-                              helperText: !date && isOptionalDate ? 'No date set' : undefined,
-                              sx: {
-                                width: '100%',
-                                '& .MuiInputBase-root': {
-                                  pr: 0.5,
-                                },
-                              },
-                            },
-                          }}
-                        />
-                      </Box>
-                      {isOptionalDate && date && (
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => setDate('')}
-                          sx={{ mt: 1.25, minWidth: 'auto', whiteSpace: 'nowrap' }}
-                        >
-                          Clear
-                        </Button>
-                      )}
-                    </Stack>
-                  </LocalizationProvider>
+                  <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
+                    <DatePicker
+                      label="Date"
+                      value={date}
+                      onChange={setDate}
+                      helperText={!date && isOptionalDate ? 'No date set' : undefined}
+                      allowClear={isOptionalDate}
+                    />
+                  </Box>
                 </Box>
               )}
             </Box>
@@ -947,107 +888,114 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             </Alert>
           )}
           {onCancel && (
-            <Button variant="outlined" onClick={onCancel} disabled={saving} size="small">
+            <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
               Cancel
             </Button>
           )}
           <Button
-            variant="contained"
-            startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />}
             onClick={handleSave}
             disabled={saving}
-            size="small"
+            size="sm"
           >
+            {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </Stack>
       </Stack>
 
       {/* Tag dialog */}
-      <Dialog open={showTagDialog} onClose={closeTagDialog} maxWidth="xs" fullWidth disableRestoreFocus>
-        <DialogTitle>Add Tag</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            inputRef={tagInputRef}
-            margin="dense"
-            label="Tag name"
-            fullWidth
-            value={newTag}
-            onChange={(e) => setNewTag(e.target.value.toLowerCase())}
-            variant="standard"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                e.stopPropagation();
-                if (handleAddTag()) closeTagDialog();
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                closeTagDialog();
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeTagDialog}>Cancel</Button>
-          <Button
-            onClick={() => {
-              if (handleAddTag()) closeTagDialog();
-            }}
-            variant="contained"
-          >
-            Add
-          </Button>
-        </DialogActions>
+      <Dialog open={showTagDialog} onOpenChange={(open) => { if (!open) closeTagDialog(); }}>
+        {showTagDialog ? (
+          <DialogContent className="max-w-sm" aria-label="Add Tag">
+            <DialogHeader>
+              <DialogTitle>Add Tag</DialogTitle>
+              <DialogDescription>
+                Add a lowercase tag to this object.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+                Tag name
+              </label>
+              <Input
+                autoFocus
+                ref={tagInputRef}
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value.toLowerCase())}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (handleAddTag()) closeTagDialog();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeTagDialog();
+                  }
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={closeTagDialog}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  if (handleAddTag()) closeTagDialog();
+                }}
+              >
+                Add
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
       </Dialog>
 
-      <Dialog
-        open={!!pendingNavigation}
-        onClose={() => setPendingNavigation(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Unsaved Changes</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            You have unsaved changes. Save before opening the linked object?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPendingNavigation(null)}>Cancel</Button>
-          <Button onClick={() => { void handleDiscardAndNavigate(); }} color="error">
-            Discard
-          </Button>
-          <Button onClick={() => { void handleSaveAndNavigate(); }} variant="contained" disabled={saving}>
-            Save &amp; Open
-          </Button>
-        </DialogActions>
+      <Dialog open={!!pendingNavigation} onOpenChange={(open) => { if (!open) setPendingNavigation(null); }}>
+        {pendingNavigation ? (
+          <DialogContent className="max-w-sm" aria-label="Unsaved Changes">
+            <DialogHeader>
+              <DialogTitle>Unsaved Changes</DialogTitle>
+              <DialogDescription>
+                You have unsaved changes. Save before opening the linked object?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPendingNavigation(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => { void handleDiscardAndNavigate(); }}>
+                Discard
+              </Button>
+              <Button onClick={() => { void handleSaveAndNavigate(); }} disabled={saving}>
+                Save &amp; Open
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
       </Dialog>
 
       <Dialog
         open={!!pendingDeleteReason}
-        onClose={() => {
-          if (!saving) setPendingDeleteReason(null);
+        onOpenChange={(open) => {
+          if (!open && !saving) setPendingDeleteReason(null);
         }}
-        maxWidth="xs"
-        fullWidth
       >
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {pendingDeleteReason === 'empty-note'
-              ? 'This note has empty content. Delete it instead of saving?'
-              : 'This habit has no tags. Delete it instead of saving?'}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPendingDeleteReason(null)} disabled={saving}>Cancel</Button>
-          <Button onClick={() => { void handleConfirmDeleteOnSave(); }} color="error" variant="contained" disabled={saving}>
-            {saving ? 'Deleting…' : 'Delete'}
-          </Button>
-        </DialogActions>
+        {pendingDeleteReason ? (
+          <DialogContent className="max-w-sm" aria-label="Confirm Delete">
+            <DialogHeader>
+              <DialogTitle>Confirm Delete</DialogTitle>
+              <DialogDescription>
+                {pendingDeleteReason === 'empty-note'
+                  ? 'This note has empty content. Delete it instead of saving?'
+                  : 'This habit has no tags. Delete it instead of saving?'}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPendingDeleteReason(null)} disabled={saving}>Cancel</Button>
+              <Button variant="destructive" onClick={() => { void handleConfirmDeleteOnSave(); }} disabled={saving}>
+                {saving ? 'Deleting…' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
       </Dialog>
     </Paper>
   );

@@ -4,13 +4,12 @@ import {
   Stack,
   Paper,
   Typography,
-  ToggleButton,
-  ToggleButtonGroup,
 } from '@mui/material'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
 import RepeatIcon from '@mui/icons-material/Repeat'
 import ObjectEditor from '../objects/ObjectEditor'
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { getTodayDate } from '../../lib/dateUtils'
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
@@ -23,11 +22,9 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
   const [noteType, setNoteType] = useState<NoteType>('topic-note')
   const [editorKey, setEditorKey] = useState(0) // force re-mount on type change
 
-  const handleTypeChange = (_: React.MouseEvent, value: NoteType | null) => {
-    if (value) {
-      setNoteType(value)
-      setEditorKey((k) => k + 1)
-    }
+  const handleTypeChange = (value: string) => {
+    setNoteType(value as NoteType)
+    setEditorKey((k) => k + 1)
   }
 
   const blankObject =
@@ -75,70 +72,22 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
         >
           Note type
         </Typography>
-        <ToggleButtonGroup
-          value={noteType}
-          exclusive
-          onChange={handleTypeChange}
-          size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: 'text.secondary',
-              borderColor: 'border.subtle',
-              borderRightColor: 'border.subtle',
-              px: 2.5,
-              py: 0.75,
-              fontSize: '13px',
-              '&.Mui-selected': {
-                bgcolor: 'action.selected',
-                color: 'text.primary',
-                borderColor: 'accent.selected',
-                borderRightColor: 'accent.selected',
-              },
-            },
-            '& .MuiToggleButtonGroup-grouped:not(:last-of-type)': {
-              borderRight: '1px solid',
-              borderRightColor: 'border.subtle',
-            },
-            '& .MuiToggleButtonGroup-grouped.Mui-selected:not(:last-of-type)': {
-              borderRight: '1px solid',
-              borderRightColor: 'accent.selected',
-            },
-            '& .MuiToggleButtonGroup-grouped + .MuiToggleButtonGroup-grouped.Mui-selected': {
-              marginLeft: 0,
-              borderLeft: '1px solid',
-              borderLeftColor: 'accent.selected',
-            },
-            '& .MuiToggleButtonGroup-grouped + .MuiToggleButtonGroup-grouped': {
-              marginLeft: 0,
-              borderLeft: '1px solid',
-              borderLeftColor: 'border.subtle',
-            },
-            '& .MuiToggleButtonGroup-firstButton': {
-              borderTopRightRadius: 0,
-              borderBottomRightRadius: 0,
-            },
-            '& .MuiToggleButtonGroup-middleButton': {
-              borderRadius: 0,
-            },
-            '& .MuiToggleButtonGroup-lastButton': {
-              borderTopLeftRadius: 0,
-              borderBottomLeftRadius: 0,
-            },
-          }}
-        >
-          <ToggleButton value="topic-note">
-            <NoteAddIcon sx={{ fontSize: 16, mr: 0.75 }} />
-            Topic Note
-          </ToggleButton>
-          <ToggleButton value="daily-note">
-            <CalendarTodayIcon sx={{ fontSize: 16, mr: 0.75 }} />
-            Daily Note
-          </ToggleButton>
-          <ToggleButton value="habit">
-            <RepeatIcon sx={{ fontSize: 16, mr: 0.75 }} />
-            Habit
-          </ToggleButton>
-        </ToggleButtonGroup>
+        <Tabs value={noteType} onValueChange={handleTypeChange}>
+          <TabsList className="grid h-10 w-full max-w-lg grid-cols-3 bg-slate-950 p-1 text-slate-400">
+            <TabsTrigger value="topic-note" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <NoteAddIcon sx={{ fontSize: 16 }} />
+              Topic Note
+            </TabsTrigger>
+            <TabsTrigger value="daily-note" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <CalendarTodayIcon sx={{ fontSize: 16 }} />
+              Daily Note
+            </TabsTrigger>
+            <TabsTrigger value="habit" className="gap-2 px-3 text-xs data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <RepeatIcon sx={{ fontSize: 16 }} />
+              Habit
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* Hint text per type */}
         <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 1.25 }}>
@@ -162,4 +111,3 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
     </Box>
   )
 }
-
