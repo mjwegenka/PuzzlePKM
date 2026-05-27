@@ -4,26 +4,8 @@ import {
   Stack,
   Paper,
   Typography,
-  Button,
-  TextField,
   CircularProgress,
   Divider,
-  IconButton,
-  Checkbox,
-  ToggleButton,
-  ToggleButtonGroup,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Tabs,
-  Tab,
-  IconButton as MuiIconButton,
-  Menu,
-  MenuItem,
-  Tooltip,
-  ListItemIcon,
-  ListItemText,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
@@ -43,6 +25,33 @@ import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import FilterChip from '../ui/FilterChip'
 import { NoteCard } from '../ui/NoteCard'
 import type { NoteCardData } from '../ui/NoteCard'
+import { Button } from '../ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
+import { Input } from '../ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select'
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import {
   getObject,
   listDailyNoteMeta,
@@ -292,56 +301,30 @@ function CreatePanel({
           >
             New Note
           </Typography>
-          <IconButton size="small" onClick={onClose} sx={{ color: 'text.secondary', p: 0.25 }}>
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6 text-slate-400 hover:text-slate-100">
             <CloseIcon sx={{ fontSize: 16 }} />
-          </IconButton>
+          </Button>
         </Stack>
       ) : null}
 
       {/* Type selector */}
       <Box sx={{ px: 2, pt: showHeader ? 0 : 2, pb: 1.5, flexShrink: 0 }}>
-        <ToggleButtonGroup
-          value={createType}
-          exclusive
-          onChange={(_, v: NoteType | null) => { if (v) onTypeChange(v) }}
-          size="small"
-          fullWidth
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: 'text.secondary',
-              borderColor: 'border.subtle',
-              py: 0.5,
-              fontSize: '11px',
-              flex: 1,
-              '&.Mui-selected': {
-                bgcolor: 'action.selected',
-                color: 'text.primary',
-                borderColor: 'border.strong',
-              },
-            },
-            '& .MuiToggleButtonGroup-grouped:not(:last-of-type)': {
-              borderRight: '1px solid',
-              borderColor: 'border.subtle',
-            },
-            '& .MuiToggleButtonGroup-grouped.Mui-selected:not(:last-of-type)': {
-              borderRight: '1px solid',
-              borderColor: 'border.strong',
-            },
-          }}
-        >
-          <ToggleButton value="topic-note">
-            <NoteAddIcon sx={{ fontSize: 14, mr: 0.5 }} />
-            Topic
-          </ToggleButton>
-          <ToggleButton value="daily-note">
-            <CalendarTodayIcon sx={{ fontSize: 14, mr: 0.5 }} />
-            Daily
-          </ToggleButton>
-          <ToggleButton value="habit">
-            <RepeatIcon sx={{ fontSize: 14, mr: 0.5 }} />
-            Habit
-          </ToggleButton>
-        </ToggleButtonGroup>
+        <Tabs value={createType} onValueChange={(value) => onTypeChange(value as NoteType)}>
+          <TabsList className="grid h-9 w-full grid-cols-3 bg-slate-950 p-1 text-slate-400">
+            <TabsTrigger value="topic-note" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <NoteAddIcon sx={{ fontSize: 14 }} />
+              Topic
+            </TabsTrigger>
+            <TabsTrigger value="daily-note" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <CalendarTodayIcon sx={{ fontSize: 14 }} />
+              Daily
+            </TabsTrigger>
+            <TabsTrigger value="habit" className="gap-1.5 px-2 text-[11px] data-[state=active]:bg-slate-900 data-[state=active]:text-slate-100">
+              <RepeatIcon sx={{ fontSize: 14 }} />
+              Habit
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </Box>
 
       <Divider sx={{ borderColor: 'border.subtle', flexShrink: 0 }} />
@@ -383,9 +366,6 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
   const [createType, setCreateType] = useState<NoteType>('topic-note')
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
-  const [createMenuAnchorEl, setCreateMenuAnchorEl] = useState<HTMLElement | null>(null)
-  const [objectTypeMenuAnchorEl, setObjectTypeMenuAnchorEl] = useState<HTMLElement | null>(null)
-  const [tagMenuAnchorEl, setTagMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null)
 
   // Inbox filter
@@ -572,7 +552,6 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
     setIsCreating(true)
     setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
-    setCreateMenuAnchorEl(null)
   }, [])
 
   const handleCreateDateChange = useCallback(async (date: string) => {
@@ -823,219 +802,173 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       >
         {/* Filter chip row */}
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', py: 0.25 }}>
-           <FilterChip
-             icon={<TuneIcon />}
-             label="Object type"
-             showCaret
-             selected={isObjectTypeFilterCustomized}
-             onToggle={(event) => setObjectTypeMenuAnchorEl((event?.currentTarget as HTMLElement) ?? null)}
-           />
-           <FilterChip
-             icon={<LabelIcon />}
-             label="Tags"
-             showCaret
-             selected={isTagFilterCustomized}
-             onToggle={(event) => setTagMenuAnchorEl((event?.currentTarget as HTMLElement) ?? null)}
-           />
-         </Stack>
-
-          <Menu
-            anchorEl={objectTypeMenuAnchorEl}
-            open={Boolean(objectTypeMenuAnchorEl)}
-            onClose={() => setObjectTypeMenuAnchorEl(null)}
-            slotProps={{ list: { dense: true, 'aria-label': 'Filter by object type' } }}
-          >
-            {LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => {
-              const checked = visibleObjectTypeSet.has(option.value)
-              return (
-                <MenuItem key={option.value} onClick={() => toggleObjectTypeVisibility(option.value)}>
-                  <ListItemIcon sx={{ minWidth: 30 }}>
-                    <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple size="small" />
-                  </ListItemIcon>
-                  <ListItemText primary={option.label} />
-                </MenuItem>
-              )
-            })}
-          </Menu>
-
-          <Menu
-            anchorEl={tagMenuAnchorEl}
-            open={Boolean(tagMenuAnchorEl)}
-            onClose={() => setTagMenuAnchorEl(null)}
-            slotProps={{ list: { dense: true, 'aria-label': 'Filter by tags' } }}
-          >
-            {availableTagOptions.length === 0 ? (
-              <MenuItem disabled>
-                <ListItemText primary="No tags yet" />
-              </MenuItem>
-            ) : (
-              availableTagOptions.map((option) => (
-                <MenuItem key={option.value} onClick={() => toggleTagFilter(option.value)}>
-                  <ListItemIcon sx={{ minWidth: 30 }}>
-                    <Checkbox edge="start" checked={selectedTagFilterSet.has(option.value)} tabIndex={-1} disableRipple size="small" />
-                  </ListItemIcon>
-                  <ListItemText primary={`#${option.label}`} secondary={`${option.count} ${option.count === 1 ? 'object' : 'objects'}`} />
-                </MenuItem>
-              ))
-            )}
-            {availableTagOptions.length > 0 && (
-              <>
-                <Divider />
-                <MenuItem
-                  disabled={selectedTagFilters.length === 0}
-                  onClick={() => setSelectedTagFilters([])}
-                >
-                  <ListItemText primary="Clear selection" />
-                </MenuItem>
-              </>
-            )}
-          </Menu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <FilterChip
+                icon={<TuneIcon />}
+                label="Object type"
+                showCaret
+                selected={isObjectTypeFilterCustomized}
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => {
+                const checked = visibleObjectTypeSet.has(option.value)
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={option.value}
+                    checked={checked}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
+                  >
+                    {option.label}
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <FilterChip
+                icon={<LabelIcon />}
+                label="Tags"
+                showCaret
+                selected={isTagFilterCustomized}
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-60">
+              {availableTagOptions.length === 0 ? (
+                <DropdownMenuItem disabled>No tags yet</DropdownMenuItem>
+              ) : (
+                availableTagOptions.map((option) => (
+                  <DropdownMenuCheckboxItem
+                    key={option.value}
+                    checked={selectedTagFilterSet.has(option.value)}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => toggleTagFilter(option.value)}
+                  >
+                    <span className="flex flex-1 items-center justify-between gap-3">
+                      <span>#{option.label}</span>
+                      <span className="text-xs text-slate-400">{option.count} {option.count === 1 ? 'object' : 'objects'}</span>
+                    </span>
+                  </DropdownMenuCheckboxItem>
+                ))
+              )}
+              {availableTagOptions.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={selectedTagFilters.length === 0}
+                    onSelect={() => setSelectedTagFilters([])}
+                  >
+                    Clear selection
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </Stack>
 
         <Stack direction="row" alignItems="center" spacing={1} sx={{ flexShrink: 0 }}>
           {/* Search input */}
-          <TextField
-            size="small"
-            placeholder="Find a note..."
-            value={boardFilter}
-            onChange={(e) => setBoardFilter(e.target.value)}
-            variant="outlined"
-            sx={{
-              width: 220,
-              flexShrink: 0,
-              '& .MuiOutlinedInput-root': {
-                minHeight: 32,
-                fontSize: '12px',
-                bgcolor: 'surface.sunken',
-                color: 'text.secondary',
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-              },
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
-              '& .MuiOutlinedInput-input::placeholder': { color: 'text.disabled', opacity: 1 },
-            }}
-            slotProps={{
-              input: {
-                startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5, flexShrink: 0 }} />,
-              },
-            }}
-          />
+          <div className="relative w-[220px] shrink-0">
+            <SearchIcon
+              sx={{
+                position: 'absolute',
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: 14,
+                color: 'text.disabled',
+                pointerEvents: 'none',
+              }}
+            />
+            <Input
+              placeholder="Find a note..."
+              value={boardFilter}
+              onChange={(e) => setBoardFilter(e.target.value)}
+              className="h-8 border-slate-800 bg-slate-950 pl-8 text-xs text-slate-200 placeholder:text-slate-500"
+            />
+          </div>
 
-          <TextField
-            select
-            size="small"
-            value={boardSort}
-            onChange={(event) => setBoardSort(event.target.value as BoardSort)}
-            aria-label="Sort notes"
-            sx={{
-              width: 146,
-              flexShrink: 0,
-              '& .MuiOutlinedInput-root': {
-                minHeight: 30,
-                fontSize: '12px',
-                bgcolor: 'surface.sunken',
-                color: 'text.secondary',
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-              },
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
-            }}
-            slotProps={{
-              select: {
-                renderValue: (value) => (
-                  <Stack direction="row" alignItems="center" spacing={0.5}>
-                    <SwapVertIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-                    <Box component="span">{BOARD_SORT_LABELS[String(value) as BoardSort] ?? String(value)}</Box>
-                  </Stack>
-                ),
-              },
-            }}
-          >
-            <MenuItem value="recent">{BOARD_SORT_LABELS.recent}</MenuItem>
-            <MenuItem value="oldest">{BOARD_SORT_LABELS.oldest}</MenuItem>
-            <MenuItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</MenuItem>
-            <MenuItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</MenuItem>
-          </TextField>
+          <Select value={boardSort} onValueChange={(value) => setBoardSort(value as BoardSort)}>
+            <SelectTrigger aria-label="Sort notes" className="h-8 w-[146px] border-slate-800 bg-slate-950 text-xs text-slate-200">
+              <span className="flex items-center gap-1">
+                <SwapVertIcon sx={{ fontSize: 14 }} />
+                <SelectValue />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recent">{BOARD_SORT_LABELS.recent}</SelectItem>
+              <SelectItem value="oldest">{BOARD_SORT_LABELS.oldest}</SelectItem>
+              <SelectItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</SelectItem>
+              <SelectItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</SelectItem>
+            </SelectContent>
+          </Select>
 
           {/* +New button */}
-          <Tooltip title="Create a new object">
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={(event) => setCreateMenuAnchorEl(event.currentTarget)}
-              aria-haspopup="menu"
-              aria-expanded={createMenuAnchorEl ? 'true' : undefined}
-              aria-controls={createMenuAnchorEl ? 'create-object-menu' : undefined}
-              aria-label="Create a new object"
-              startIcon={<AddCircleOutlineIcon sx={{ fontSize: 16 }} />}
-              sx={{
-                flexShrink: 0,
-                fontSize: '12px',
-                minHeight: 32,
-                minWidth: { xs: 0, sm: 'auto' },
-                px: { xs: 0.75, sm: 1 },
-                py: 0.25,
-                borderColor: 'border.subtle',
-                color: 'text.primary',
-                bgcolor: 'surface.sunken',
-                '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' },
-                '& .MuiButton-startIcon': {
-                  mr: { xs: 0, sm: 0.5 },
-                  ml: 0,
-                },
-              }}
-            >
-              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                +New
-              </Box>
-            </Button>
-          </Tooltip>
-
-          <Menu
-            id="create-object-menu"
-            anchorEl={createMenuAnchorEl}
-            open={Boolean(createMenuAnchorEl)}
-            onClose={() => setCreateMenuAnchorEl(null)}
-            slotProps={{
-              list: { 'aria-label': 'Create object type' },
-            }}
-          >
-            <MenuItem onClick={() => handleStartCreate('topic-note')}>
-              <ListItemIcon>
-                <NoteAddIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Topic Note" secondary="Create a titled note" />
-            </MenuItem>
-            <MenuItem onClick={() => handleStartCreate('daily-note')}>
-              <ListItemIcon>
-                <CalendarTodayIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Daily Note" secondary="Create or open a dated daily note" />
-            </MenuItem>
-            <MenuItem onClick={() => handleStartCreate('habit')}>
-              <ListItemIcon>
-                <RepeatIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Habit" secondary="Create a dated habit entry" />
-            </MenuItem>
-          </Menu>
+          <TooltipProvider>
+            <Tooltip>
+              <DropdownMenu>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label="Create a new object"
+                      className="h-8 shrink-0 border-slate-800 bg-slate-950 px-2 text-xs text-slate-100 hover:bg-slate-900"
+                    >
+                      <AddCircleOutlineIcon sx={{ fontSize: 16 }} />
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                        +New
+                      </Box>
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-2">
+                        <NoteAddIcon fontSize="small" />
+                        Topic Note
+                      </span>
+                      <span className="pl-6 text-xs text-slate-400">Create a titled note</span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-2">
+                        <CalendarTodayIcon fontSize="small" />
+                        Daily Note
+                      </span>
+                      <span className="pl-6 text-xs text-slate-400">Create or open a dated daily note</span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-2">
+                        <RepeatIcon fontSize="small" />
+                        Habit
+                      </span>
+                      <span className="pl-6 text-xs text-slate-400">Create a dated habit entry</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TooltipContent>Create a new object</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           {/* Inbox toggle */}
-          <IconButton
-            size="small"
+          <Button
+            size="icon"
+            variant={showInbox ? 'secondary' : 'ghost'}
             onClick={() => setShowInbox((v) => !v)}
             title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-            sx={{
-              color: showInbox ? 'accent.metadata' : 'text.secondary',
-              bgcolor: showInbox ? 'action.selected' : 'transparent',
-              border: '1px solid',
-              borderColor: showInbox ? 'border.strong' : 'transparent',
-              borderRadius: '6px',
-              flexShrink: 0,
-              '&:hover': { bgcolor: showInbox ? 'action.focus' : 'action.hover' },
-            }}
+            className="h-8 w-8 shrink-0"
           >
             <MoveToInboxIcon sx={{ fontSize: 18 }} />
-          </IconButton>
+          </Button>
         </Stack>
       </Stack>
 
@@ -1111,101 +1044,71 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
-          }}
+         }}
         >
          <>
-            <Stack
-              direction="row"
-              alignItems="center"
-              gap={0.5}
-              sx={{ px: 1, py: 0.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}
-            >
-             <Tabs
-               value={activeTab?.tabId ?? false}
-               onChange={(_, value: string) => setActiveTabId(value)}
-                aria-label="Object editor tabs"
-               variant="scrollable"
-               scrollButtons="auto"
-               sx={{
-                  minHeight: 40,
-                 flex: 1,
-                 '& .MuiTabs-indicator': { display: 'none' },
-                  '& .MuiTabs-flexContainer': { alignItems: 'flex-end', gap: 0.5 },
-                 '& .MuiTabs-scroller': { overflow: 'visible !important' },
-                 '& .MuiTabScrollButton-root': { width: 24, color: 'text.secondary' },
-                 '& .MuiTab-root': {
-                    minHeight: 40,
-                   textTransform: 'none',
-                   minWidth: 0,
-                    px: 0.75,
-                    py: 0,
-                     borderRadius: '8px 8px 0 0',
-                    color: 'text.secondary',
-                     transition: 'color 120ms ease, background-color 120ms ease',
-                   '&:hover': {
-                      color: 'text.primary',
-                       bgcolor: 'surface.sunken',
-                   },
-                    '&.Mui-selected': {
-                      color: 'text.primary',
-                       bgcolor: 'surface.sunken',
-                    },
-                 },
-               }}
-             >
-               {openTabs.map((tab) => {
-                 const tabToken = getObjectColor(tab.type)
-                 return (
-                   <Tab
-                     key={tab.tabId}
-                     value={tab.tabId}
-                     disableRipple
-                     sx={{
-                       '&.Mui-selected': {
-                         color: tabToken.text,
-                          backgroundColor: 'transparent',
-                         borderColor: tabToken.border,
-                          borderBottomColor: 'transparent',
-                         boxShadow: `inset 0 2px 0 ${tabToken.accent}`,
-                          bgcolor: 'surface.sunken',
-                       },
-                       '&.Mui-selected .notes-editor-tab-dot': {
-                         bgcolor: tabToken.accent,
-                       },
-                     }}
-                     label={(
-                        <Stack direction="row" alignItems="center" spacing={0.45} sx={{ minHeight: 24 }}>
-                          <Box className="notes-editor-tab-dot" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: tabToken.text, flexShrink: 0 }} />
-                          <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1, fontWeight: 500 }}>
-                           {getTabLabel(tab)}
-                         </Typography>
-                         {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
-                         <MuiIconButton
-                           size="small"
+           <Stack
+             direction="row"
+             alignItems="center"
+             gap={0.5}
+             sx={{ px: 1, py: 0.5, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.elevated' }}
+           >
+             <Tabs value={activeTab?.tabId ?? ''} onValueChange={setActiveTabId}>
+               <Box sx={{ maxWidth: 480, overflowX: 'auto' }}>
+                 <TabsList aria-label="Object editor tabs" className="h-auto min-h-10 w-max justify-start gap-2 bg-transparent p-0">
+                   {openTabs.map((tab) => {
+                     const tabToken = getObjectColor(tab.type)
+                     return (
+                       <div key={tab.tabId} className="relative shrink-0">
+                         <TabsTrigger
+                           value={tab.tabId}
+                           className="h-10 min-w-0 rounded-t-md border border-transparent bg-transparent px-3 pr-8 text-slate-400 shadow-none data-[state=active]:bg-slate-950/70 data-[state=active]:text-slate-100 data-[state=active]:shadow-none"
+                           style={{
+                             boxShadow: activeTabId === tab.tabId ? `inset 0 2px 0 ${tabToken.accent}` : undefined,
+                             color: activeTabId === tab.tabId ? tabToken.text : undefined,
+                           }}
+                         >
+                           <span className="flex min-h-6 items-center gap-2">
+                             <Box
+                               className="notes-editor-tab-dot"
+                               sx={{
+                                 width: 5,
+                                 height: 5,
+                                 borderRadius: '50%',
+                                 bgcolor: activeTabId === tab.tabId ? tabToken.accent : tabToken.text,
+                                 flexShrink: 0,
+                               }}
+                             />
+                             <Typography variant="caption" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.1, fontWeight: 500 }}>
+                               {getTabLabel(tab)}
+                             </Typography>
+                             {tab.isDirty ? <Box sx={{ width: 5, height: 5, borderRadius: '999px', bgcolor: 'accent.metadata' }} /> : null}
+                           </span>
+                         </TabsTrigger>
+                         <Button
+                           type="button"
+                           variant="ghost"
+                           size="icon"
+                           className="absolute right-1 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 hover:text-slate-100"
                            onClick={(event) => {
                              event.stopPropagation()
                              handleRequestCloseTab(tab.tabId)
                            }}
-                           sx={{
-                             p: 0.1,
-                              color: 'inherit',
-                              opacity: 0.72,
-                             '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-                           }}
+                           aria-label={`Close ${getTabLabel(tab)} tab`}
                          >
                            <CloseIcon sx={{ fontSize: 11 }} />
-                         </MuiIconButton>
-                       </Stack>
-                     )}
-                   />
-                 )
-               })}
+                         </Button>
+                       </div>
+                     )
+                   })}
+                 </TabsList>
+               </Box>
              </Tabs>
-              <MuiIconButton size="small" onClick={handleCloseEditor}>
+             <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-7 w-7 text-slate-400 hover:text-slate-100">
                <CloseIcon fontSize="small" />
-             </MuiIconButton>
+             </Button>
            </Stack>
-            <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+           <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
              {activeTab ? (
                <EditorErrorBoundary>
                   {activeTab.type === 'scripture' || activeTab.type === 'tag' ? (
@@ -1240,70 +1143,56 @@ export default function NotesPage({ onSaved, pendingSelection, onOpenObjectTab }
       )}
       </Stack>
 
-      <Dialog
-       open={isCreating}
-       onClose={handleCloseEditor}
-       fullWidth
-       maxWidth="lg"
-       fullScreen={isSmallScreen}
-       aria-labelledby="create-object-dialog-title"
-       slotProps={{
-         paper: {
-           sx: {
-             height: isSmallScreen ? '100%' : 'min(720px, calc(100vh - 64px))',
-             maxHeight: isSmallScreen ? '100%' : 'calc(100vh - 32px)',
-             bgcolor: 'surface.app',
-           },
-         },
-       }}
-      >
-       <DialogTitle id="create-object-dialog-title" sx={{ pr: 6 }}>
-         Create New Note
-       </DialogTitle>
-       <MuiIconButton
-         size="small"
-         aria-label="Close create note dialog"
-         onClick={handleCloseEditor}
-         sx={{ position: 'absolute', right: 12, top: 12, color: 'text.secondary' }}
-       >
-         <CloseIcon fontSize="small" />
-       </MuiIconButton>
-       <DialogContent sx={{ p: { xs: 1, sm: 1.5 }, display: 'flex', minHeight: 0 }}>
-         <CreatePanel
-           createType={createType}
-           createKey={createKey}
-           onTypeChange={(t) => {
-             setCreateType(t)
-             setCreateKey((k) => k + 1)
-           }}
-           onSave={handleSaveNew}
-           onClose={handleCloseEditor}
-           onDirty={setCreateHasUnsavedChanges}
-           onNavigateToObject={handleNavigateToObject}
-           onCreateDateChange={handleCreateDateChange}
-           showHeader={false}
-         />
-       </DialogContent>
+      <Dialog open={isCreating} onOpenChange={(open) => { if (!open) handleCloseEditor() }}>
+        <DialogContent
+          className={isSmallScreen ? 'h-screen max-w-none rounded-none border-0 p-3' : 'flex h-[min(720px,calc(100vh-64px))] max-h-[calc(100vh-32px)] max-w-5xl flex-col p-4'}
+          aria-labelledby="create-object-dialog-title"
+          aria-label="Create New Note"
+        >
+          <DialogHeader>
+            <DialogTitle id="create-object-dialog-title">Create New Note</DialogTitle>
+            <DialogDescription>
+              Choose a note type and fill out the editor to create a new object.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1">
+            <CreatePanel
+              createType={createType}
+              createKey={createKey}
+              onTypeChange={(t) => {
+                setCreateType(t)
+                setCreateKey((k) => k + 1)
+              }}
+              onSave={handleSaveNew}
+              onClose={handleCloseEditor}
+              onDirty={setCreateHasUnsavedChanges}
+              onNavigateToObject={handleNavigateToObject}
+              onCreateDateChange={handleCreateDateChange}
+              showHeader={false}
+            />
+          </div>
+        </DialogContent>
       </Dialog>
 
-       {/* Confirmation Dialog for unsaved changes */}
-       <Dialog
-          open={!!confirmCloseTabId}
-          onClose={() => setConfirmCloseTabId(null)}
-        >
-          <DialogTitle>Unsaved Changes</DialogTitle>
-          <DialogContent>
-            <Typography>
-              You have unsaved changes. Are you sure you want to close without saving?
-            </Typography>
+      {/* Confirmation Dialog for unsaved changes */}
+      <Dialog open={!!confirmCloseTabId} onOpenChange={(open) => { if (!open) setConfirmCloseTabId(null) }}>
+        {confirmCloseTabId ? (
+          <DialogContent className="max-w-sm" aria-label="Unsaved Changes">
+            <DialogHeader>
+              <DialogTitle>Unsaved Changes</DialogTitle>
+              <DialogDescription>
+                You have unsaved changes. Are you sure you want to close without saving?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmCloseTabId(null)}>Cancel</Button>
+              <Button onClick={handleConfirmClose} variant="destructive">
+                Discard Changes
+              </Button>
+            </DialogFooter>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setConfirmCloseTabId(null)}>Cancel</Button>
-            <Button onClick={handleConfirmClose} variant="contained" color="error">
-              Discard Changes
-            </Button>
-         </DialogActions>
-       </Dialog>
+        ) : null}
+      </Dialog>
      </Box>
    )
 }

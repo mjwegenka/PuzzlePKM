@@ -31,6 +31,9 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
+      {typeof props['aria-label'] === 'string' && props['aria-label'].trim() ? (
+        <DialogPrimitive.Title className="sr-only">{props['aria-label']}</DialogPrimitive.Title>
+      ) : null}
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50">
         <X className="h-4 w-4" />
