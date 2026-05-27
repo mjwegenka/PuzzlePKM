@@ -411,6 +411,21 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setSaveError(null);
     try {
       if (hasPersistedObject) {
+        // Pre-sync the current editor state (e.g. removed tags) to the DB
+        // before attempting deletion. The CLI eligibility check reads the DB
+        // directly, so unsaved changes (like a removed tag) would otherwise
+        // cause the delete to be incorrectly rejected.
+        try {
+          await persistCurrentObject();
+        } catch {
+          // Pre-sync failure is non-fatal — proceed to the delete attempt.
+          // If the DB state still blocks deletion, the error surfaces below.
+        }
+        // persistCurrentObject resets saving to false in its finally block;
+        // re-establish the saving state for the delete step.
+        setSaving(true);
+        setSaveError(null);
+
         try {
           await deleteObject(type, id);
         } catch (err) {
