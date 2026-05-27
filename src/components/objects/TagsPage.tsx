@@ -134,7 +134,7 @@ export default function TagsPage() {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-[var(--color-accent-selected)]" />
-              <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
                 Tags ({tagCounts.size})
               </p>
             </div>
@@ -152,7 +152,7 @@ export default function TagsPage() {
             placeholder="Filter tags…"
             value={tagFilter}
             onChange={(e) => setTagFilter(e.target.value)}
-              className="pr-8 text-[13px]"
+              className="pr-8 text-sm"
             />
             {tagFilter ? (
               <button
@@ -178,7 +178,7 @@ export default function TagsPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedTag(null)}
-                  className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 text-[11px] text-[var(--color-text-secondary)]"
+                  className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 text-sm text-[var(--color-text-secondary)]"
                 >
                   × Show all
                 </button>
@@ -188,7 +188,7 @@ export default function TagsPage() {
                   type="button"
                   key={tag}
                   onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                  className="inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-[filter,background-color,border-color] hover:brightness-110"
+                  className="inline-flex h-[22px] items-center rounded-full border px-2.5 text-sm text-[var(--color-text-secondary)] transition-[filter,background-color,border-color] hover:brightness-110"
                   style={{
                     backgroundColor: selectedTag === tag ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-sunken)',
                     borderColor: selectedTag === tag ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
@@ -209,7 +209,7 @@ export default function TagsPage() {
         {/* Object list */}
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
           <div className="shrink-0 border-b border-[var(--color-border-subtle)] px-4 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
               {selectedTag ? `#${selectedTag} — ${filteredItems.length} objects` : `All objects (${items.length})`}
             </p>
           </div>
@@ -227,22 +227,22 @@ export default function TagsPage() {
                     className="w-full px-4 py-3 text-left"
                     style={{ backgroundColor: selectedObject?.id === item.id ? 'var(--color-selected-fill-soft)' : 'transparent' }}
                   >
-                    <p className="text-[13px] font-medium leading-[1.3] text-[var(--color-text-primary)]">{item.title}</p>
+                    <p className="text-sm font-medium leading-[1.3] text-[var(--color-text-primary)]">{item.title}</p>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className="text-[10px]" style={{ color: getObjectColor(item.type).text }}>
+                      <span className="text-xs" style={{ color: getObjectColor(item.type).text }}>
                         {item.type === 'daily-note' ? '📓 Daily Note' : item.type === 'habit' ? '🔁 Habit' : '📝 Topic Note'}
                       </span>
-                      {item.date ? <span className="text-[10px] text-[var(--color-text-disabled)]">{formatDatePretty(item.date)}</span> : null}
+                      {item.date ? <span className="text-xs text-[var(--color-text-disabled)]">{formatDatePretty(item.date)}</span> : null}
                       {item.tags.slice(0, 2).map((t) => (
                         <span
                           key={t}
-                          className="rounded-[3px] px-1.5 py-0.5 text-[9px]"
+                          className="rounded-[3px] px-1.5 py-0.5 text-xs"
                           style={{ backgroundColor: getObjectColor(item.type).bg, color: getObjectColor(item.type).text }}
                         >
                           #{t}
                         </span>
                       ))}
-                      {item.tags.length > 2 ? <span className="text-[10px] text-[var(--color-text-disabled)]">+{item.tags.length - 2}</span> : null}
+                      {item.tags.length > 2 ? <span className="text-xs text-[var(--color-text-disabled)]">+{item.tags.length - 2}</span> : null}
                     </div>
                   </button>
                   {idx < filteredItems.length - 1 ? <div className="h-px bg-[var(--color-border-subtle)]" /> : null}

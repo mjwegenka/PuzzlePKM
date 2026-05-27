@@ -82,14 +82,14 @@ export default function ObjectList({
                             {item.tags.slice(0, 2).map((tag) => (
                               <span
                                 key={tag}
-                                className="rounded-[6px] px-2 py-0.5 text-[10px]"
+                                className="rounded-[6px] px-2 py-0.5 text-xs"
                                 style={{ backgroundColor: token.bg, color: token.text }}
                               >
                                 #{tag}
                               </span>
                             ))}
                             {item.tags.length > 2 && (
-                              <span className="text-[10px]" style={{ color: token.text }}>
+                              <span className="text-xs" style={{ color: token.text }}>
                                 +{item.tags.length - 2}
                               </span>
                             )}

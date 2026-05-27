@@ -71,6 +71,8 @@ interface NotesPageProps {
   onSaved?: () => void
   pendingSelection?: { id: string; type: EditorObjectType; nonce: number } | null
   onPendingSelectionHandled?: (nonce: number) => void
+  pendingCreate?: { type: NoteType; date?: string; nonce: number } | null
+  onPendingCreateHandled?: (nonce: number) => void
   tagFilters?: TagFilterState
 }
 
@@ -243,6 +245,7 @@ function toSortTimestamp(...values: Array<string | undefined>): number {
 
 interface CreatePanelProps {
   createType: NoteType
+  initialDate?: string
   createKey: number
   onTypeChange: (t: NoteType) => void
   onSave: (saved: Record<string, unknown>) => void
@@ -255,6 +258,7 @@ interface CreatePanelProps {
 
 function CreatePanel({
   createType,
+  initialDate,
   createKey,
   onTypeChange,
   onSave,
@@ -266,18 +270,18 @@ function CreatePanel({
 }: CreatePanelProps) {
   const blankObject = useMemo(() => (
     createType === 'daily-note'
-      ? { date: getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
+      ? { date: initialDate || getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
       : createType === 'topic-note'
-        ? { title: '', date: '', contentMarkdown: '', tags: [], linkedObjectIds: [] }
-        : { date: getTodayDate(), text: '', tags: [] }
-  ), [createType])
+        ? { title: '', date: initialDate ?? '', contentMarkdown: '', tags: [], linkedObjectIds: [] }
+        : { date: initialDate || getTodayDate(), text: '', tags: [] }
+  ), [createType, initialDate])
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
       {/* Panel header */}
       {showHeader ? (
         <div className="flex shrink-0 items-center justify-between px-2.5 pb-1.5 pt-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+          <p className="text-xs font-bold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
             New Note
           </p>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
@@ -290,15 +294,15 @@ function CreatePanel({
       <div className={`shrink-0 px-2 pb-1.5 ${showHeader ? 'pt-0' : 'pt-2'}`}>
         <Tabs value={createType} onValueChange={(value) => onTypeChange(value as NoteType)}>
           <TabsList className="grid h-10 w-full grid-cols-3 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
-            <TabsTrigger value="topic-note" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+            <TabsTrigger value="topic-note" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <NotebookPen className="h-3.5 w-3.5" />
               Topic
             </TabsTrigger>
-            <TabsTrigger value="daily-note" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+            <TabsTrigger value="daily-note" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <CalendarDays className="h-3.5 w-3.5" />
               Daily
             </TabsTrigger>
-            <TabsTrigger value="habit" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
+            <TabsTrigger value="habit" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
               <Repeat2 className="h-3.5 w-3.5" />
               Habit
             </TabsTrigger>
@@ -327,7 +331,14 @@ function CreatePanel({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function NotesPage({ onSaved, pendingSelection, onPendingSelectionHandled, tagFilters = {} }: NotesPageProps) {
+export default function NotesPage({
+  onSaved,
+  pendingSelection,
+  onPendingSelectionHandled,
+  pendingCreate,
+  onPendingCreateHandled,
+  tagFilters = {},
+}: NotesPageProps) {
   const listRowRef = useRef<HTMLDivElement | null>(null)
   const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 900 : false))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
@@ -343,6 +354,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   // Create mode
   const [isCreating, setIsCreating] = useState(false)
   const [createType, setCreateType] = useState<NoteType>('topic-note')
+  const [createInitialDate, setCreateInitialDate] = useState<string | undefined>(undefined)
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
   const [confirmCloseTarget, setConfirmCloseTarget] = useState<'create' | 'active-object' | null>(null)
@@ -560,12 +572,40 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
     }
   }, [openObjectInPanel])
 
-  const handleStartCreate = useCallback((type: NoteType) => {
+  const handleStartCreate = useCallback((type: NoteType, initialDate?: string) => {
     setCreateType(type)
+    setCreateInitialDate(initialDate)
     setIsCreating(true)
     setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
   }, [])
+
+  useEffect(() => {
+    if (!pendingCreate) return
+    let cancelled = false
+
+    void (async () => {
+      try {
+        if (pendingCreate.type === 'daily-note' && pendingCreate.date) {
+          const existing = dailyNotes.find((note) => note.date === pendingCreate.date)
+          if (existing) {
+            await openObjectInPanel(existing.id, 'daily-note')
+            return
+          }
+        }
+
+        handleStartCreate(pendingCreate.type, pendingCreate.date)
+      } finally {
+        if (!cancelled) {
+          onPendingCreateHandled?.(pendingCreate.nonce)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [dailyNotes, handleStartCreate, onPendingCreateHandled, openObjectInPanel, pendingCreate])
 
   const handleCreateDateChange = useCallback(async (date: string) => {
     if (!isCreating || createType !== 'daily-note') return
@@ -940,15 +980,15 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
           <div className="border-b border-[var(--color-border-subtle)] px-5 pb-3 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 pr-2">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
-                <div className="mt-1 text-[15px] font-semibold text-[var(--color-text-primary)]">All items</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--color-text-primary)]">All items</div>
               </div>
-              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-[10px] leading-none text-[var(--color-text-secondary)]">
+              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
                 {resultsLabel}
               </div>
             </div>
             {showInbox && (
-              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-[10px] text-[var(--color-text-secondary)]">
+              <div className="mt-3 inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
                 Inbox only — showing imported objects tagged Inbox
               </div>
@@ -1014,15 +1054,15 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
             <>
               <div className="flex items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 pb-1.5 pt-2">
                 <div className="min-w-0 flex-1 px-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
                   </div>
-                  <div className="mt-1 truncate text-[16px] font-semibold text-[var(--color-text-primary)] leading-[1.2]">
+                  <div className="mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]">
                     {getObjectPanelLabel(activeObject)}
                   </div>
                 </div>
                 {activeObject.isDirty ? (
-                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[10px] leading-none text-[var(--color-text-secondary)]">
+                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
                     Unsaved
                   </div>
                 ) : null}
@@ -1077,6 +1117,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
           <div className="flex min-h-0 flex-1">
             <CreatePanel
               createType={createType}
+              initialDate={createInitialDate}
               createKey={createKey}
               onTypeChange={(t) => {
                 setCreateType(t)

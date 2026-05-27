@@ -126,7 +126,7 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
         : `mt-1.5 flex min-h-[180px] flex-col ${type === 'project' ? 'rounded-none border-0 bg-[var(--color-surface-elevated)] p-0' : 'rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-3'}`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+        <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           {title}
         </p>
         <Button type="button" size="icon" variant="outline" onClick={() => void load()} className="h-8 w-8 rounded-[10px]">
@@ -166,10 +166,10 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
                   ? <Folder className="h-4 w-4 shrink-0 text-amber-300" />
                   : fileIconForName(entry.name)}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-[var(--color-text-primary)]">
+                  <span className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                     {entry.name}
                   </span>
-                  <span className="block truncate text-[11px] text-[var(--color-text-disabled)]">
+                  <span className="block truncate text-sm text-[var(--color-text-disabled)]">
                     {entry.kind === 'dir' ? 'Folder' : 'Open in default app'}
                   </span>
                 </span>

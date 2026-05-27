@@ -24,7 +24,7 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
         month_grid: 'w-full border-collapse space-y-1',
         weekdays: 'flex',
         weeks: 'mt-2 flex flex-col gap-2',
-        weekday: 'w-9 text-[0.8rem] font-normal text-[var(--color-text-disabled)]',
+        weekday: 'w-9 text-xs font-normal text-[var(--color-text-disabled)]',
         week: 'flex w-full',
         day: 'h-9 w-9 p-0 text-center text-sm relative [&:has([aria-selected].day-range-end)]:rounded-r-[10px] [&:has([aria-selected].day-outside)]:bg-[var(--color-surface-hover)]/70 [&:has([aria-selected])]:bg-[var(--color-surface-hover)] first:[&:has([aria-selected])]:rounded-l-[10px] last:[&:has([aria-selected])]:rounded-r-[10px] focus-within:relative focus-within:z-20',
         day_button: 'h-9 w-9 rounded-[10px] p-0 font-normal text-[var(--color-text-primary)] aria-selected:opacity-100 hover:bg-[var(--color-surface-hover)]',

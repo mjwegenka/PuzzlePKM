@@ -584,8 +584,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const isHabit = type === 'habit';
   const tagsEditor = (
     <>
-      <div className="mb-3 flex items-center gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+      <div className="mb-4 flex items-center gap-2">
+        <p className="text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Tags
         </p>
         <Button
@@ -611,7 +611,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             key={tag}
             type="button"
             onClick={() => handleRemoveTag(tag)}
-            className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
+            className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
             title="Remove tag"
           >
             <span>#{tag}</span>
@@ -625,7 +625,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const relationshipsSection = (
     <div className="mb-2 space-y-4">
       <div>
-        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Links
         </p>
         <div className="flex flex-wrap gap-2">
@@ -640,7 +640,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {relationLabel(relation)}
               </button>
@@ -649,7 +649,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         </div>
       </div>
       <div>
-        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Backlinks
         </p>
         <div className="flex flex-wrap gap-2">
@@ -664,7 +664,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {relationLabel(relation)}
               </button>
@@ -685,22 +685,25 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         {isFileObject ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
-              <div className="mb-6 space-y-1">
-                <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+              <div className="space-y-5 py-1">
+                <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
                 </label>
                 <Input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder={type === 'project' ? 'Project name…' : 'Reference title…'}
-                  className="h-10 text-[15px] font-semibold"
+                  className="h-10 text-lg font-semibold"
                 />
-              </div>
+                </div>
 
-              {tagsEditor}
+                <div className="py-1">
+                  {tagsEditor}
+                </div>
 
-              {showDate && (
-                <div className="mt-7 w-full max-w-[320px]">
+                {showDate && (
+                  <div className="w-full max-w-[320px] py-1">
                     <DatePicker
                       label={type === 'project' ? 'Start Date' : 'Date'}
                       value={date}
@@ -708,12 +711,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                       helperText={!date && isOptionalDate ? 'No date set' : undefined}
                       allowClear={isOptionalDate}
                     />
-                </div>
-              )}
+                  </div>
+                )}
 
-              {type === 'ref-material' && (
-                <div className="mt-7 space-y-1">
-                  <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                {type === 'ref-material' && (
+                  <div className="space-y-2 py-1">
+                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
                   <Input
@@ -721,15 +724,16 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     onChange={(event) => setAuthor(event.target.value)}
                     placeholder="Author name…"
                   />
+                  </div>
+                )}
+
+                <div className="min-h-[280px] overflow-hidden py-1">
+                  <ObjectDirectoryBrowser object={object} type={type} embedded />
                 </div>
-              )}
 
-              <div className="mt-7 min-h-[280px] overflow-hidden">
-                <ObjectDirectoryBrowser object={object} type={type} embedded />
-              </div>
-
-              <div className="mt-7 shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
-                {relationshipsSection}
+                <div className="shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
+                  {relationshipsSection}
+                </div>
               </div>
             </div>
 
@@ -773,36 +777,36 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           <>
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               {/* ── TOP: Title and Date (always first) ── */}
-              <div className="mb-6 shrink-0">
+              <div className="mb-6 shrink-0 space-y-5 py-1">
 
                 {showTitle && (
-                  <div className="mb-6 space-y-1">
-                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                       {type === 'topic-note' ? 'Title' : 'Name'}
                     </label>
                     <Input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder={type === 'topic-note' ? 'Note title…' : 'Name…'}
-                      className="h-10 text-[15px] font-semibold"
+                      className="h-10 text-lg font-semibold"
                     />
                   </div>
                 )}
 
                 {isNoteType && !isHabit && (
-                  <div className="mb-4">
+                  <div className="py-1">
                     {tagsEditor}
                   </div>
                 )}
 
                 {isHabit && (
-                  <div className="mb-4">
+                  <div className="py-1">
                     {tagsEditor}
                   </div>
                 )}
 
                 {showDate && (
-                  <div className="mb-4 w-full max-w-[320px]">
+                  <div className="w-full max-w-[320px] py-1">
                       <DatePicker
                         label="Date"
                         value={date}
@@ -892,7 +896,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1">
-              <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+              <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                 Tag name
               </label>
               <Input

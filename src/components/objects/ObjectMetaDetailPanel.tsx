@@ -64,13 +64,13 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
     >
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className={flatTop ? 'shrink-0 px-6 pb-2.5 pt-6' : 'shrink-0 pb-2.5'}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+          <p className="text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
             {header}
           </p>
-          <h2 className="mt-1 text-[1.45rem] font-bold leading-[1.2] text-[var(--color-text-primary)]">
+          <h2 className="mt-1 text-xl font-bold leading-[1.2] text-[var(--color-text-primary)]">
             {title}
           </h2>
-          <p className="mt-3 text-[0.85rem] text-[var(--color-text-secondary)]">
+          <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
             {subtitle}
           </p>
           {type === 'scripture' && String(object?.passageUrl ?? '').trim() && (
@@ -86,7 +86,7 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
         </div>
 
         <div className={flatTop ? 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] px-6 pb-6 pt-6' : 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] pt-6'}>
-          <p className="mb-3 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+          <p className="mb-3 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
             {type === 'scripture' ? 'Linked Notes' : 'Tagged Objects'}
           </p>
           <div className="space-y-2">
@@ -113,10 +113,10 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
                     className="h-auto w-full justify-start rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-2 text-left"
                   >
                     <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                      <span className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">
+                      <span className="truncate text-sm font-medium text-[var(--color-text-primary)]">
                         {primaryLabel}
                       </span>
-                      <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                      <span className="truncate text-xs uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                         {secondaryLabel || 'object'}
                       </span>
                     </span>

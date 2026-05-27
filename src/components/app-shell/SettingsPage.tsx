@@ -156,7 +156,7 @@ export default function SettingsPage() {
       <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
         <div className="mb-3 flex items-center gap-2">
           <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
-          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             CLI Status
           </p>
         </div>
@@ -179,7 +179,7 @@ export default function SettingsPage() {
               <span>
                 CLI reachable:{' '}
                 <span
-                  className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
+                  className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs"
                   style={{
                     backgroundColor: cliStatus.ok ? 'rgba(135,180,135,0.14)' : 'rgba(226,89,89,0.14)',
                     borderColor: cliStatus.ok ? 'rgba(135,180,135,0.34)' : 'rgba(226,89,89,0.34)',
@@ -206,7 +206,7 @@ export default function SettingsPage() {
       <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
         <div className="mb-3 flex items-center gap-2">
           <HardDrive className="h-4 w-4 text-[var(--color-accent-selected)]" />
-          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Storage
           </p>
         </div>
@@ -238,7 +238,7 @@ export default function SettingsPage() {
       <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
         <div className="mb-3 flex items-center gap-2">
           <Cloud className="h-4 w-4 text-[var(--color-accent-selected)]" />
-          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Sync
           </p>
         </div>
@@ -250,7 +250,7 @@ export default function SettingsPage() {
 
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+            <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
               Sync root folder
             </label>
             <Input
@@ -298,7 +298,7 @@ export default function SettingsPage() {
 
         <div className="my-4 h-px bg-[var(--color-border-subtle)]" />
 
-        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Expected folder structure
         </p>
         <pre className="m-0 overflow-auto rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-3 text-xs text-[var(--color-text-secondary)]">
@@ -320,7 +320,7 @@ export default function SettingsPage() {
       <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
         <div className="mb-3 flex items-center gap-2">
           <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
-          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             About PuzzlePKM
           </p>
         </div>

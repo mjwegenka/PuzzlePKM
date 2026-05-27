@@ -815,11 +815,11 @@ export default function RichMarkdownEditor({
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+        <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           {label}
         </p>
         {typeof currentCount === 'number' && typeof maxLength === 'number' && (
-          <p className={`text-[11px] ${currentCount > maxLength ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
+          <p className={`text-sm ${currentCount > maxLength ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
             {currentCount}/{maxLength}
           </p>
         )}
@@ -869,7 +869,7 @@ export default function RichMarkdownEditor({
               active={showMarkdownView}
               onClick={() => setShowMarkdownView((current) => !current)}
             >
-              <span className="text-[10px] font-bold leading-none tracking-[0.04em]">MD</span>
+              <span className="text-xs font-bold leading-none tracking-[0.04em]">MD</span>
             </ToolbarButton>
             <DropdownMenu>
               <Tooltip>

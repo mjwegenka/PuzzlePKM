@@ -212,7 +212,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     <div className="ui-shell-panel flex min-h-0 flex-1 flex-col bg-[var(--color-surface-elevated)]">
       <div className="ui-toolbar-panel mb-3 flex min-h-[68px] shrink-0 flex-wrap items-center gap-3 px-4 py-3">
         <div className="min-w-[180px] flex-1">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
             <Network className="h-3.5 w-3.5" />
             Graph
           </div>
@@ -313,7 +313,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
                     x={node.x + 10}
                     y={node.y + 3}
                     fill="var(--color-text-secondary)"
-                    style={{ fontSize: '10px', userSelect: 'none' }}
+                    className="graph-node-label"
                   >
                     {node.label.slice(0, 28)}
                   </text>
@@ -325,7 +325,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
         )}
       </div>
 
-      <p className="px-4 py-2 text-[11px] text-[var(--color-text-disabled)]">
+      <p className="px-4 py-2 text-sm text-[var(--color-text-disabled)]">
         Tip: drag to pan, use trackpad/pointer wheel to zoom, click a node once to focus it and again to open.
       </p>
     </div>

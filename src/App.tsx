@@ -26,6 +26,12 @@ interface LibraryPendingSelection {
   nonce: number
 }
 
+interface LibraryPendingCreate {
+  type: NotesObjType
+  date?: string
+  nonce: number
+}
+
 function resolveSectionAlias(section: string): Section {
   if (section === 'scripture' || section === 'tags' || section === 'files') return 'library'
   if (section === 'calendar' || section === 'library' || section === 'graph') {
@@ -38,6 +44,7 @@ export default function App() {
   const isSettingsWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('settings') === 'true'
   const [sidebarSection, setSidebarSection] = useState<Section>('library')
   const [libraryPendingSelection, setLibraryPendingSelection] = useState<LibraryPendingSelection | null>(null)
+  const [libraryPendingCreate, setLibraryPendingCreate] = useState<LibraryPendingCreate | null>(null)
   const [tagFilters, setTagFilters] = useState<TagFilterState>({})
 
   const openLibrarySelection = useCallback((target: { id: string; type: LibraryObjectType }) => {
@@ -45,6 +52,15 @@ export default function App() {
     setLibraryPendingSelection((prev) => ({
       id: target.id,
       type: target.type,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }))
+  }, [])
+
+  const openLibraryCreate = useCallback((target: { type: NotesObjType; date?: string }) => {
+    setSidebarSection('library')
+    setLibraryPendingCreate((prev) => ({
+      type: target.type,
+      date: target.date,
       nonce: (prev?.nonce ?? 0) + 1,
     }))
   }, [])
@@ -63,6 +79,10 @@ export default function App() {
 
   const handleLibraryPendingSelectionHandled = useCallback((nonce: number) => {
     setLibraryPendingSelection((prev) => (prev?.nonce === nonce ? null : prev))
+  }, [])
+
+  const handleLibraryPendingCreateHandled = useCallback((nonce: number) => {
+    setLibraryPendingCreate((prev) => (prev?.nonce === nonce ? null : prev))
   }, [])
 
   if (isSettingsWindow) {
@@ -90,6 +110,8 @@ export default function App() {
             <NotesPage
               pendingSelection={libraryPendingSelection}
               onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
+              pendingCreate={libraryPendingCreate}
+              onPendingCreateHandled={handleLibraryPendingCreateHandled}
               tagFilters={tagFilters}
             />
           </div>
@@ -99,6 +121,9 @@ export default function App() {
               tagFilters={tagFilters}
               onOpenObjectTab={async (target) => {
                 openLibrarySelection({ id: target.id, type: target.type })
+              }}
+              onStartCreateObject={async (target) => {
+                openLibraryCreate(target)
               }}
             />
           ) : null}

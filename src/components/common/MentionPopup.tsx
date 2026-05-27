@@ -62,7 +62,7 @@ export default function MentionPopup({
       style={{ top: position.top, left: leftAdjusted, width: maxWidth }}
     >
       <div className="shrink-0 border-b border-[var(--color-border-subtle)] px-3 py-2">
-        <p className="text-[11px] text-[var(--color-text-secondary)]">
+        <p className="text-sm text-[var(--color-text-secondary)]">
           {query ? `Searching for "${query}"…` : 'Link to object — type to filter'}
         </p>
       </div>
@@ -91,7 +91,7 @@ export default function MentionPopup({
                 style={{ backgroundColor: idx === selectedIndex ? 'var(--color-selected-fill-soft)' : undefined }}
               >
                 <span
-                  className="shrink-0 rounded-[6px] border px-2 py-1 text-[9px] font-bold uppercase tracking-[0.04em]"
+                  className="shrink-0 rounded-[6px] border px-2 py-1 text-xs font-bold uppercase tracking-[0.04em]"
                   style={{
                     backgroundColor: withAlpha(color, 0.14),
                     color,
@@ -100,7 +100,7 @@ export default function MentionPopup({
                 >
                   {label}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--color-text-primary)]">
+                <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">
                   {option.title || '(untitled)'}
                 </span>
               </button>
@@ -110,7 +110,7 @@ export default function MentionPopup({
       )}
 
       <div className="flex shrink-0 gap-2 border-t border-[var(--color-border-subtle)] px-3 py-2">
-        <p className="text-[10px] text-[var(--color-text-disabled)]">
+        <p className="text-xs text-[var(--color-text-disabled)]">
           ↑↓ navigate · Enter select · Esc close
         </p>
       </div>

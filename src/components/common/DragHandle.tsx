@@ -23,7 +23,7 @@ interface DragHandleProps {
  * dragHandleEnabled is true). Being inside the container means:
  *   - It is never clipped by outer overflow: hidden wrappers.
  *   - It scrolls naturally with the content.
- *   - z-index only needs to beat sibling content, not MUI modals.
+ *   - z-index only needs to beat sibling content, not outer overlay layers.
  *
  * Mouse tracking is on the *scroll container* (the parent of the ProseMirror
  * div), not just on the ProseMirror div itself.  When the pointer moves into
@@ -229,7 +229,7 @@ export function DragHandle({ editor }: DragHandleProps) {
       onMouseDown={onMouseDown}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="absolute z-[5] flex select-none items-center justify-center rounded-[4px] text-[16px] leading-none text-[rgba(125,186,214,0.35)] transition-[color,background-color] duration-120 hover:bg-[rgba(125,186,214,0.10)] hover:text-[rgba(125,186,214,0.9)] active:cursor-grabbing"
+      className="absolute z-[5] flex select-none items-center justify-center rounded-[4px] text-lg leading-none text-[rgba(125,186,214,0.35)] transition-[color,background-color] duration-120 hover:bg-[rgba(125,186,214,0.10)] hover:text-[rgba(125,186,214,0.9)] active:cursor-grabbing"
       style={{
         top: handleState.top + iconTopOffset,
         left: 6,

@@ -331,7 +331,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 variant="ghost"
                 onClick={() => onNavigate(item.id)}
                 className={cn(
-                  'mb-1 h-10 w-full justify-start gap-3 rounded-[12px] border px-3 py-2 text-[13px] font-semibold transition-[background-color,border-color,color]',
+                  'mb-1 h-10 w-full justify-start gap-3 rounded-[12px] border px-3 py-2 text-sm font-semibold transition-[background-color,border-color,color]',
                   selected
                     ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
                     : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
@@ -384,7 +384,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
                     {objectIcon(item.type)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-[11px] leading-[1.25]">{item.title}</span>
+                  <span className="min-w-0 flex-1 truncate pr-2 text-left text-sm leading-[1.25]">{item.title}</span>
                   <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       type="button"
@@ -438,7 +438,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
             <StackedTagsHeader loadingTags={loadingTags} count={tags.length} hasActiveFilters={hasActiveTagSelection} />
             {tags.length === 0 && !loadingTags ? (
-              <div className="px-2.5 py-2 text-[11px] text-[var(--color-text-disabled)]">No tags yet</div>
+              <div className="px-2.5 py-2 text-sm text-[var(--color-text-disabled)]">No tags yet</div>
             ) : null}
             <div className="flex flex-wrap gap-1.5 px-2 py-2">
               {tags.map((tag) => {
@@ -454,7 +454,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     onClick={() => onToggleTagFilter(value)}
                     aria-pressed={Boolean(mode)}
                     className={cn(
-                      'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-[8px] font-semibold leading-none transition-[background-color,border-color,color]',
+                      'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-xs font-semibold leading-none transition-[background-color,border-color,color]',
                       mode === 'include'
                         ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
                         : mode === 'exclude'
@@ -493,7 +493,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </Tooltip>
           <div className="min-w-0 flex-1">
             <span
-               className="block truncate whitespace-nowrap text-[10px] font-medium leading-[1.35]"
+               className="block truncate whitespace-nowrap text-xs font-medium leading-[1.35]"
                style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
             >
               {syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last sync ${formatSyncStatusCompact(lastSyncedAt)}`}
@@ -511,11 +511,11 @@ function StackedTagsHeader({ loadingTags, count, hasActiveFilters }: { loadingTa
   return (
     <div className="flex min-h-[28px] items-center gap-1.5 px-2 py-1">
       <Hash className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
-      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+      <span className="flex-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
         Tags
       </span>
       {loadingTags ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
-        <span className="text-[10px] font-medium text-[var(--color-accent-metadata)]">
+        <span className="text-xs font-medium text-[var(--color-accent-metadata)]">
           {count === 0 ? 'No tags' : hasActiveFilters ? 'Filtered' : 'All selected'}
         </span>
       )}
@@ -527,11 +527,11 @@ function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean;
   return (
     <div className="flex min-h-[32px] items-center gap-1.5 px-2 py-1.5">
       <Pin className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
-      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+      <span className="flex-1 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
         Pinned
       </span>
       {loadingPinned ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
-        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-text-disabled)]">
+        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--color-surface-control)] px-1.5 py-0.5 text-xs leading-none text-[var(--color-text-disabled)]">
           {count}
         </span>
       )}

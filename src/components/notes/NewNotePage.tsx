@@ -50,7 +50,7 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
 
       {/* Type switcher */}
       <section className="shrink-0 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
-        <p className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+        <p className="mb-1.5 block text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           Note type
         </p>
         <Tabs value={noteType} onValueChange={handleTypeChange}>

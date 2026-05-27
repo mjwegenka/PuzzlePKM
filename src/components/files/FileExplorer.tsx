@@ -75,7 +75,7 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
   return (
     <section className="flex h-full flex-col rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">Files</h2>
+        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Files</h2>
         <Button type="button" size="icon" variant="ghost" onClick={() => void load()} title="Refresh" className="h-8 w-8 rounded-[10px]">
           <RefreshCw className="h-[18px] w-[18px]" />
         </Button>
@@ -171,7 +171,7 @@ function SectionHeader({
     <div className="flex items-center justify-between px-0.5 py-1">
       <div className="flex items-center">
         {icon}
-        <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">{label}</p>
+        <p className="text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">{label}</p>
       </div>
       {onAdd ? (
         <Button type="button" size="icon" variant="ghost" onClick={onAdd} className="h-6 w-6 rounded-[8px]">
@@ -205,12 +205,12 @@ function FileListItem({
       >
         {icon}
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium text-[var(--color-text-primary)]">{item.name}</span>
+          <span className="block text-sm font-medium text-[var(--color-text-primary)]">{item.name}</span>
           {item.type === 'ref-material' && item.author ? (
-            <span className="block text-[11px] text-[var(--color-text-secondary)]">by {item.author}</span>
+            <span className="block text-sm text-[var(--color-text-secondary)]">by {item.author}</span>
           ) : null}
           {item.syncPath && item.syncPath !== '(no path)' ? (
-            <span className="block truncate text-[11px] text-[var(--color-text-disabled)]">{item.syncPath}</span>
+            <span className="block truncate text-sm text-[var(--color-text-disabled)]">{item.syncPath}</span>
           ) : null}
         </span>
       </button>

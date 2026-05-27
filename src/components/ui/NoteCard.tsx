@@ -227,14 +227,14 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         {/* Type badge */}
         <div className="flex shrink-0 items-center gap-1 text-inherit">
           <TypeIcon type={card.type} />
-          <span className="text-[9px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'inherit' }}>
+          <span className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'inherit' }}>
             {typeLabel}
           </span>
         </div>
 
         {/* Optional metadata string (e.g. formatted date for topic/habit) */}
         {card.metadata && (
-          <span className="text-[10px]" style={{ color: 'inherit' }}>
+          <span className="text-xs" style={{ color: 'inherit' }}>
             · {card.metadata}
           </span>
         )}
@@ -244,7 +244,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           <Badge
             key={tag}
             variant="outline"
-            className={cn('h-5 rounded-[8px] px-2 text-[9px] font-medium', chipClassName)}
+            className={cn('h-5 rounded-[8px] px-2 text-xs font-medium', chipClassName)}
           >
             {tag}
           </Badge>
@@ -252,7 +252,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
         {tags.length > 3 && (
           <Badge
             variant="outline"
-            className={cn('h-5 rounded-[8px] px-2 text-[9px] font-medium', chipClassName)}
+            className={cn('h-5 rounded-[8px] px-2 text-xs font-medium', chipClassName)}
           >
             +{tags.length - 3}
           </Badge>
@@ -262,7 +262,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       <div className={cn('flex items-start', card.weekdayLabel ? 'flex-col gap-1' : 'flex-col')} style={{ marginBottom: card.snippet || card.mediaUrl ? '0.7rem' : 0 }}>
         {card.weekdayLabel && (
           <span
-            className={cn('text-[9px] font-bold uppercase tracking-[0.08em]', 'text-[var(--color-accent-metadata)]')}
+            className={cn('text-xs font-bold uppercase tracking-[0.08em]', 'text-[var(--color-accent-metadata)]')}
           >
             {card.weekdayLabel}
           </span>
@@ -270,7 +270,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
         {/* 2. Title / date — large, prominent */}
         <span
-          className={cn('w-full break-words leading-[1.25]', contentToneClass, card.type === 'daily-note' ? 'text-[17px] font-semibold' : 'text-[15px] font-semibold')}
+          className={cn('w-full break-words leading-[1.25]', contentToneClass, card.type === 'daily-note' ? 'text-xl font-semibold' : 'text-lg font-semibold')}
           style={{
             display: '-webkit-box',
             WebkitBoxOrient: 'vertical',
@@ -285,7 +285,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       {/* 3. Snippet — regular body text */}
       {card.snippet && (
         <div
-          className={cn('block break-words text-[12px] leading-[1.45] text-[var(--color-text-secondary)]')}
+          className={cn('block break-words text-sm leading-[1.45] text-[var(--color-text-secondary)]')}
           style={{ marginBottom: card.mediaUrl ? '0.25rem' : 0, overflowWrap: 'anywhere' }}
         >
           <MarkdownSnippet text={card.snippet} />

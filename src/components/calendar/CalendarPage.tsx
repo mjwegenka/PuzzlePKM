@@ -54,6 +54,7 @@ interface CalEvent {
 
 interface CalendarPageProps {
   onOpenObjectTab?: (target: { id: string; type: CalObjectType; forceNewTab?: boolean }) => void | Promise<void>
+  onStartCreateObject?: (target: { type: 'daily-note' | 'topic-note' | 'habit'; date: string }) => void | Promise<void>
   tagFilters?: TagFilterState
 }
 
@@ -73,7 +74,6 @@ const TYPE_LABELS: Record<CalObjectType, string> = {
   'ref-material': 'Reference Material',
 }
 
-const CALENDAR_VIEWS = ['Day', 'Week', 'Month', 'Quarter', 'Year'] as const
 const CAL_OBJECT_TYPE_OPTIONS: Array<{ value: CalObjectType; label: string; checkedByDefault: boolean }> = [
   { value: 'daily-note', label: 'Daily Notes', checkedByDefault: true },
   { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
@@ -96,7 +96,7 @@ function formatDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
-export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: CalendarPageProps) {
+export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
   const [loading, setLoading] = useState(false)
@@ -268,7 +268,12 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
     }
   }, [hasUnsavedChanges])
 
-  const startCreateForDate = useCallback((date: string, type: CalObjectType) => {
+  const startCreateForDate = useCallback(async (date: string, type: CalObjectType) => {
+    if (onStartCreateObject && (type === 'daily-note' || type === 'topic-note' || type === 'habit')) {
+      await Promise.resolve(onStartCreateObject({ type, date }))
+      return
+    }
+
     setSelectedDate(date)
     setSelectedType(type)
     if (type === 'daily-note') {
@@ -283,7 +288,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
       setSelectedObject({ date, type: 'habit', text: '', tags: [] })
       return
     }
-  }, [])
+  }, [onStartCreateObject])
 
   const handleConfirmClose = () => {
     setShowConfirmClose(false)
@@ -349,7 +354,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
       <div className="ui-shell-panel flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface-elevated)]">
         <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-[180px] flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Calendar</div>
+            <div className="text-sm font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Calendar</div>
             <div className="mt-1 text-sm text-[var(--color-text-secondary)]">
               {loading ? 'Loading events…' : searchQuery.trim() ? `${visibleEventCount} matching events` : `${visibleEventCount} events this month`}
             </div>
@@ -389,23 +394,30 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
           </div>
         </div>
 
-        <div className="border-b border-[var(--color-border-subtle)] px-4 pb-3 pt-1">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+        <div className="border-b border-[var(--color-border-subtle)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-1">
+            <div className="py-1.5">
+              <h2 className="text-2xl font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
+                {monthLabel}{' '}
+                <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon" className="h-10 w-10 rounded-full">
                     <SquarePen className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'daily-note')}>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'daily-note') }}>
                     New Daily Note
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'topic-note')}>
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
                     New Topic Note
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => startCreateForDate(createTargetDate, 'habit')}>
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
                     New Habit
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -423,45 +435,12 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
                 </Button>
               </div>
             </div>
-
-            <div className="hidden rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 lg:flex">
-              {CALENDAR_VIEWS.map((view) => {
-                const active = view === 'Month'
-                return (
-                  <button
-                    key={view}
-                    type="button"
-                    aria-pressed={active}
-                    className={cn(
-                      'rounded-full px-4 py-1.5 text-sm transition-colors',
-                      active
-                        ? 'bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
-                        : 'text-[var(--color-text-secondary)]',
-                    )}
-                  >
-                    {view}
-                  </button>
-                )
-              })}
-            </div>
-
-            <div />
-          </div>
-
-          <div className="mt-5 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="text-[44px] font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
-                {monthLabel}{' '}
-                <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
-              </h2>
-            </div>
-            <div />
           </div>
         </div>
 
         <div className="grid grid-cols-7 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/85">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayLabel) => (
-            <div key={dayLabel} className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+            <div key={dayLabel} className="px-3 py-2 text-right text-sm font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
               {dayLabel}
             </div>
           ))}
@@ -501,7 +480,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   {dailyNote ? (
-                    <span className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+                    <span className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-0.5 text-xs uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
                       Note
                     </span>
                   ) : <span />}
@@ -527,7 +506,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
                           clickEvent.stopPropagation()
                           void openEvent(event)
                         }}
-                        className="flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left text-[11px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                        className="flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
                       >
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.accent }} />
                         <span className="truncate">{event.label}</span>
@@ -540,7 +519,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
                           clickEvent.stopPropagation()
                           void openEvent(event)
                         }}
-                        className="truncate rounded-[7px] border px-2 py-1 text-left text-[11px] font-medium hover:brightness-110"
+                        className="truncate rounded-[7px] border px-2 py-1 text-left text-sm font-medium hover:brightness-110"
                         style={{
                           backgroundColor: colors.bg,
                           borderColor: colors.border,
@@ -553,7 +532,7 @@ export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: Calen
                   })}
 
                   {hiddenCount > 0 ? (
-                    <span className="px-1 text-[11px] text-[var(--color-text-disabled)]">
+                    <span className="px-1 text-sm text-[var(--color-text-disabled)]">
                       +{hiddenCount} more
                     </span>
                   ) : null}
