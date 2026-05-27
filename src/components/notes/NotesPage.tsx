@@ -11,15 +11,6 @@ import {
   SquarePen,
   X,
 } from 'lucide-react'
-import {
-  Box,
-  Stack,
-  Paper,
-  Typography,
-  Divider,
-  useMediaQuery,
-  useTheme,
-} from '@mui/material'
 import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
@@ -282,46 +273,21 @@ function CreatePanel({
   ), [createType])
 
   return (
-    <Paper
-      sx={{
-        flex: 1,
-        minWidth: 0,
-        bgcolor: 'surface.elevated',
-        border: '1px solid',
-        borderColor: 'border.subtle',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
       {/* Panel header */}
       {showHeader ? (
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ px: 2.5, pt: 2, pb: 1.25, flexShrink: 0 }}
-        >
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: 'text.disabled',
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              fontSize: '10px',
-            }}
-          >
+        <div className="flex shrink-0 items-center justify-between px-2.5 pb-1.5 pt-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
             New Note
-          </Typography>
+          </p>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
             <X className="h-4 w-4" />
           </Button>
-        </Stack>
+        </div>
       ) : null}
 
       {/* Type selector */}
-      <Box sx={{ px: 2, pt: showHeader ? 0 : 2, pb: 1.5, flexShrink: 0 }}>
+      <div className={`shrink-0 px-2 pb-1.5 ${showHeader ? 'pt-0' : 'pt-2'}`}>
         <Tabs value={createType} onValueChange={(value) => onTypeChange(value as NoteType)}>
           <TabsList className="grid h-10 w-full grid-cols-3 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
             <TabsTrigger value="topic-note" className="gap-1.5 rounded-full px-2 text-[11px] font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
@@ -338,12 +304,12 @@ function CreatePanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-      </Box>
+      </div>
 
-      <Divider sx={{ borderColor: 'border.subtle', flexShrink: 0 }} />
+      <div className="h-px shrink-0 bg-[var(--color-border-subtle)]" />
 
       {/* Blank editor fills remaining space */}
-      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', p: 0 }}>
+      <div className="flex min-h-0 flex-1 p-0">
         <ObjectEditor
           key={createKey}
           object={blankObject}
@@ -354,17 +320,16 @@ function CreatePanel({
           onNavigateToObject={onNavigateToObject}
           onDateChange={createType === 'daily-note' ? onCreateDateChange : undefined}
         />
-      </Box>
-    </Paper>
+      </div>
+    </section>
   )
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function NotesPage({ onSaved, pendingSelection, onPendingSelectionHandled, tagFilters = {} }: NotesPageProps) {
-  const theme = useTheme()
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const listRowRef = useRef<HTMLDivElement | null>(null)
+  const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 900 : false))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
   const [habits, setHabits] = useState<HabitItem[]>([])
@@ -391,6 +356,22 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
   const [isResizingFileList, setIsResizingFileList] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(max-width: 899px)')
+    const update = () => setIsSmallScreen(mediaQuery.matches)
+    update()
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', update)
+      return () => mediaQuery.removeEventListener('change', update)
+    }
+
+    mediaQuery.addListener(update)
+    return () => mediaQuery.removeListener(update)
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -818,7 +799,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', width: '100%', minWidth: 0, pl: 1.5 }}>
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden pl-1.5">
       <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-2.5 px-4 py-3" style={{ borderBottom: 'none' }}>
         <TooltipProvider>
           <Tooltip>
@@ -934,11 +915,9 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         </div>
       </div>
 
-      <Stack
+      <div
         ref={listRowRef}
-        direction={activeObject && !isSmallScreen ? 'row' : 'column'}
-        spacing={1.5}
-        sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}
+        className={`flex min-h-0 w-full min-w-0 gap-1.5 ${activeObject && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
       >
         <div
           className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col bg-[var(--color-surface-app)]"
@@ -1031,27 +1010,9 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         </div>
 
         {activeObject && (
-          <Paper
-            sx={{
-              flex: 1,
-              width: 0,
-              minWidth: 420,
-              bgcolor: 'surface.elevated',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: 0,
-              borderRadius: '18px',
-              overflow: 'hidden',
-            }}
-          >
+          <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
             <>
-              <Stack
-                direction="row"
-                alignItems="center"
-                sx={{ px: 2.5, pt: 2, pb: 1.5, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.sunken' }}
-              >
+              <div className="flex items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 pb-1.5 pt-2">
                 <div className="min-w-0 flex-1 px-2">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
                     Open item
@@ -1068,8 +1029,8 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                 <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
                   <X className="h-4 w-4" />
                 </Button>
-              </Stack>
-              <Box sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              </div>
+              <div className="flex min-h-0 flex-1 overflow-hidden p-0">
                 {activeObject ? (
                   <EditorErrorBoundary>
                     {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
@@ -1095,11 +1056,11 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                     )}
                   </EditorErrorBoundary>
                 ) : null}
-              </Box>
+              </div>
             </>
-          </Paper>
+          </section>
         )}
-      </Stack>
+      </div>
 
       <Dialog open={isCreating} onOpenChange={(open) => { if (!open) handleCloseEditor() }}>
         <DialogContent
@@ -1151,6 +1112,6 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
           </DialogContent>
         ) : null}
       </Dialog>
-     </Box>
+      </div>
    )
 }

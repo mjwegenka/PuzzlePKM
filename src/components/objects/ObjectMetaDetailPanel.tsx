@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react'
-import { Box, Paper, Stack, Typography } from '@mui/material'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { formatDatePretty } from '../../lib/dateUtils'
 import { Button } from '../ui/button'
@@ -60,52 +59,41 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
   }, [object, type])
 
   return (
-    <Paper
-      sx={{
-        p: flatTop ? 0 : 3,
-        bgcolor: flatTop ? 'transparent' : 'surface.elevated',
-        border: flatTop ? 'none' : '1px solid',
-        borderColor: 'border.subtle',
-        borderTopLeftRadius: flatTop ? 0 : undefined,
-        borderTopRightRadius: flatTop ? 0 : undefined,
-        flex: 1,
-        minHeight: 0,
-        overflow: 'hidden',
-      }}
+    <div
+      className={flatTop ? 'flex min-h-0 flex-1 overflow-hidden bg-transparent' : 'flex min-h-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6'}
     >
-      <Stack spacing={0} sx={{ minHeight: 0, height: '100%' }}>
-        <Box sx={{ px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2.5, flexShrink: 0 }}>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className={flatTop ? 'shrink-0 px-6 pb-2.5 pt-6' : 'shrink-0 pb-2.5'}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
             {header}
-          </Typography>
-          <Typography variant="h4" sx={{ fontSize: '1.45rem', fontWeight: 700, color: 'text.primary', lineHeight: 1.2, mt: 0.5 }}>
+          </p>
+          <h2 className="mt-1 text-[1.45rem] font-bold leading-[1.2] text-[var(--color-text-primary)]">
             {title}
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75, fontSize: '0.85rem' }}>
+          </h2>
+          <p className="mt-3 text-[0.85rem] text-[var(--color-text-secondary)]">
             {subtitle}
-          </Typography>
+          </p>
           {type === 'scripture' && String(object?.passageUrl ?? '').trim() && (
-            <Typography
-              component="a"
+            <a
               href={String(object?.passageUrl)}
               target="_blank"
               rel="noreferrer"
-              sx={{ color: 'accent.link', textDecoration: 'underline', mt: 1, display: 'inline-block' }}
+              className="mt-4 inline-block text-sm text-[var(--color-accent-link)] underline"
             >
               Open passage
-            </Typography>
+            </a>
           )}
-        </Box>
+        </div>
 
-        <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 3 : 0, minHeight: 0, flex: 1, overflow: 'auto' }}>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 1.25 }}>
+        <div className={flatTop ? 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] px-6 pb-6 pt-6' : 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] pt-6'}>
+          <p className="mb-3 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
             {type === 'scripture' ? 'Linked Notes' : 'Tagged Objects'}
-          </Typography>
-          <Stack spacing={1}>
+          </p>
+          <div className="space-y-2">
             {relations.length === 0 ? (
-              <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+              <p className="text-xs italic text-[var(--color-text-disabled)]">
                 None
-              </Typography>
+              </p>
             ) : (
               relations.map((row) => {
                 const target = toTarget(row)
@@ -125,10 +113,10 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
                     className="h-auto w-full justify-start rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-2 text-left"
                   >
                     <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                        <span className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">
+                      <span className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">
                         {primaryLabel}
                       </span>
-                        <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                      <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                         {secondaryLabel || 'object'}
                       </span>
                     </span>
@@ -136,10 +124,10 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
                 )
               })
             )}
-          </Stack>
-        </Box>
-      </Stack>
-    </Paper>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

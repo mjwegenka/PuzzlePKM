@@ -1,143 +1,118 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'
+import { BookOpenText, FileText, Folder, Loader2, Plus, RefreshCw } from 'lucide-react'
+
+import { listFileMeta } from '../../lib/cliService'
+import { Alert } from '../ui/alert'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 import {
-  Box,
-  Paper,
-  Stack,
-  Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Divider,
-  CircularProgress,
-  Alert,
-  IconButton,
-  TextField,
-  FormControl,
-  InputLabel,
   Select,
-  MenuItem,
-} from '@mui/material';
-import FolderIcon from '@mui/icons-material/Folder';
-import ArticleIcon from '@mui/icons-material/Article';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import AddIcon from '@mui/icons-material/Add';
-import { listFileMeta } from '../../lib/cliService';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select'
 
 interface FileItem {
-  id: string;
-  name: string;
-  author?: string;
-  syncPath: string;
-  type: 'project' | 'ref-material';
+  id: string
+  name: string
+  author?: string
+  syncPath: string
+  type: 'project' | 'ref-material'
 }
 
 interface FileExplorerProps {
-  onSelect: (id: string, type: 'project' | 'ref-material') => void;
-  selectedId?: string;
-  onCreateNew?: (type: 'project' | 'ref-material') => void;
+  onSelect: (id: string, type: 'project' | 'ref-material') => void
+  selectedId?: string
+  onCreateNew?: (type: 'project' | 'ref-material') => void
   /** Increment this to trigger a list reload (e.g. after a rename/save). */
-  refreshKey?: number;
+  refreshKey?: number
 }
 
 export default function FileExplorer({ onSelect, selectedId, onCreateNew, refreshKey }: FileExplorerProps) {
-  const [items, setItems] = useState<FileItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'author'>('name');
+  const [items, setItems] = useState<FileItem[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState('')
+  const [sortBy, setSortBy] = useState<'name' | 'author'>('name')
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
     try {
-      const raw = await listFileMeta();
-      setItems(raw);
+      const raw = await listFileMeta()
+      setItems(raw)
     } catch (err) {
-      setError(String(err));
+      setError(String(err))
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    void load()
+  }, [load, refreshKey])
 
-  const filterText = filter.toLowerCase();
+  const filterText = filter.toLowerCase()
   const matchesFilter = (i: FileItem) =>
     i.name.toLowerCase().includes(filterText) ||
-    (i.author ?? '').toLowerCase().includes(filterText);
+    (i.author ?? '').toLowerCase().includes(filterText)
   const compareItems = (a: FileItem, b: FileItem) => {
     if (sortBy === 'author') {
-      const byAuthor = (a.author ?? '').localeCompare(b.author ?? '', undefined, { sensitivity: 'base' });
-      if (byAuthor !== 0) return byAuthor;
+      const byAuthor = (a.author ?? '').localeCompare(b.author ?? '', undefined, { sensitivity: 'base' })
+      if (byAuthor !== 0) return byAuthor
     }
-    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-  };
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  }
+
   const projects = items
     .filter((i) => i.type === 'project' && matchesFilter(i))
-    .sort(compareItems);
+    .sort(compareItems)
   const refMaterials = items
     .filter((i) => i.type === 'ref-material' && matchesFilter(i))
-    .sort(compareItems);
+    .sort(compareItems)
 
   return (
-    <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '15px' }}>
-          Files
-        </Typography>
-        <IconButton size="small" onClick={load} title="Refresh" sx={{ color: 'text.secondary' }}>
-          <RefreshIcon sx={{ fontSize: 18 }} />
-        </IconButton>
-      </Stack>
+    <section className="flex h-full flex-col rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-[15px] font-semibold text-[var(--color-text-primary)]">Files</h2>
+        <Button type="button" size="icon" variant="ghost" onClick={() => void load()} title="Refresh" className="h-8 w-8 rounded-[10px]">
+          <RefreshCw className="h-[18px] w-[18px]" />
+        </Button>
+      </div>
 
-      {/* Filter + sort */}
-      <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
-        <TextField
-          size="small"
+      <div className="mb-4 flex gap-2">
+        <Input
           placeholder="Filter by name/author…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          variant="outlined"
-          sx={{ flex: 1 }}
+          className="flex-1"
         />
-        <FormControl size="small" sx={{ minWidth: 120 }}>
-          <InputLabel id="file-sort-label">Sort</InputLabel>
-          <Select
-            labelId="file-sort-label"
-            label="Sort"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'name' | 'author')}
-          >
-            <MenuItem value="name">Name</MenuItem>
-            <MenuItem value="author">Author</MenuItem>
-          </Select>
-        </FormControl>
-      </Stack>
+        <Select value={sortBy} onValueChange={(value) => setSortBy(value as 'name' | 'author')}>
+          <SelectTrigger className="min-w-[120px]">
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Name</SelectItem>
+            <SelectItem value="author">Author</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 1, fontSize: '12px' }}>
-          {error}
-        </Alert>
-      )}
+      {error ? <Alert variant="destructive" className="mb-3 text-xs">{error}</Alert> : null}
 
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={24} />
-        </Box>
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+        </div>
       ) : (
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
-          {/* Projects section */}
+        <div className="flex-1 overflow-auto">
           <SectionHeader
             label="Projects"
-            icon={<FolderIcon sx={{ fontSize: 14, mr: 0.5, color: 'warning.main' }} />}
+            icon={<Folder className="mr-1 h-3.5 w-3.5 text-amber-300" />}
             onAdd={onCreateNew ? () => onCreateNew('project') : undefined}
           />
-          <List sx={{ p: 0, mb: 0.5 }}>
+          <div className="mb-2">
             {projects.length === 0 ? (
               <EmptyNote text="No projects" />
             ) : (
@@ -148,21 +123,20 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
                   selected={selectedId === item.id}
                   showDivider={idx < projects.length - 1}
                   onSelect={onSelect}
-                  icon={<FolderIcon sx={{ fontSize: 16, color: 'warning.main', mr: 1, flexShrink: 0 }} />}
+                  icon={<Folder className="mr-3 h-4 w-4 shrink-0 text-amber-300" />}
                 />
               ))
             )}
-          </List>
+          </div>
 
-          <Divider sx={{ borderColor: 'border.subtle', my: 1 }} />
+          <div className="my-3 h-px bg-[var(--color-border-subtle)]" />
 
-          {/* Reference Materials section */}
           <SectionHeader
             label="Reference Materials"
-            icon={<MenuBookIcon sx={{ fontSize: 14, mr: 0.5, color: 'accent.metadata' }} />}
+            icon={<BookOpenText className="mr-1 h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />}
             onAdd={onCreateNew ? () => onCreateNew('ref-material') : undefined}
           />
-          <List sx={{ p: 0 }}>
+          <div>
             {refMaterials.length === 0 ? (
               <EmptyNote text="No reference materials" />
             ) : (
@@ -173,15 +147,15 @@ export default function FileExplorer({ onSelect, selectedId, onCreateNew, refres
                   selected={selectedId === item.id}
                   showDivider={idx < refMaterials.length - 1}
                   onSelect={onSelect}
-                  icon={<ArticleIcon sx={{ fontSize: 16, color: 'accent.metadata', mr: 1, flexShrink: 0 }} />}
+                  icon={<FileText className="mr-3 h-4 w-4 shrink-0 text-[var(--color-accent-metadata)]" />}
                 />
               ))
             )}
-          </List>
-        </Box>
+          </div>
+        </div>
       )}
-    </Paper>
-  );
+    </section>
+  )
 }
 
 function SectionHeader({
@@ -189,25 +163,23 @@ function SectionHeader({
   icon,
   onAdd,
 }: {
-  label: string;
-  icon: React.ReactNode;
-  onAdd?: () => void;
+  label: string
+  icon: React.ReactNode
+  onAdd?: () => void
 }) {
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, py: 0.5 }}>
-      <Stack direction="row" alignItems="center">
+    <div className="flex items-center justify-between px-0.5 py-1">
+      <div className="flex items-center">
         {icon}
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: '10px' }}>
-          {label}
-        </Typography>
-      </Stack>
-      {onAdd && (
-        <IconButton size="small" onClick={onAdd} sx={{ p: 0.25, color: 'text.secondary', '&:hover': { color: 'text.primary' } }}>
-          <AddIcon sx={{ fontSize: 14 }} />
-        </IconButton>
-      )}
-    </Stack>
-  );
+        <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">{label}</p>
+      </div>
+      {onAdd ? (
+        <Button type="button" size="icon" variant="ghost" onClick={onAdd} className="h-6 w-6 rounded-[8px]">
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  )
 }
 
 function FileListItem({
@@ -217,58 +189,36 @@ function FileListItem({
   onSelect,
   icon,
 }: {
-  item: FileItem;
-  selected: boolean;
-  showDivider: boolean;
-  onSelect: (id: string, type: 'project' | 'ref-material') => void;
-  icon: React.ReactNode;
+  item: FileItem
+  selected: boolean
+  showDivider: boolean
+  onSelect: (id: string, type: 'project' | 'ref-material') => void
+  icon: React.ReactNode
 }) {
   return (
-    <Box>
-      <ListItem disablePadding>
-        <ListItemButton
-          selected={selected}
-          onClick={() => onSelect(item.id, item.type)}
-          sx={{
-            py: 0.75,
-            borderRadius: '4px',
-            '&.Mui-selected': { bgcolor: 'action.selected' },
-            '&:hover': { bgcolor: 'surface.sunken' },
-          }}
-        >
-          {icon}
-          <ListItemText
-            primary={
-              <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '13px' }}>
-                {item.name}
-              </Typography>
-            }
-            secondary={
-              <>
-                {item.type === 'ref-material' && item.author && (
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '11px', display: 'block' }}>
-                    by {item.author}
-                  </Typography>
-                )}
-                {item.syncPath && item.syncPath !== '(no path)' ? (
-                  <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '11px' }}>
-                    {item.syncPath}
-                  </Typography>
-                ) : null}
-              </>
-            }
-          />
-        </ListItemButton>
-      </ListItem>
-      {showDivider && <Divider sx={{ borderColor: 'border.subtle' }} />}
-    </Box>
-  );
+    <div>
+      <button
+        type="button"
+        onClick={() => onSelect(item.id, item.type)}
+        className="flex w-full items-start rounded-[8px] px-3 py-3 text-left transition-colors hover:bg-[var(--color-surface-sunken)]"
+        style={{ backgroundColor: selected ? 'var(--color-selected-fill-soft)' : 'transparent' }}
+      >
+        {icon}
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-[var(--color-text-primary)]">{item.name}</span>
+          {item.type === 'ref-material' && item.author ? (
+            <span className="block text-[11px] text-[var(--color-text-secondary)]">by {item.author}</span>
+          ) : null}
+          {item.syncPath && item.syncPath !== '(no path)' ? (
+            <span className="block truncate text-[11px] text-[var(--color-text-disabled)]">{item.syncPath}</span>
+          ) : null}
+        </span>
+      </button>
+      {showDivider ? <div className="h-px bg-[var(--color-border-subtle)]" /> : null}
+    </div>
+  )
 }
 
 function EmptyNote({ text }: { text: string }) {
-  return (
-    <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', px: 1, py: 0.5, fontStyle: 'italic' }}>
-      {text}
-    </Typography>
-  );
+  return <p className="block px-1 py-0.5 text-xs italic text-[var(--color-text-disabled)]">{text}</p>
 }

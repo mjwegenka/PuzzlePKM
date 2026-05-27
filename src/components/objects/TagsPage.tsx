@@ -1,29 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  Box,
-  Stack,
-  Paper,
-  Typography,
-  Chip,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Divider,
-  CircularProgress,
-  TextField,
-  IconButton,
-  Tooltip,
-} from '@mui/material'
-import LabelIcon from '@mui/icons-material/Label'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import ClearIcon from '@mui/icons-material/Clear'
+import { Loader2, RefreshCw, Tag, X } from 'lucide-react'
 import ObjectEditor from './ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, getObject } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { formatDatePretty } from '../../lib/dateUtils'
 import { getObjectColor } from '../../lib/objectColors'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 
 type NoteType = 'daily-note' | 'topic-note' | 'habit'
 
@@ -142,229 +126,135 @@ export default function TagsPage() {
   const totalTagged = items.filter((i) => i.tags.length > 0).length
 
   return (
-    <Stack direction="row" spacing={2} sx={{ height: '100%', minHeight: 0 }}>
+    <div className="flex h-full min-h-0 gap-2">
       {/* ── Left: Tag browser ─────────────────────────────────────────────── */}
-      <Stack spacing={1.5} sx={{ width: 280, flexShrink: 0, minHeight: 0 }}>
+      <div className="flex min-h-0 w-[280px] shrink-0 flex-col gap-1.5">
         {/* Tag cloud */}
-        <Paper
-          sx={{
-            p: 2,
-            bgcolor: 'surface.elevated',
-            border: '1px solid',
-            borderColor: 'border.subtle',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1.5,
-          }}
-        >
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Stack direction="row" spacing={1} alignItems="center">
-              <LabelIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
-              <Typography
-                variant="caption"
-                sx={{
-                  fontWeight: 700,
-                  color: 'text.secondary',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                  fontSize: '10px',
-                }}
-              >
+        <section className="flex flex-col gap-3 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-[var(--color-accent-selected)]" />
+              <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
                 Tags ({tagCounts.size})
-              </Typography>
-            </Stack>
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              {loading && <CircularProgress size={12} />}
-              <Tooltip title="Refresh">
-                <IconButton size="small" onClick={loadAll} sx={{ p: 0.3 }}>
-                  <RefreshIcon sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </Stack>
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-text-secondary)]" /> : null}
+              <Button type="button" variant="ghost" size="icon" onClick={() => void loadAll()} className="h-6 w-6 rounded-[8px]" title="Refresh">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
 
           {/* Tag filter */}
-          <TextField
-            size="small"
+          <div className="relative">
+            <Input
             placeholder="Filter tags…"
             value={tagFilter}
             onChange={(e) => setTagFilter(e.target.value)}
-            variant="outlined"
-            slotProps={{
-              input: {
-                endAdornment: tagFilter ? (
-                  <IconButton size="small" onClick={() => setTagFilter('')} sx={{ p: 0.2 }}>
-                    <ClearIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                ) : null,
-              },
-            }}
-            sx={{ '& .MuiOutlinedInput-root': { fontSize: '13px' } }}
-          />
+              className="pr-8 text-[13px]"
+            />
+            {tagFilter ? (
+              <button
+                type="button"
+                onClick={() => setTagFilter('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-[var(--color-text-disabled)] transition-colors hover:text-[var(--color-text-primary)]"
+                aria-label="Clear tag filter"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
 
           {/* Chips */}
-          <Box sx={{ maxHeight: 220, overflow: 'auto' }}>
+          <div className="max-h-[220px] overflow-auto">
             {tagCounts.size === 0 && !loading && (
-              <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+              <p className="text-xs text-[var(--color-text-disabled)]">
                 No tags found across your notes.
-              </Typography>
+              </p>
             )}
-            <Stack direction="row" flexWrap="wrap" gap={0.75} useFlexGap>
+            <div className="flex flex-wrap gap-2">
               {selectedTag && (
-                <Chip
-                  label="× Show all"
-                  size="small"
+                <button
+                  type="button"
                   onClick={() => setSelectedTag(null)}
-                  sx={{
-                    bgcolor: 'surface.sunken',
-                    border: '1px solid',
-                    borderColor: 'border.subtle',
-                    color: 'text.secondary',
-                    height: 22,
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                  }}
-                />
+                  className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 text-[11px] text-[var(--color-text-secondary)]"
+                >
+                  × Show all
+                </button>
               )}
               {sortedTags.map(([tag, count]) => (
-                <Chip
+                <button
+                  type="button"
                   key={tag}
-                  label={`#${tag} ${count}`}
-                  size="small"
                   onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                  sx={{
-                    bgcolor:
-                      selectedTag === tag
-                        ? 'action.selected'
-                        : 'surface.sunken',
-                    border: '1px solid',
-                    borderColor: selectedTag === tag ? 'accent.selected' : 'border.subtle',
-                    color: 'text.secondary',
-                    height: 22,
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    '&:hover': { filter: 'brightness(1.2)' },
+                  className="inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-[filter,background-color,border-color] hover:brightness-110"
+                  style={{
+                    backgroundColor: selectedTag === tag ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-sunken)',
+                    borderColor: selectedTag === tag ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
                   }}
-                />
+                >
+                  #{tag} {count}
+                </button>
               ))}
-            </Stack>
-          </Box>
+            </div>
+          </div>
 
           {/* Stats */}
-          <Typography variant="caption" sx={{ color: 'text.disabled', pt: 0.5 }}>
+          <p className="pt-0.5 text-xs text-[var(--color-text-disabled)]">
             {totalTagged} of {items.length} objects have tags
-          </Typography>
-        </Paper>
+          </p>
+        </section>
 
         {/* Object list */}
-        <Paper
-          sx={{
-            flex: 1,
-            p: 0,
-            bgcolor: 'surface.elevated',
-            border: '1px solid',
-            borderColor: 'border.subtle',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            minHeight: 0,
-          }}
-        >
-          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderBottomColor: 'border.subtle', flexShrink: 0 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 700,
-                color: 'text.secondary',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                fontSize: '10px',
-              }}
-            >
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+          <div className="shrink-0 border-b border-[var(--color-border-subtle)] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
               {selectedTag ? `#${selectedTag} — ${filteredItems.length} objects` : `All objects (${items.length})`}
-            </Typography>
-          </Box>
-          <List dense sx={{ p: 0, flex: 1, overflow: 'auto' }}>
+            </p>
+          </div>
+          <div className="flex-1 overflow-auto">
             {filteredItems.length === 0 ? (
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.disabled', display: 'block', textAlign: 'center', py: 3 }}
-              >
+              <p className="block py-6 text-center text-xs text-[var(--color-text-disabled)]">
                 {selectedTag ? `No objects tagged #${selectedTag}` : 'No objects'}
-              </Typography>
+              </p>
             ) : (
               filteredItems.map((item, idx) => (
-                <Box key={item.id}>
-                  <ListItem disablePadding>
-                    <ListItemButton
-                      selected={selectedObject?.id === item.id}
-                      onClick={() => openItem(item)}
-                      sx={{
-                        py: 0.85,
-                        px: 1.5,
-                        '&.Mui-selected': { bgcolor: 'action.selected' },
-                      }}
-                    >
-                      <ListItemText
-                        primary={
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 500, fontSize: '13px', lineHeight: 1.3 }}
-                          >
-                            {item.title}
-                          </Typography>
-                        }
-                         secondary={
-                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.3 }}>
-                             <Typography
-                               variant="caption"
-                               sx={{
-                                 color: getObjectColor(item.type).text,
-                                 fontSize: '10px',
-                               }}
-                             >
-                               {item.type === 'daily-note' ? '📓 Daily Note' : item.type === 'habit' ? '🔁 Habit' : '📝 Topic Note'}
-                             </Typography>
-                              {item.date && (
-                                <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '10px' }}>
-                                  {formatDatePretty(item.date)}
-                                </Typography>
-                              )}
-                            {item.tags.slice(0, 2).map((t) => (
-                              <Typography
-                                key={t}
-                                variant="caption"
-                                sx={{
-                                  bgcolor: getObjectColor(item.type).bg,
-                                  px: 0.5,
-                                  borderRadius: '3px',
-                                  fontSize: '9px',
-                                  color: getObjectColor(item.type).text,
-                                }}
-                              >
-                                #{t}
-                              </Typography>
-                            ))}
-                            {item.tags.length > 2 && (
-                              <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '10px' }}>
-                                +{item.tags.length - 2}
-                              </Typography>
-                            )}
-                          </Stack>
-                        }
-                      />
-                    </ListItemButton>
-                  </ListItem>
-                  {idx < filteredItems.length - 1 && <Divider sx={{ borderColor: 'border.subtle' }} />}
-                </Box>
+                <div key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => void openItem(item)}
+                    className="w-full px-4 py-3 text-left"
+                    style={{ backgroundColor: selectedObject?.id === item.id ? 'var(--color-selected-fill-soft)' : 'transparent' }}
+                  >
+                    <p className="text-[13px] font-medium leading-[1.3] text-[var(--color-text-primary)]">{item.title}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span className="text-[10px]" style={{ color: getObjectColor(item.type).text }}>
+                        {item.type === 'daily-note' ? '📓 Daily Note' : item.type === 'habit' ? '🔁 Habit' : '📝 Topic Note'}
+                      </span>
+                      {item.date ? <span className="text-[10px] text-[var(--color-text-disabled)]">{formatDatePretty(item.date)}</span> : null}
+                      {item.tags.slice(0, 2).map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-[3px] px-1.5 py-0.5 text-[9px]"
+                          style={{ backgroundColor: getObjectColor(item.type).bg, color: getObjectColor(item.type).text }}
+                        >
+                          #{t}
+                        </span>
+                      ))}
+                      {item.tags.length > 2 ? <span className="text-[10px] text-[var(--color-text-disabled)]">+{item.tags.length - 2}</span> : null}
+                    </div>
+                  </button>
+                  {idx < filteredItems.length - 1 ? <div className="h-px bg-[var(--color-border-subtle)]" /> : null}
+                </div>
               ))
             )}
-          </List>
-        </Paper>
-      </Stack>
+          </div>
+        </section>
+      </div>
 
       {/* ── Right: Editor ──────────────────────────────────────────────────── */}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {selectedObject ? (
           <EditorErrorBoundary>
             <ObjectEditor
@@ -375,30 +265,17 @@ export default function TagsPage() {
             />
           </EditorErrorBoundary>
         ) : (
-          <Box
-            sx={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px dashed',
-              borderColor: 'border.subtle',
-              borderRadius: '8px',
-              p: 4,
-              gap: 2,
-            }}
-          >
-            <LabelIcon sx={{ fontSize: 44, opacity: 0.25, color: 'accent.selected' }} />
-            <Typography variant="body2" sx={{ color: 'text.disabled', textAlign: 'center' }}>
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-[8px] border border-dashed border-[var(--color-border-subtle)] p-4">
+            <Tag className="h-11 w-11 text-[var(--color-accent-selected)] opacity-25" />
+            <p className="text-center text-sm text-[var(--color-text-disabled)]">
               {selectedTag
                 ? `Select an object tagged #${selectedTag} to edit it`
                 : 'Select a tag to filter, then click an object to edit'}
-            </Typography>
-          </Box>
+            </p>
+          </div>
         )}
-      </Box>
-    </Stack>
+      </div>
+    </div>
   )
 }
 

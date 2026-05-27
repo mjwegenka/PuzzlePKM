@@ -1,28 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert,
-  Box,
-  CircularProgress,
-  IconButton,
-  List,
-  ListItemButton,
-  ListItemText,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
-import FolderIcon from '@mui/icons-material/Folder'
-import DescriptionIcon from '@mui/icons-material/Description'
-import ImageIcon from '@mui/icons-material/Image'
-import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf'
-import TerminalIcon from '@mui/icons-material/Terminal'
-import TableChartIcon from '@mui/icons-material/TableChart'
-import SlideshowIcon from '@mui/icons-material/Slideshow'
-import MovieIcon from '@mui/icons-material/Movie'
-import AudioFileIcon from '@mui/icons-material/AudioFile'
-import ArchiveIcon from '@mui/icons-material/Archive'
+  Archive,
+  FileAudio2,
+  FileCode2,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  Film,
+  Folder,
+  Loader2,
+  Presentation,
+  RefreshCw,
+} from 'lucide-react'
 import { browseDirectory, openPathInDefaultApp } from '../../lib/cliService'
+import { Alert } from '../ui/alert'
+import { Button } from '../ui/button'
 
 type FileObjectType = 'project' | 'ref-material'
 
@@ -39,37 +31,36 @@ function joinPath(base: string, child: string): string {
 
 function fileIconForName(name: string): React.ReactNode {
   const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
-  const iconProps = { sx: { fontSize: 15, mr: 1 } }
 
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'heic', 'bmp'].includes(ext)) {
-    return <ImageIcon {...iconProps} sx={{ ...iconProps.sx, color: 'success.main' }} />
+    return <FileImage className="h-4 w-4 shrink-0 text-emerald-300" />
   }
   if (ext === 'pdf') {
-    return <PictureAsPdfIcon {...iconProps} sx={{ ...iconProps.sx, color: 'error.main' }} />
+    return <FileText className="h-4 w-4 shrink-0 text-rose-300" />
   }
   if (['md', 'txt', 'rtf'].includes(ext)) {
-    return <DescriptionIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
+    return <FileText className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
   }
   if (['csv', 'tsv', 'xls', 'xlsx', 'numbers'].includes(ext)) {
-    return <TableChartIcon {...iconProps} sx={{ ...iconProps.sx, color: 'success.main' }} />
+    return <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-300" />
   }
   if (['ppt', 'pptx', 'key'].includes(ext)) {
-    return <SlideshowIcon {...iconProps} sx={{ ...iconProps.sx, color: 'warning.main' }} />
+    return <Presentation className="h-4 w-4 shrink-0 text-amber-300" />
   }
   if (['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm'].includes(ext)) {
-    return <MovieIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
+    return <Film className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
   }
   if (['mp3', 'wav', 'm4a', 'aac', 'flac'].includes(ext)) {
-    return <AudioFileIcon {...iconProps} sx={{ ...iconProps.sx, color: 'text.secondary' }} />
+    return <FileAudio2 className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
   }
   if (['zip', 'tar', 'gz', 'tgz', 'bz2', 'xz', '7z'].includes(ext)) {
-    return <ArchiveIcon {...iconProps} sx={{ ...iconProps.sx, color: 'warning.main' }} />
+    return <Archive className="h-4 w-4 shrink-0 text-amber-300" />
   }
   if (['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'json', 'yml', 'yaml', 'toml', 'ini', 'xml', 'html', 'css', 'scss', 'rs', 'swift', 'py', 'sh', 'zsh'].includes(ext)) {
-    return <TerminalIcon {...iconProps} sx={{ ...iconProps.sx, color: 'accent.metadata' }} />
+    return <FileCode2 className="h-4 w-4 shrink-0 text-[var(--color-accent-metadata)]" />
   }
 
-  return <DescriptionIcon sx={{ fontSize: 15, color: 'text.secondary', mr: 1 }} />
+  return <FileText className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
 }
 
 export default function ObjectDirectoryBrowser({ type, object, embedded = false }: ObjectDirectoryBrowserProps) {
@@ -129,89 +120,65 @@ export default function ObjectDirectoryBrowser({ type, object, embedded = false 
   )
 
   return (
-    <Paper
-      elevation={0}
-      sx={{
-        mt: embedded ? 0 : 1.5,
-        p: embedded ? 0 : 1.25,
-        bgcolor: embedded ? 'transparent' : 'surface.elevated',
-        border: embedded ? 'none' : type === 'project' ? 'none' : '1px solid',
-        borderColor: 'border.subtle',
-        borderRadius: embedded ? 0 : type === 'project' ? 0 : undefined,
-        minHeight: 180,
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+    <div
+      className={embedded
+        ? 'flex min-h-[180px] flex-col'
+        : `mt-1.5 flex min-h-[180px] flex-col ${type === 'project' ? 'rounded-none border-0 bg-[var(--color-surface-elevated)] p-0' : 'rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-3'}`}
     >
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.25 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, fontSize: '10px' }}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           {title}
-        </Typography>
-        <IconButton size="small" onClick={() => void load()} sx={{ color: 'text.secondary', border: '1px solid', borderColor: 'border.subtle', borderRadius: '10px', width: 30, height: 30 }}>
-          <RefreshIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      </Stack>
+        </p>
+        <Button type="button" size="icon" variant="outline" onClick={() => void load()} className="h-8 w-8 rounded-[10px]">
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </div>
 
       {directoryPath && (
-        <Typography variant="caption" sx={{ color: 'text.disabled', mb: 1.5, display: 'block', wordBreak: 'break-all', lineHeight: 1.45 }}>
+        <p className="mb-3 block break-all text-xs leading-[1.45] text-[var(--color-text-disabled)]">
           {directoryPath}
-        </Typography>
+        </p>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      {error && <Alert variant="destructive" className="mb-3">{error}</Alert>}
 
       {loading ? (
-        <Box sx={{ py: 2, display: 'flex', justifyContent: 'center' }}>
-          <CircularProgress size={18} />
-        </Box>
+        <div className="flex justify-center py-4">
+          <Loader2 className="h-[18px] w-[18px] animate-spin text-[var(--color-text-secondary)]" />
+        </div>
       ) : entries.length === 0 ? (
-        <Box sx={{ border: '1px dashed', borderColor: 'border.subtle', borderRadius: '14px', px: 2, py: 2.5, bgcolor: 'surface.sunken' }}>
-          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+        <div className="rounded-[14px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-4 py-5">
+          <p className="text-xs italic text-[var(--color-text-disabled)]">
             No files found.
-          </Typography>
-        </Box>
+          </p>
+        </div>
       ) : (
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <List dense disablePadding>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <div className="space-y-2">
             {entries.map((entry) => (
-              <ListItemButton
+              <button
+                type="button"
                 key={`${entry.kind}:${entry.name}`}
                 onClick={() => void handleOpenEntry(entry)}
-                sx={{
-                  borderRadius: '12px',
-                  mb: 0.5,
-                  px: 1.25,
-                  py: 0.85,
-                  border: '1px solid',
-                  borderColor: 'transparent',
-                  bgcolor: 'surface.control',
-                  '&:hover': {
-                    bgcolor: 'action.hover',
-                    borderColor: 'border.subtle',
-                  },
-                }}
+                className="flex w-full items-center gap-3 rounded-[12px] border border-transparent bg-[var(--color-surface-control)] px-3 py-2.5 text-left transition-colors hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)]"
               >
                 {entry.kind === 'dir'
-                  ? <FolderIcon sx={{ fontSize: 15, color: 'warning.main', mr: 1 }} />
+                  ? <Folder className="h-4 w-4 shrink-0 text-amber-300" />
                   : fileIconForName(entry.name)}
-                <ListItemText
-                  primary={entry.name}
-                  secondary={entry.kind === 'dir' ? 'Folder' : 'Open in default app'}
-                  slotProps={{
-                    primary: {
-                      sx: { color: 'text.primary', fontSize: '13px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-                    },
-                    secondary: {
-                      sx: { color: 'text.disabled', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-                    },
-                  }}
-                />
-              </ListItemButton>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-[var(--color-text-primary)]">
+                    {entry.name}
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--color-text-disabled)]">
+                    {entry.kind === 'dir' ? 'Folder' : 'Open in default app'}
+                  </span>
+                </span>
+              </button>
             ))}
-          </List>
-        </Box>
+          </div>
+        </div>
       )}
-    </Paper>
+    </div>
   )
 }
 

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Box } from '@mui/material'
 import type { Editor } from '@tiptap/react'
 import { NodeSelection } from '@tiptap/pm/state'
 
@@ -219,7 +218,7 @@ export function DragHandle({ editor }: DragHandleProps) {
   const iconTopOffset = 2
 
   return (
-    <Box
+    <div
       draggable
       onMouseEnter={() => {
         isPointerOverHandleRef.current = true
@@ -230,39 +229,19 @@ export function DragHandle({ editor }: DragHandleProps) {
       onMouseDown={onMouseDown}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      sx={{
-        position: 'absolute',
+      className="absolute z-[5] flex select-none items-center justify-center rounded-[4px] text-[16px] leading-none text-[rgba(125,186,214,0.35)] transition-[color,background-color] duration-120 hover:bg-[rgba(125,186,214,0.10)] hover:text-[rgba(125,186,214,0.9)] active:cursor-grabbing"
+      style={{
         top: handleState.top + iconTopOffset,
-        // Sits in the left gutter that RichMarkdownEditor opens up.
-        // Left edge of scroll container = 0; gutter = 36 px; icon = 20 px.
         left: 6,
         width: 20,
         height: 24,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         cursor: 'grab',
-        color: 'rgba(125, 186, 214, 0.35)',
-        borderRadius: '4px',
-        // Must beat sibling ProseMirror content in the same stacking context.
-        zIndex: 5,
-        userSelect: 'none',
-        fontSize: '16px',
-        lineHeight: 1,
-        transition: 'color 0.12s ease, background-color 0.12s ease',
-        '&:hover': {
-          color: 'rgba(125, 186, 214, 0.9)',
-          bgcolor: 'rgba(125, 186, 214, 0.10)',
-        },
-        '&:active': {
-          cursor: 'grabbing',
-        },
       }}
       title="Drag to reorder"
       aria-label="Drag to reorder block"
     >
       ⠿
-    </Box>
+    </div>
   )
 }
 

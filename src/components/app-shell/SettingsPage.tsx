@@ -1,26 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import {
-  Box,
-  Stack,
-  Paper,
-  Typography,
-  Divider,
-  TextField,
-  Button,
-  Alert,
-  CircularProgress,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-} from '@mui/material'
-import SettingsIcon from '@mui/icons-material/Settings'
-import StorageIcon from '@mui/icons-material/Storage'
-import CloudIcon from '@mui/icons-material/Cloud'
-import InfoIcon from '@mui/icons-material/Info'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import ErrorIcon from '@mui/icons-material/Error'
+import { AlertCircle, CheckCircle2, Cloud, HardDrive, Info, Loader2, Settings } from 'lucide-react'
 import { runPuzzlePKMCli } from '../../lib/cliService'
+import { Alert } from '../ui/alert'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 
 interface ConfigState {
   dbPath?: string
@@ -155,258 +138,170 @@ export default function SettingsPage() {
   const normalizedSyncRootPreview = normalizeSyncRootInput(syncRoot)
 
   return (
-    <Box sx={{ maxWidth: 680, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2.5, pb: 4, pr: 2 }}>
+    <div className="mx-auto flex max-w-[680px] flex-col gap-2.5 pb-4 pr-2">
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={1.5}>
-        <SettingsIcon sx={{ color: 'accent.selected', fontSize: 28 }} />
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+      <div className="flex items-center gap-3">
+        <Settings className="h-7 w-7 text-[var(--color-accent-selected)]" />
+        <div>
+          <h1 className="text-lg font-bold leading-tight text-[var(--color-text-primary)]">
             Settings
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          </h1>
+          <p className="text-xs text-[var(--color-text-secondary)]">
             PuzzlePKM configuration &amp; diagnostics
-          </Typography>
-        </Box>
-      </Stack>
+          </p>
+        </div>
+      </div>
 
-       {/* ── CLI Status ─────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <InfoIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              fontSize: '10px',
-            }}
-          >
+      {/* ── CLI Status ─────────────────────────────────────────────────────── */}
+      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             CLI Status
-          </Typography>
-        </Stack>
+          </p>
+        </div>
 
         {!cliStatus.checked ? (
-          <Stack direction="row" spacing={1} alignItems="center">
-            <CircularProgress size={14} />
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--color-text-secondary)]" />
+            <p className="text-sm text-[var(--color-text-secondary)]">
               Checking CLI…
-            </Typography>
-          </Stack>
+            </p>
+          </div>
         ) : (
-          <List dense disablePadding>
-            <ListItem disablePadding sx={{ py: 0.5 }}>
-              <ListItemText
-                primary={
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    {cliStatus.ok ? (
-                      <CheckCircleIcon sx={{ fontSize: 15, color: 'success.main' }} />
-                    ) : (
-                      <ErrorIcon sx={{ fontSize: 15, color: 'error.main' }} />
-                    )}
-                    <Typography component="div" variant="body2">
-                      CLI reachable:{' '}
-                      <Chip
-                        label={cliStatus.ok ? 'OK' : 'Error'}
-                        size="small"
-                        sx={{
-                          height: 18,
-                          fontSize: '10px',
-                          bgcolor: cliStatus.ok ? 'success.dark' : 'error.dark',
-                          border: '1px solid',
-                          borderColor: cliStatus.ok ? 'success.main' : 'error.main',
-                          color: cliStatus.ok ? 'success.light' : 'error.light',
-                        }}
-                      />
-                    </Typography>
-                  </Stack>
-                }
-              />
-            </ListItem>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+              {cliStatus.ok ? (
+                <CheckCircle2 className="h-[15px] w-[15px] text-[var(--color-success-main)]" />
+              ) : (
+                <AlertCircle className="h-[15px] w-[15px] text-rose-300" />
+              )}
+              <span>
+                CLI reachable:{' '}
+                <span
+                  className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px]"
+                  style={{
+                    backgroundColor: cliStatus.ok ? 'rgba(135,180,135,0.14)' : 'rgba(226,89,89,0.14)',
+                    borderColor: cliStatus.ok ? 'rgba(135,180,135,0.34)' : 'rgba(226,89,89,0.34)',
+                    color: cliStatus.ok ? 'rgb(182, 224, 182)' : 'rgb(252, 178, 178)',
+                  }}
+                >
+                  {cliStatus.ok ? 'OK' : 'Error'}
+                </span>
+              </span>
+            </div>
             {cliStatus.detail && (
-              <ListItem disablePadding sx={{ py: 0.5 }}>
-                <ListItemText
-                  primary={
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      {cliStatus.detail}
-                    </Typography>
-                  }
-                />
-              </ListItem>
+              <p className="text-sm text-[var(--color-text-secondary)]">{cliStatus.detail}</p>
             )}
             {cliStatus.error && (
-              <Alert severity="error" sx={{ mt: 1, py: 0.5, fontSize: '12px' }}>
+              <Alert variant="destructive" className="mt-2 text-xs">
                 {cliStatus.error}
               </Alert>
             )}
-          </List>
+          </div>
         )}
-      </Paper>
+      </section>
 
-       {/* ── Storage ────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <StorageIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              fontSize: '10px',
-            }}
-          >
+      {/* ── Storage ────────────────────────────────────────────────────────── */}
+      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <HardDrive className="h-4 w-4 text-[var(--color-accent-selected)]" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Storage
-          </Typography>
-        </Stack>
+          </p>
+        </div>
 
         {!config.loaded ? (
-          <CircularProgress size={16} />
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--color-text-secondary)]" />
         ) : (
-          <List dense disablePadding>
-            <ListItem disablePadding sx={{ py: 0.5 }}>
-              <ListItemText
-                primary={
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    Database path
-                  </Typography>
-                }
-                secondary={
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontFamily: 'monospace',
-                      color: 'text.primary',
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {config.dbPath || '(platform default puzzlepkm app-data folder)'}
-                  </Typography>
-                }
-              />
-            </ListItem>
-            <ListItem disablePadding sx={{ py: 0.5 }}>
-              <ListItemText
-                primary={
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    Sync root folder
-                  </Typography>
-                }
-                secondary={
-                  <Typography variant="caption" sx={{ color: 'text.primary', wordBreak: 'break-all' }}>
-                    {config.syncRootFolder || '(not configured)'}
-                  </Typography>
-                }
-              />
-            </ListItem>
-          </List>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm text-[var(--color-text-secondary)]">Database path</p>
+              <p className="break-all font-mono text-xs text-[var(--color-text-primary)]">
+                {config.dbPath || '(platform default puzzlepkm app-data folder)'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-[var(--color-text-secondary)]">Sync root folder</p>
+              <p className="break-all text-xs text-[var(--color-text-primary)]">{config.syncRootFolder || '(not configured)'}</p>
+            </div>
+          </div>
         )}
         {config.error && (
-          <Alert severity="warning" sx={{ mt: 1, py: 0.5, fontSize: '12px' }}>
+          <Alert variant="warning" className="mt-3 text-xs">
             {config.error}
           </Alert>
         )}
-      </Paper>
+      </section>
 
-       {/* ── Sync ───────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <CloudIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              fontSize: '10px',
-            }}
-          >
+      {/* ── Sync ───────────────────────────────────────────────────────────── */}
+      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Cloud className="h-4 w-4 text-[var(--color-accent-selected)]" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Sync
-          </Typography>
-        </Stack>
+          </p>
+        </div>
 
-        <Typography component="div" variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+        <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
           Projects and Reference Materials are discovered under your configured sync folder.
           Set the root folder path below.
-        </Typography>
+        </p>
 
-        <Stack spacing={1.5}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Sync root folder"
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+              Sync root folder
+            </label>
+            <Input
             value={syncRoot}
             onChange={(e) => setSyncRoot(e.target.value)}
             placeholder="/PuzzlePKM"
-            helperText={syncRootValidationError || 'Folder path used by sync'}
-            error={Boolean(syncRootValidationError)}
-            variant="outlined"
+              aria-invalid={Boolean(syncRootValidationError)}
+              className={syncRootValidationError ? 'border-[rgba(226,89,89,0.44)] focus-visible:ring-[rgba(226,89,89,0.25)]' : undefined}
           />
+            <p className={`text-xs ${syncRootValidationError ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
+              {syncRootValidationError || 'Folder path used by sync'}
+            </p>
+          </div>
 
           {!syncRootValidationError && normalizedSyncRootPreview && (
-            <Typography variant="caption" sx={{ color: 'text.secondary', wordBreak: 'break-all' }}>
-              Effective sync root: <Box component="span" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{normalizedSyncRootPreview}</Box>
-            </Typography>
+            <p className="break-all text-xs text-[var(--color-text-secondary)]">
+              Effective sync root:{' '}
+              <span className="font-mono text-[var(--color-text-primary)]">{normalizedSyncRootPreview}</span>
+            </p>
           )}
 
           {config.resolvedSyncRootFolder && (
-            <Typography variant="caption" sx={{ color: 'text.secondary', wordBreak: 'break-all' }}>
-              Resolved local folder: <Box component="span" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{config.resolvedSyncRootFolder}</Box>
-            </Typography>
+            <p className="break-all text-xs text-[var(--color-text-secondary)]">
+              Resolved local folder:{' '}
+              <span className="font-mono text-[var(--color-text-primary)]">{config.resolvedSyncRootFolder}</span>
+            </p>
           )}
 
           {saveResult && (
-            <Alert severity={saveResult.ok ? 'success' : 'error'} sx={{ py: 0.5, fontSize: '12px' }}>
+            <Alert variant={saveResult.ok ? 'success' : 'destructive'} className="text-xs">
               {saveResult.msg}
             </Alert>
           )}
 
           <Button
-            variant="contained"
-            size="small"
             disabled={saving || Boolean(syncRootValidationError)}
             onClick={handleSaveSyncRoot}
-            sx={{ alignSelf: 'flex-start' }}
+            size="sm"
+            className="self-start"
           >
-            {saving ? <CircularProgress size={14} sx={{ mr: 1 }} /> : null}
+            {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             Save path
           </Button>
-        </Stack>
+        </div>
 
-        <Divider sx={{ borderColor: 'border.subtle', my: 2 }} />
+        <div className="my-4 h-px bg-[var(--color-border-subtle)]" />
 
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 700,
-            color: 'text.secondary',
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            fontSize: '10px',
-            display: 'block',
-            mb: 1,
-          }}
-        >
+        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Expected folder structure
-        </Typography>
-        <Box
-          component="pre"
-          sx={{
-            m: 0,
-            p: 1.5,
-            bgcolor: 'surface.app',
-            borderRadius: 1,
-            border: '1px solid',
-            borderColor: 'border.subtle',
-            fontFamily: 'monospace',
-            fontSize: '12px',
-            color: 'text.secondary',
-            overflow: 'auto',
-          }}
-        >
+        </p>
+        <pre className="m-0 overflow-auto rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-3 text-xs text-[var(--color-text-secondary)]">
           {`<sync-root>/
 └── ...
     ├── projects/      ← each sub-folder = one Project
@@ -414,31 +309,22 @@ export default function SettingsPage() {
     ├── daily-notes/
     ├── topic-notes/
     └── habits/`}
-        </Box>
-        <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 1 }}>
+        </pre>
+        <p className="mt-2 block text-xs text-[var(--color-text-disabled)]">
           New projects and reference materials are added by creating folders in the sync root, not through
           the app.
-        </Typography>
-      </Paper>
+        </p>
+      </section>
 
-       {/* ── About ──────────────────────────────────────────────────────────── */}
-       <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle' }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <InfoIcon sx={{ fontSize: 16, color: 'accent.selected' }} />
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              fontSize: '10px',
-            }}
-          >
+      {/* ── About ──────────────────────────────────────────────────────────── */}
+      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             About PuzzlePKM
-          </Typography>
-        </Stack>
-        <List dense disablePadding>
+          </p>
+        </div>
+        <div className="space-y-2">
           {[
             ['App', 'PuzzlePKM Desktop'],
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
@@ -446,23 +332,13 @@ export default function SettingsPage() {
             ['Sync', 'Local folder'],
             ['CLI command', 'puzzlepkm'],
           ].map(([label, value]) => (
-            <ListItem key={label} disablePadding sx={{ py: 0.4 }}>
-              <ListItemText
-                primary={
-                  <Stack direction="row" spacing={1}>
-                    <Typography variant="body2" sx={{ color: 'text.secondary', minWidth: 110 }}>
-                      {label}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                      {value}
-                    </Typography>
-                  </Stack>
-                }
-              />
-            </ListItem>
+            <div key={label} className="flex gap-3 py-1">
+              <span className="min-w-[110px] text-sm text-[var(--color-text-secondary)]">{label}</span>
+              <span className="text-sm text-[var(--color-text-primary)]">{value}</span>
+            </div>
           ))}
-        </List>
-      </Paper>
-    </Box>
+        </div>
+      </section>
+    </div>
   )
 }

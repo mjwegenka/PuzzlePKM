@@ -59,7 +59,7 @@ See the `Desktop UI Contract Work (In Progress)` section in this README for the 
 
 ## shadcn/ui foundation in `src/`
 
-The baseline shadcn/ui foundation is available for incremental desktop UI migration.
+The shared shadcn/ui foundation now powers the desktop UI surfaces in `src/`.
 
 - Utility helper: `src/lib/utils.ts` exports `cn(...inputs)` (`clsx` + `tailwind-merge`).
 - Tailwind token wiring: `src/index.css` defines shared semantic tokens for light/dark themes (`--background`, `--foreground`, `--card`, `--primary`, etc.) and maps them through `@theme inline`.
@@ -83,26 +83,6 @@ import { Button } from '@/components/ui/button'
 <Button variant="secondary">Save</Button>
 ```
 
-## Temporary Material UI compatibility exceptions
-
-PuzzlePKM is now shadcn/ui-first, but a small set of legacy desktop surfaces still use Material UI while migration finishes. These exceptions are currently limited to:
-
-- `src/main.tsx`
-- `src/theme.ts`
-- `src/lib/objectColors.ts`
-- `src/components/app-shell/SettingsPage.tsx`
-- `src/components/common/DragHandle.tsx`
-- `src/components/common/EditorErrorBoundary.tsx`
-- `src/components/common/MentionPopup.tsx`
-- `src/components/common/RichMarkdownEditor.tsx`
-- `src/components/files/FileExplorer.tsx`
-- `src/components/notes/NewNotePage.tsx`
-- `src/components/notes/NotesPage.tsx`
-- `src/components/objects/ObjectDirectoryBrowser.tsx`
-- `src/components/objects/ObjectEditor.tsx`
-- `src/components/objects/ObjectList.tsx`
-- `src/components/objects/ObjectMetaDetailPanel.tsx`
-- `src/components/objects/TagsPage.tsx`
 
 ## Development Setup
 

@@ -1,6 +1,5 @@
 import type { ObjectType } from '../shared/types'
-import { alpha } from '@mui/material/styles'
-import { amber, green, orange, pink, purple } from '@mui/material/colors'
+import { withAlpha } from './colorUtils'
 
 /**
  * Canonical color token for one object type.
@@ -25,20 +24,20 @@ type ColorableType = Exclude<ObjectType, 'tag'>
 function buildToken(accent: string): ObjectColorToken {
   return {
     text: accent,
-    bg: alpha(accent, 0.18),
-    border: alpha(accent, 0.42),
+    bg: withAlpha(accent, 0.18),
+    border: withAlpha(accent, 0.42),
     accent,
-    selectionGlow: alpha(accent, 0.5),
+    selectionGlow: withAlpha(accent, 0.5),
   }
 }
 
 /** One canonical color mapping per object type. */
 export const objectColors: Record<ColorableType, ObjectColorToken> = {
-  'daily-note': buildToken(amber[300]),
-  'topic-note': buildToken(green[300]),
-  'habit': buildToken(orange[300]),
-  'project': buildToken(purple[300]),
-  'ref-material': buildToken(pink[300]),
+  'daily-note': buildToken('#f2cb63'),
+  'topic-note': buildToken('#81c784'),
+  'habit': buildToken('#ffb74d'),
+  'project': buildToken('#ba9ffb'),
+  'ref-material': buildToken('#f48fb1'),
   'scripture': buildToken('#f2cb63'),
 }
 

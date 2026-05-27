@@ -1,25 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box,
-  IconButton,
-  Menu,
-  MenuItem,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material'
-import FormatBoldIcon from '@mui/icons-material/FormatBold'
-import FormatItalicIcon from '@mui/icons-material/FormatItalic'
-import FormatStrikethroughIcon from '@mui/icons-material/FormatStrikethrough'
-import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
-import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
-import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
-import CodeIcon from '@mui/icons-material/Code'
-import ChecklistIcon from '@mui/icons-material/Checklist'
-import TitleIcon from '@mui/icons-material/Title'
-import LinkIcon from '@mui/icons-material/Link'
-import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+  Bold,
+  Code2,
+  Heading2,
+  Info,
+  Italic,
+  Link2,
+  List,
+  ListChecks,
+  ListOrdered,
+  Minus,
+  Quote,
+  Strikethrough,
+  Underline as UnderlineIcon,
+} from 'lucide-react'
 import type { AnyExtension } from '@tiptap/core'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -37,6 +31,14 @@ import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
 import { searchObjects } from '../../lib/cliService'
 import type { NoteBlock } from '../../shared/types'
+import { cn } from '../../lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
 interface RichMarkdownEditorProps {
   value: string
@@ -373,25 +375,23 @@ interface ToolbarButtonProps {
 
 function ToolbarButton({ title, active, onClick, children }: ToolbarButtonProps) {
   return (
-    <Tooltip title={title}>
-      <IconButton
-        size="small"
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={title}
         onClick={onClick}
-        sx={(theme) => ({
-          color: active ? theme.palette.text.primary : theme.palette.text.secondary,
-          bgcolor: active ? 'var(--color-surface-control)' : 'transparent',
-          border: `1px solid ${active ? theme.palette.border.subtle : 'transparent'}`,
-          borderRadius: '10px',
-          width: 30,
-          height: 30,
-          '&:hover': {
-            bgcolor: active ? 'var(--color-surface-control)' : theme.palette.action.hover,
-            borderColor: theme.palette.border.subtle,
-          },
-        })}
-      >
-        {children}
-      </IconButton>
+          className={cn(
+            'flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-action-hover)] hover:text-[var(--color-text-primary)]',
+            active
+              ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
+              : 'border-transparent bg-transparent',
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
     </Tooltip>
   )
 }
@@ -436,7 +436,6 @@ export default function RichMarkdownEditor({
   const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([])
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
   const [mentionPosition, setMentionPosition] = useState<{ top: number; left: number } | null>(null)
-  const [admonitionMenuAnchor, setAdmonitionMenuAnchor] = useState<HTMLElement | null>(null)
   const [showMarkdownView, setShowMarkdownView] = useState(false)
   const [markdownPreview, setMarkdownPreview] = useState(value)
 
@@ -811,160 +810,111 @@ export default function RichMarkdownEditor({
     } else {
       chain.toggleBlockquote().updateAttributes('blockquote', { admonitionType: type, admonitionLabel: label }).run()
     }
-    setAdmonitionMenuAnchor(null)
   }, [editor])
 
-  const handleAdmonitionMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setAdmonitionMenuAnchor(event.currentTarget)
-  }, [])
-
-  const handleAdmonitionMenuClose = useCallback(() => {
-    setAdmonitionMenuAnchor(null)
-  }, [])
-
   return (
-    <Box sx={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           {label}
-        </Typography>
+        </p>
         {typeof currentCount === 'number' && typeof maxLength === 'number' && (
-          <Typography variant="caption" sx={{ color: currentCount > maxLength ? 'error.main' : 'text.disabled', fontSize: '11px' }}>
+          <p className={`text-[11px] ${currentCount > maxLength ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
             {currentCount}/{maxLength}
-          </Typography>
+          </p>
         )}
-      </Stack>
+      </div>
 
-      <Box
-        sx={{
-          border: '1px solid',
-          borderColor: 'border.subtle',
-          borderRadius: '14px',
-          bgcolor: 'surface.elevated',
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ p: 1, borderBottom: '1px solid', borderColor: 'border.subtle', flexShrink: 0, bgcolor: 'surface.sunken' }}>
-          <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
-            <TitleIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Bold" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}>
-            <FormatBoldIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Italic" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}>
-            <FormatItalicIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Underline" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}>
-            <Typography sx={{ fontSize: '15px', textDecoration: 'underline', lineHeight: 1 }}>U</Typography>
-          </ToolbarButton>
-          <ToolbarButton title="Strike" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}>
-            <FormatStrikethroughIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
-            <FormatListBulletedIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Ordered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>
-            <FormatListNumberedIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Task list" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}>
-            <ChecklistIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Quote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}>
-            <FormatQuoteIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Code block" active={editor?.isActive('codeBlock')} onClick={() => editor?.chain().focus().toggleCodeBlock().run()}>
-            <CodeIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Horizontal rule" onClick={() => editor?.chain().focus().setHorizontalRule().run()}>
-            <HorizontalRuleIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={handleLinkPrompt}>
-            <LinkIcon fontSize="small" />
-          </ToolbarButton>
-          <ToolbarButton
-            title={showMarkdownView ? 'View Rich Text' : 'View Markdown'}
-            active={showMarkdownView}
-            onClick={() => setShowMarkdownView((current) => !current)}
-          >
-            <Typography sx={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1 }}>MD</Typography>
-          </ToolbarButton>
-          <Tooltip title={activeAdmonitionType ? `Admonition (${capitalize(activeAdmonitionType)})` : 'Admonition'}>
-            <IconButton
-              size="small"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={handleAdmonitionMenuOpen}
-              sx={(theme) => ({
-                color: activeAdmonitionType ? theme.palette.text.primary : theme.palette.text.secondary,
-                bgcolor: activeAdmonitionType ? 'var(--color-surface-control)' : 'transparent',
-                border: `1px solid ${activeAdmonitionType ? theme.palette.border.subtle : 'transparent'}`,
-                borderRadius: '10px',
-                width: 30,
-                height: 30,
-                '&:hover': {
-                  bgcolor: activeAdmonitionType ? 'var(--color-surface-control)' : theme.palette.action.hover,
-                  borderColor: theme.palette.border.subtle,
-                },
-              })}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+        <TooltipProvider>
+          <div className="flex shrink-0 flex-wrap gap-1 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-2">
+            <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
+              <Heading2 className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Bold" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}>
+              <Bold className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Italic" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}>
+              <Italic className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Underline" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}>
+              <UnderlineIcon className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Strike" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}>
+              <Strikethrough className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+              <List className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Ordered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>
+              <ListOrdered className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Task list" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}>
+              <ListChecks className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Quote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}>
+              <Quote className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Code block" active={editor?.isActive('codeBlock')} onClick={() => editor?.chain().focus().toggleCodeBlock().run()}>
+              <Code2 className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Horizontal rule" onClick={() => editor?.chain().focus().setHorizontalRule().run()}>
+              <Minus className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Link" active={editor?.isActive('link')} onClick={handleLinkPrompt}>
+              <Link2 className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton
+              title={showMarkdownView ? 'View Rich Text' : 'View Markdown'}
+              active={showMarkdownView}
+              onClick={() => setShowMarkdownView((current) => !current)}
             >
-              <InfoOutlinedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
+              <span className="text-[10px] font-bold leading-none tracking-[0.04em]">MD</span>
+            </ToolbarButton>
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      className={cn(
+                        'flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-action-hover)] hover:text-[var(--color-text-primary)]',
+                        activeAdmonitionType
+                          ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
+                          : 'border-transparent bg-transparent',
+                      )}
+                      aria-label="Admonition"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{activeAdmonitionType ? `Admonition (${capitalize(activeAdmonitionType)})` : 'Admonition'}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent className="border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+                {ADMONITION_OPTIONS.map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onSelect={(event) => {
+                      event.preventDefault()
+                      handleApplyAdmonitionType(option.value)
+                    }}
+                    className={cn(
+                      'min-h-[28px] px-2 text-xs',
+                      activeAdmonitionType === option.value ? 'bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : undefined,
+                    )}
+                  >
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </TooltipProvider>
 
-        <Menu
-          anchorEl={admonitionMenuAnchor}
-          open={Boolean(admonitionMenuAnchor)}
-          onClose={handleAdmonitionMenuClose}
-          slotProps={{
-            paper: {
-              sx: {
-                bgcolor: 'surface.elevated',
-                border: '1px solid',
-                borderColor: 'border.subtle',
-              },
-            },
-            list: {
-              dense: true,
-              sx: {
-                py: 0.25,
-              },
-            },
-          }}
-        >
-          {ADMONITION_OPTIONS.map((option) => (
-            <MenuItem
-              key={option.value}
-              selected={activeAdmonitionType === option.value}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => handleApplyAdmonitionType(option.value)}
-              sx={{
-                minHeight: 28,
-                px: 1,
-                fontSize: '12px',
-              }}
-            >
-              {option.label}
-            </MenuItem>
-          ))}
-        </Menu>
-
-        <Box
-          sx={{
-            flex: 1,
-            minHeight: 0,
-            overflow: 'auto',
-            position: 'relative',
-            pl: 2,
-            pr: 2,
-            py: 1.75,
-            bgcolor: 'surface.elevated',
-          }}
+        <div
+          className="relative flex-1 overflow-auto bg-[var(--color-surface-elevated)] px-5 py-4"
           onMouseDownCapture={(event) => {
             handleModifiedLinkClick(event)
           }}
@@ -973,26 +923,14 @@ export default function RichMarkdownEditor({
           }}
         >
           {showMarkdownView ? (
-            <Box
-              component="pre"
-              sx={{
-                m: 0,
-                color: 'text.secondary',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                fontSize: '12px',
-                lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                p: 0.5,
-              }}
-            >
+            <pre className="m-0 p-0.5 font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-[var(--color-text-secondary)]">
               {markdownPreview || ''}
-            </Box>
+            </pre>
           ) : (
             <EditorContent editor={editor} />
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       {mentionEnabled && !showMarkdownView && mentionActive && mentionPosition && (
         <MentionPopup
@@ -1006,6 +944,6 @@ export default function RichMarkdownEditor({
           position={mentionPosition}
         />
       )}
-    </Box>
+    </div>
   )
 }

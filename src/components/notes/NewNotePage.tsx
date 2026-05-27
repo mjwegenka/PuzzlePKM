@@ -1,13 +1,5 @@
 import React, { useState } from 'react'
-import {
-  Box,
-  Stack,
-  Paper,
-  Typography,
-} from '@mui/material'
-import NoteAddIcon from '@mui/icons-material/NoteAdd'
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday'
-import RepeatIcon from '@mui/icons-material/Repeat'
+import { CalendarDays, NotebookPen, Repeat2 } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { getTodayDate } from '../../lib/dateUtils'
@@ -42,72 +34,61 @@ export default function NewNotePage({ onSaved }: NewNotePageProps) {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, gap: 2 }}>
+    <div className="flex h-full min-h-0 flex-col gap-2">
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ flexShrink: 0 }}>
-        <NoteAddIcon sx={{ color: 'accent.selected', fontSize: 28 }} />
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+      <div className="flex shrink-0 items-center gap-3">
+        <NotebookPen className="h-7 w-7 text-[var(--color-accent-selected)]" />
+        <div>
+          <h1 className="text-lg font-bold leading-tight text-[var(--color-text-primary)]">
             New Note
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          </h1>
+          <p className="text-xs text-[var(--color-text-secondary)]">
             Create a new note in your knowledge base
-          </Typography>
-        </Box>
-      </Stack>
+          </p>
+        </div>
+      </div>
 
       {/* Type switcher */}
-      <Paper sx={{ p: 2, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', flexShrink: 0 }}>
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 700,
-            color: 'text.secondary',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            fontSize: '10px',
-            display: 'block',
-            mb: 1.5,
-          }}
-        >
+      <section className="shrink-0 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
+        <p className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           Note type
-        </Typography>
+        </p>
         <Tabs value={noteType} onValueChange={handleTypeChange}>
           <TabsList className="grid h-10 w-full max-w-lg grid-cols-3 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
             <TabsTrigger value="topic-note" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <NoteAddIcon sx={{ fontSize: 16 }} />
+              <NotebookPen className="h-4 w-4" />
               Topic Note
             </TabsTrigger>
             <TabsTrigger value="daily-note" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <CalendarTodayIcon sx={{ fontSize: 16 }} />
+              <CalendarDays className="h-4 w-4" />
               Daily Note
             </TabsTrigger>
             <TabsTrigger value="habit" className="gap-2 rounded-[10px] px-3 text-xs data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <RepeatIcon sx={{ fontSize: 16 }} />
+              <Repeat2 className="h-4 w-4" />
               Habit
             </TabsTrigger>
           </TabsList>
         </Tabs>
 
         {/* Hint text per type */}
-        <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 1.25 }}>
+        <p className="mt-1.5 block text-xs text-[var(--color-text-disabled)]">
           {noteType === 'topic-note'
             ? 'Topic notes are titled notes on any subject. They can link to other objects using @mentions.'
             : noteType === 'daily-note'
               ? 'Daily notes are journal entries tied to a specific date. Each date has one daily note.'
               : 'Habits are date-scoped tracking notes for routines and repeat actions.'}
-        </Typography>
-      </Paper>
+        </p>
+      </section>
 
       {/* Editor */}
-      <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
+      <div className="flex min-h-0 flex-1">
         <ObjectEditor
           key={editorKey}
           object={blankObject}
           type={noteType}
           onSave={handleSave}
         />
-      </Box>
-    </Box>
+      </div>
+    </div>
   )
 }

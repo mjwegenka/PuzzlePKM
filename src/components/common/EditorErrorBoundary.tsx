@@ -1,5 +1,5 @@
 import React from 'react'
-import { Alert, Box, Typography } from '@mui/material'
+import { Alert } from '@/components/ui/alert'
 
 interface EditorErrorBoundaryProps {
   children: React.ReactNode
@@ -32,14 +32,14 @@ export default class EditorErrorBoundary extends React.Component<EditorErrorBoun
     if (!this.state.hasError) return this.props.children
 
     return (
-      <Box sx={{ p: 2 }}>
-        <Alert severity="error" sx={{ mb: 1.5 }}>
+      <div className="p-2">
+        <Alert variant="destructive" className="mb-3">
           Failed to render this object.
         </Alert>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        <p className="text-xs text-[var(--color-text-secondary)]">
           {this.state.message}
-        </Typography>
-      </Box>
+        </p>
+      </div>
     )
   }
 }

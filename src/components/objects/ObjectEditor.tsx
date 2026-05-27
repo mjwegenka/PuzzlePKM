@@ -1,18 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import {
-  Box,
-  Paper,
-  Stack,
-  Typography,
-  Chip,
-  CircularProgress,
-  Alert,
-} from '@mui/material';
-import { Pin, PinOff, Plus, Save } from 'lucide-react';
+import { Loader2, Pin, PinOff, Plus, Save } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
 import { Button } from '../ui/button'
+import { Alert } from '../ui/alert'
 import {
   Dialog,
   DialogContent,
@@ -592,10 +584,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const isHabit = type === 'habit';
   const tagsEditor = (
     <>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px' }}>
+      <div className="mb-3 flex items-center gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Tags
-        </Typography>
+        </p>
         <Button
           type="button"
           variant="ghost"
@@ -606,117 +598,93 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         >
           <Plus className="h-4 w-4" />
         </Button>
-      </Stack>
+      </div>
 
-      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+      <div className="flex flex-wrap gap-2">
         {tags.length === 0 && (
-          <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+          <p className="text-xs italic text-[var(--color-text-disabled)]">
             No tags — click + to add
-          </Typography>
+          </p>
         )}
         {tags.map((tag) => (
-          <Chip
+          <button
             key={tag}
-            label={`#${tag}`}
-            onDelete={() => handleRemoveTag(tag)}
-            size="small"
-            sx={{
-              bgcolor: 'surface.control',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-              color: 'text.secondary',
-              height: 22,
-              '& .MuiChip-deleteIcon': { fontSize: 14, color: 'text.secondary' },
-            }}
-          />
+            type="button"
+            onClick={() => handleRemoveTag(tag)}
+            className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
+            title="Remove tag"
+          >
+            <span>#{tag}</span>
+            <span aria-hidden="true">×</span>
+          </button>
         ))}
-      </Stack>
+      </div>
     </>
   );
 
   const relationshipsSection = (
-    <Stack spacing={1.5} sx={{ mb: 2 }}>
-      <Box>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+    <div className="mb-2 space-y-4">
+      <div>
+        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Links
-        </Typography>
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        </p>
+        <div className="flex flex-wrap gap-2">
           {forwardLinks.length === 0 ? (
-            <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+            <p className="text-xs italic text-[var(--color-text-disabled)]">
               No links
-            </Typography>
+            </p>
           ) : (
             forwardLinks.map((relation) => (
-              <Chip
+              <button
                 key={`forward-${String(relation.id)}`}
-                label={relationLabel(relation)}
-                size="small"
-                clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                type="button"
+                disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                sx={{
-                  bgcolor: 'surface.control',
-                  border: '1px solid',
-                  borderColor: 'border.subtle',
-                  color: 'text.secondary',
-                  height: 22,
-                }}
-              />
+                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {relationLabel(relation)}
+              </button>
             ))
           )}
-        </Stack>
-      </Box>
-      <Box>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '10px', display: 'block', mb: 0.75 }}>
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 block text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Backlinks
-        </Typography>
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        </p>
+        <div className="flex flex-wrap gap-2">
           {backlinkLinks.length === 0 ? (
-            <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>
+            <p className="text-xs italic text-[var(--color-text-disabled)]">
               No backlinks
-            </Typography>
+            </p>
           ) : (
             backlinkLinks.map((relation) => (
-              <Chip
+              <button
                 key={`backlink-${String(relation.id)}`}
-                label={relationLabel(relation)}
-                size="small"
-                clickable={Boolean(relationToTarget(relation) && onNavigateToObject)}
+                type="button"
+                disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                sx={{
-                  bgcolor: 'surface.control',
-                  border: '1px solid',
-                  borderColor: 'border.subtle',
-                  color: 'text.secondary',
-                  height: 22,
-                }}
-              />
+                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-[11px] text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {relationLabel(relation)}
+              </button>
             ))
           )}
-        </Stack>
-      </Box>
-    </Stack>
+        </div>
+      </div>
+    </div>
   );
 
   return (
-    <Paper
-      sx={{
-        p: flatTop ? 0 : 3,
-        bgcolor: flatTop ? 'transparent' : 'surface.elevated',
-        border: flatTop ? 'none' : '1px solid',
-        borderColor: 'border.subtle',
-        borderTopLeftRadius: flatTop ? 0 : undefined,
-        borderTopRightRadius: flatTop ? 0 : undefined,
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-        overflow: 'hidden',
-      }}
+    <div
+      className={flatTop
+        ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent'
+        : 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6'}
     >
-      <Stack sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 0, overflow: isFileObject ? 'visible' : 'hidden' }}>
+      <div className={`flex min-h-0 flex-1 flex-col ${isFileObject ? 'overflow-visible' : 'overflow-hidden'}`}>
         {isFileObject ? (
-          <Stack sx={{ flex: 1, minHeight: 0, gap: 0, overflow: 'hidden' }}>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               <div className="mb-6 space-y-1">
                 <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
@@ -732,8 +700,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               {tagsEditor}
 
               {showDate && (
-                <Box sx={{ mt: 1.75 }}>
-                  <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
+                <div className="mt-7 w-full max-w-[320px]">
                     <DatePicker
                       label={type === 'project' ? 'Start Date' : 'Date'}
                       value={date}
@@ -741,8 +708,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                       helperText={!date && isOptionalDate ? 'No date set' : undefined}
                       allowClear={isOptionalDate}
                     />
-                  </Box>
-                </Box>
+                </div>
               )}
 
               {type === 'ref-material' && (
@@ -758,19 +724,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 </div>
               )}
 
-              <Box sx={{ mt: 3, minHeight: 280, overflow: 'hidden' }}>
+              <div className="mt-7 min-h-[280px] overflow-hidden">
                 <ObjectDirectoryBrowser object={object} type={type} embedded />
-              </Box>
+              </div>
 
-              <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', pt: 2.5, mt: 3, flexShrink: 0 }}>
+              <div className="mt-7 shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
                 {relationshipsSection}
-              </Box>
-            </Box>
+              </div>
+            </div>
 
-            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 2.5 : 0, flexShrink: 0, backgroundColor: flatTop ? 'surface.sunken' : 'transparent' }}>
-              <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+            <div className={flatTop ? 'shrink-0 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-6 pb-6 pt-6' : 'shrink-0 border-t border-[var(--color-border-subtle)] pt-6'}>
+              <div className="flex shrink-0 justify-end gap-2">
                 {saveError && (
-                  <Alert severity="error" sx={{ flex: 1, py: 0.25, fontSize: '12px' }}>
+                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
                     {saveError}
                   </Alert>
                 )}
@@ -797,17 +763,17 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   disabled={saving}
                   size="sm"
                 >
-                  {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
                 </Button>
-              </Stack>
-            </Box>
-          </Stack>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: flatTop ? 3 : 0, pt: flatTop ? 3 : 0, pb: 2 }}>
+            <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               {/* ── TOP: Title and Date (always first) ── */}
-              <Box sx={{ mb: 2.5, flexShrink: 0 }}>
+              <div className="mb-6 shrink-0">
 
                 {showTitle && (
                   <div className="mb-6 space-y-1">
@@ -824,20 +790,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
 
                 {isNoteType && !isHabit && (
-                  <Box sx={{ mb: 1.5 }}>
+                  <div className="mb-4">
                     {tagsEditor}
-                  </Box>
+                  </div>
                 )}
 
                 {isHabit && (
-                  <Box sx={{ mb: 1.5 }}>
+                  <div className="mb-4">
                     {tagsEditor}
-                  </Box>
+                  </div>
                 )}
 
                 {showDate && (
-                  <Box sx={{ mb: 1.5 }}>
-                    <Box sx={{ width: { xs: '100%', sm: 320 }, maxWidth: '100%' }}>
+                  <div className="mb-4 w-full max-w-[320px]">
                       <DatePicker
                         label="Date"
                         value={date}
@@ -845,14 +810,13 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                         helperText={!date && isOptionalDate ? 'No date set' : undefined}
                         allowClear={isOptionalDate}
                       />
-                    </Box>
-                  </Box>
+                  </div>
                 )}
-              </Box>
+              </div>
 
               {/* ── MIDDLE: Main content (fills remaining space) ── */}
               {showContent && (
-                <Box sx={{ minHeight: 0, position: 'relative', mb: 2, display: 'flex', overflow: 'hidden' }}>
+                <div className="relative mb-2 flex min-h-0 overflow-hidden">
                   <RichMarkdownEditor
                     label={type === 'habit' ? 'Habit text (optional)' : 'Content'}
                     value={content}
@@ -869,27 +833,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     maxLength={type === 'habit' ? 255 : undefined}
                     onShiftClickLink={handleShiftClickLink}
                   />
-                </Box>
+                </div>
               )}
 
               {/* ── BOTTOM: Relationships + Tags ── */}
-              <Box
-                sx={{
-                  borderTop: '1px solid',
-                  borderColor: 'border.subtle',
-                  pt: 2.5,
-                  flexShrink: 0,
-                  minHeight: 0,
-                }}
-              >
+              <div className="min-h-0 shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
                 {isNoteType && relationshipsSection}
-              </Box>
-            </Box>
+              </div>
+            </div>
 
-            <Box sx={{ borderTop: '1px solid', borderColor: 'border.subtle', px: flatTop ? 3 : 0, pt: 2.5, pb: flatTop ? 2.5 : 0, flexShrink: 0, backgroundColor: flatTop ? 'surface.sunken' : 'transparent' }}>
-              <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexShrink: 0 }}>
+            <div className={flatTop ? 'shrink-0 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-6 pb-6 pt-6' : 'shrink-0 border-t border-[var(--color-border-subtle)] pt-6'}>
+              <div className="flex shrink-0 justify-end gap-2">
                 {saveError && (
-                  <Alert severity="error" sx={{ flex: 1, py: 0.25, fontSize: '12px' }}>
+                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
                     {saveError}
                   </Alert>
                 )}
@@ -916,14 +872,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   disabled={saving}
                   size="sm"
                 >
-                  {saving ? <CircularProgress size={14} color="inherit" /> : <Save className="h-4 w-4" />}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
                 </Button>
-              </Stack>
-            </Box>
+              </div>
+            </div>
           </>
         )}
-      </Stack>
+      </div>
 
       {/* Tag dialog */}
       <Dialog open={showTagDialog} onOpenChange={(open) => { if (!open) closeTagDialog(); }}>
@@ -1019,6 +975,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           </DialogContent>
         ) : null}
       </Dialog>
-    </Paper>
+    </div>
   );
 }
