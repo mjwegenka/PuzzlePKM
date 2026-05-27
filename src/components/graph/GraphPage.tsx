@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Box, CircularProgress, Paper, Stack, TextField, Typography } from '@mui/material'
-import { alpha, useTheme } from '@mui/material/styles'
-import HubIcon from '@mui/icons-material/Hub'
-import SearchIcon from '@mui/icons-material/Search'
+import { Loader2, Network, Search } from 'lucide-react'
+import { Input } from '../ui/input'
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../../lib/cliService'
 
 type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material'
@@ -25,7 +23,6 @@ interface GraphPageProps {
 }
 
 export default function GraphPage({ onOpenNode }: GraphPageProps) {
-  const theme = useTheme()
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(false)
@@ -173,48 +170,44 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
   }
 
   return (
-    <Paper sx={{ flex: 1, minHeight: 0, p: 1.5, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column' }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexShrink: 0 }}>
-        <HubIcon sx={{ color: 'text.secondary', fontSize: 18 }} />
-        <Typography variant="subtitle2" sx={{ color: 'text.primary', fontWeight: 700 }}>Graph</Typography>
-        <TextField
-          size="small"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search nodes..."
-          sx={{ ml: 'auto', width: 260 }}
-          slotProps={{
-            input: {
-              startAdornment: <SearchIcon sx={{ fontSize: 14, color: 'text.disabled', mr: 0.5 }} />,
-            },
-          }}
-        />
-      </Stack>
+    <div className="flex min-h-0 flex-1 flex-col rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-1.5">
+      <div className="mb-1 flex shrink-0 items-center gap-2">
+        <Network className="h-[18px] w-[18px] text-[var(--color-text-secondary)]" />
+        <h2 className="text-sm font-bold text-[var(--color-text-primary)]">Graph</h2>
+        <div className="relative ml-auto w-[260px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search nodes..."
+            className="h-8 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] pl-8 text-xs text-[var(--color-text-secondary)]"
+          />
+        </div>
+      </div>
 
-      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      {error && (
+        <div className="mb-1 rounded-md border border-[var(--color-destructive)]/35 bg-[var(--color-destructive)]/8 px-2 py-1 text-xs text-[var(--color-destructive)]">
+          {error}
+        </div>
+      )}
 
-      <Box
+      <div
         onPointerDown={handleGraphPointerDown}
         onPointerMove={handleGraphPointerMove}
         onPointerUp={stopGraphPan}
         onPointerCancel={stopGraphPan}
         onWheel={handleGraphWheel}
-        sx={{
-          flex: 1,
-          minHeight: 0,
-          position: 'relative',
-          border: '1px solid',
-          borderColor: isPanning ? 'accent.selected' : 'border.subtle',
-          borderRadius: 1,
-          bgcolor: (localTheme) => alpha(localTheme.palette.surface.app, 0.45),
-          overflow: 'hidden',
+        className="relative min-h-0 flex-1 overflow-hidden rounded-sm border"
+        style={{
+          borderColor: isPanning ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
+          backgroundColor: 'rgba(2, 6, 23, 0.45)',
           cursor: isPanning ? 'grabbing' : 'grab',
         }}
       >
         {loading ? (
-          <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CircularProgress size={24} />
-          </Box>
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+          </div>
         ) : (
           <svg width="100%" height="100%" viewBox="0 0 640 480" preserveAspectRatio="xMidYMid meet">
             <g transform={`translate(${viewport.x} ${viewport.y}) translate(320 240) scale(${viewport.scale}) translate(-320 -240)`}>
@@ -229,7 +222,7 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                   y1={source.y}
                   x2={target.x}
                   y2={target.y}
-                  stroke={alpha(theme.palette.text.secondary, 0.35)}
+                  stroke="rgba(148, 163, 184, 0.35)"
                   strokeWidth={1}
                 />
               )
@@ -242,14 +235,14 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
                     cx={node.x}
                     cy={node.y}
                     r={focused ? 8 : 6}
-                    fill={focused ? theme.palette.accent.selected : theme.palette.surface.app}
-                    stroke={focused ? theme.palette.success.main : theme.palette.text.secondary}
+                    fill={focused ? 'var(--color-accent-selected)' : 'var(--color-surface-app)'}
+                    stroke={focused ? 'var(--color-success-main)' : 'var(--color-text-secondary)'}
                     strokeWidth={focused ? 2 : 1}
                   />
                   <text
                     x={node.x + 10}
                     y={node.y + 3}
-                    fill={theme.palette.text.secondary}
+                    fill="var(--color-text-secondary)"
                     style={{ fontSize: '10px', userSelect: 'none' }}
                   >
                     {node.label.slice(0, 28)}
@@ -260,11 +253,11 @@ export default function GraphPage({ onOpenNode }: GraphPageProps) {
             </g>
           </svg>
         )}
-      </Box>
+      </div>
 
-      <Typography variant="caption" sx={{ color: 'text.disabled', mt: 1 }}>
+      <p className="mt-1 text-[11px] text-[var(--color-text-disabled)]">
         Tip: drag to pan, use trackpad/pointer wheel to zoom, click a node once to focus it and again to open.
-      </Typography>
-    </Paper>
+      </p>
+    </div>
   )
 }

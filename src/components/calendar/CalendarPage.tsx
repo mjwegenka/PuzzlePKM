@@ -1,26 +1,29 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  Box,
-  Stack,
-  Paper,
-  Typography,
-  Button,
-  CircularProgress,
-  IconButton,
-  Menu,
-  MenuItem,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-} from '@mui/material'
-import { alpha } from '@mui/material/styles'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import CloseIcon from '@mui/icons-material/Close'
+import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import { Button } from '../ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
@@ -263,118 +266,101 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
   }, [])
 
   return (
-    <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
-      <Paper
-        sx={{
-          flex: 1,
-          minWidth: 0,
-          p: 2,
-          bgcolor: 'surface.elevated',
-          border: '1px solid',
-          borderColor: 'border.subtle',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+    <div className="flex min-h-0 flex-1 gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-2">
         {/* Month header */}
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5, flexShrink: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: 'text.primary' }}>
+        <div className="mb-1.5 flex shrink-0 items-center justify-between">
+          <h2 className="text-lg font-bold text-[var(--color-text-primary)]">
             {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
-          </Typography>
-            <Stack direction="row" spacing={0.75} alignItems="center">
-              <TextField
-                select
-                size="small"
-                value={mo}
-                aria-label="Select month"
-                onChange={(event) => {
-                  setCurrentMonth(new Date(yr, Number(event.target.value), 1))
-                }}
-                sx={{
-                  width: 90,
-                  '& .MuiOutlinedInput-root': {
-                    minHeight: 32,
-                    fontSize: '12px',
-                    bgcolor: 'surface.sunken',
-                    color: 'text.secondary',
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                  },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
-                }}
-              >
+          </h2>
+          <div className="flex items-center gap-1">
+            <Select
+              value={String(mo)}
+              onValueChange={(value) => {
+                setCurrentMonth(new Date(yr, Number(value), 1))
+              }}
+            >
+              <SelectTrigger aria-label="Select month" className="h-8 w-[90px] border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-xs text-[var(--color-text-secondary)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {MONTH_LABELS.map((label, monthIndex) => (
-                  <MenuItem key={label} value={monthIndex}>{label}</MenuItem>
+                  <SelectItem key={label} value={String(monthIndex)}>{label}</SelectItem>
                 ))}
-              </TextField>
-              <TextField
-                select
-                size="small"
-                value={yr}
-                aria-label="Select year"
-                onChange={(event) => {
-                  const parsedYear = Number.parseInt(String(event.target.value), 10)
-                  if (!Number.isFinite(parsedYear)) return
-                  setCurrentMonth(new Date(parsedYear, mo, 1))
-                }}
-                sx={{
-                  width: 88,
-                  '& .MuiOutlinedInput-root': {
-                    minHeight: 32,
-                    fontSize: '12px',
-                    bgcolor: 'surface.sunken',
-                    color: 'text.secondary',
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'border.strong' },
-                  },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'border.subtle' },
-                }}
-              >
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(yr)}
+              onValueChange={(value) => {
+                const parsedYear = Number.parseInt(String(value), 10)
+                if (!Number.isFinite(parsedYear)) return
+                setCurrentMonth(new Date(parsedYear, mo, 1))
+              }}
+            >
+              <SelectTrigger aria-label="Select year" className="h-8 w-[88px] border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-xs text-[var(--color-text-secondary)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {yearOptions.map((year) => (
-                  <MenuItem key={year} value={year}>{year}</MenuItem>
+                  <SelectItem key={year} value={String(year)}>{year}</SelectItem>
                 ))}
-              </TextField>
-            {loading && <CircularProgress size={14} sx={{ mr: 0.5, color: 'text.secondary' }} />}
-            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))} sx={{ color: 'text.secondary' }}>
-              <ChevronLeftIcon fontSize="small" sx={{ fontSize: 18 }} />
-            </IconButton>
-            <Button size="small" variant="outlined" onClick={() => setCurrentMonth(new Date())} sx={{ borderColor: 'border.subtle', color: 'text.primary', bgcolor: 'surface.sunken', '&:hover': { borderColor: 'border.strong', bgcolor: 'surface.elevated' } }}>
+              </SelectContent>
+            </Select>
+            {loading && <Loader2 className="mr-0.5 h-3.5 w-3.5 animate-spin text-[var(--color-text-secondary)]" />}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-[var(--color-text-secondary)]"
+              onClick={() => setCurrentMonth(new Date(yr, mo - 1, 1))}
+            >
+              <ChevronLeft className="h-[18px] w-[18px]" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-primary)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-elevated)]"
+              onClick={() => setCurrentMonth(new Date())}
+            >
               Today
             </Button>
-            <IconButton size="small" onClick={() => setCurrentMonth(new Date(yr, mo + 1, 1))} sx={{ color: 'text.secondary' }}>
-              <ChevronRightIcon fontSize="small" sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Stack>
-        </Stack>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-[var(--color-text-secondary)]"
+              onClick={() => setCurrentMonth(new Date(yr, mo + 1, 1))}
+            >
+              <ChevronRight className="h-[18px] w-[18px]" />
+            </Button>
+          </div>
+        </div>
 
         {/* Legend */}
-        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap sx={{ mb: 1, flexShrink: 0 }}>
+        <div className="mb-1 flex shrink-0 flex-wrap gap-2">
           {(Object.entries(TYPE_COLORS) as [CalObjectType, (typeof TYPE_COLORS)[CalObjectType]][]).map(
             ([type, colors]) => (
-              <Stack key={type} direction="row" spacing={0.5} alignItems="center">
-                <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: colors.bg, border: `1px solid ${colors.border}` }} />
-                <Typography variant="caption" sx={{ color: colors.text, fontSize: '10px' }}>
+              <div key={type} className="flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-[2px] border" style={{ backgroundColor: colors.bg, borderColor: colors.border }} />
+                <span className="text-[10px]" style={{ color: colors.text }}>
                   {TYPE_LABELS[type]}
-                </Typography>
-              </Stack>
+                </span>
+              </div>
             ),
           )}
-        </Stack>
+        </div>
 
         {/* Day-of-week headers */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '1px', mb: 0.5, flexShrink: 0 }}>
+        <div className="mb-0.5 grid shrink-0 grid-cols-7 gap-px">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <Typography key={d} variant="caption" sx={{ textAlign: 'center', fontWeight: 700, color: 'text.secondary', py: 0.5, fontSize: '11px' }}>
+            <span key={d} className="py-0.5 text-center text-[11px] font-bold text-[var(--color-text-secondary)]">
               {d}
-            </Typography>
+            </span>
           ))}
-        </Box>
+        </div>
 
         {/* Day cells - fixed width grid */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '2px', flex: 1, overflow: 'auto', alignContent: 'start' }}>
+        <div className="grid flex-1 grid-cols-7 content-start gap-0.5 overflow-auto">
           {cells.map((day, idx) => {
-            if (!day) return <Box key={`empty-${idx}`} sx={{ minHeight: 72, bgcolor: 'transparent', borderRadius: 1 }} />
+            if (!day) return <div key={`empty-${idx}`} className="min-h-[72px] rounded-md bg-transparent" />
 
             const date = fmt(yr, mo, day)
             const dayEvts = eventsForDate(date)
@@ -382,154 +368,145 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
             const selected = date === selectedDate
 
             return (
-              <Box
+              <div
                 key={date}
                 onClick={() => handleDayClick(day)}
                 onContextMenu={(event) => {
                   event.preventDefault()
                   setContextMenu({ mouseX: event.clientX + 2, mouseY: event.clientY - 6, date })
                 }}
-                sx={{
-                  minHeight: 72,
-                  minWidth: 0,
-                  p: '4px 6px',
-                  borderRadius: 1,
-                  border: '1px solid',
-                  borderColor: selected ? 'border.strong' : 'border.subtle',
-                  bgcolor: selected
-                    ? (theme) => alpha(theme.palette.accent.selected, 0.12)
+                className="flex min-h-[72px] min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border px-1.5 py-1 transition-colors hover:bg-[var(--color-surface-sunken)]"
+                style={{
+                  borderColor: selected ? 'var(--color-border-strong)' : 'var(--color-border-subtle)',
+                  backgroundColor: selected
+                    ? 'rgba(56, 189, 248, 0.12)'
                     : today
-                      ? (theme) => alpha(theme.palette.accent.selected, 0.08)
-                      : 'surface.app',
-                  cursor: 'pointer',
-                  transition: 'background 0.12s',
-                  '&:hover': { bgcolor: 'surface.sunken', borderColor: 'border.strong' },
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '2px',
+                      ? 'rgba(56, 189, 248, 0.08)'
+                      : 'var(--color-surface-app)',
                 }}
               >
-                <Typography variant="caption" sx={{ fontWeight: today ? 800 : 500, color: today || selected ? 'accent.selected' : 'text.primary', fontSize: '12px', lineHeight: 1.3 }}>
+                <span
+                  className="text-xs leading-[1.3]"
+                  style={{
+                    fontWeight: today ? 800 : 500,
+                    color: today || selected ? 'var(--color-accent-selected)' : 'var(--color-text-primary)',
+                  }}
+                >
                   {day}
-                </Typography>
+                </span>
                 {dayEvts.slice(0, 3).map((evt) => {
                   const colors = TYPE_COLORS[evt.type]
                   return (
-                    <Box
+                    <div
                       key={evt.id}
                       onClick={(e) => { e.stopPropagation(); openEvent(evt) }}
-                      sx={{ bgcolor: colors.bg, border: `1px solid ${colors.border}`, borderRadius: '3px', px: '4px', py: '1px', cursor: 'pointer', '&:hover': { filter: 'brightness(1.35)' }, overflow: 'hidden' }}
+                      className="cursor-pointer overflow-hidden rounded-[3px] border px-1 py-px hover:brightness-125"
+                      style={{ backgroundColor: colors.bg, borderColor: colors.border }}
                     >
-                      <Typography variant="caption" sx={{ color: colors.text, fontSize: '10px', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span className="block truncate text-[10px]" style={{ color: colors.text }}>
                         {evt.type === 'daily-note' ? '📓 Daily'
                           : evt.type === 'habit' ? `🔁 ${evt.label}`
                           : evt.type === 'project' ? `📁 ${evt.label}`
                           : `📝 ${evt.label}`}
-                      </Typography>
-                    </Box>
+                      </span>
+                    </div>
                   )
                 })}
                 {dayEvts.length > 3 && (
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '10px' }}>
+                  <span className="text-[10px] text-[var(--color-text-secondary)]">
                     +{dayEvts.length - 3} more
-                  </Typography>
+                  </span>
                 )}
-              </Box>
+              </div>
             )
           })}
-        </Box>
-      </Paper>
+        </div>
+      </div>
 
       {selectedObject && (
-        <Paper sx={{ width: 520, minWidth: 400, bgcolor: 'surface.elevated', border: '1px solid', borderColor: 'border.subtle', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle' }}>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+        <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+          <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-2 py-1">
+            <h3 className="text-lg font-bold">
               {selectedType === 'daily-note' ? 'Daily Note'
                 : selectedType === 'habit' ? 'Habit'
                 : selectedType === 'project' ? 'Project'
                 : selectedType === 'ref-material' ? 'Reference Material'
                 : 'Topic Note'}
-            </Typography>
-            <IconButton size="small" onClick={handleCloseModal} sx={{ color: 'text.secondary' }}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </Stack>
-          <Box sx={{ p: 1.5, flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            </h3>
+            <Button size="icon" variant="ghost" onClick={handleCloseModal} className="h-8 w-8 text-[var(--color-text-secondary)]">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex min-h-0 flex-1 overflow-hidden p-1.5">
             <EditorErrorBoundary>
               <ObjectEditor
                 object={selectedObject}
                 type={selectedType}
                 onSave={handleSave}
                 onDirty={setHasUnsavedChanges}
-                onNavigateToObject={handleNavigateToObject}
-              />
-            </EditorErrorBoundary>
-          </Box>
-        </Paper>
+               onNavigateToObject={handleNavigateToObject}
+             />
+           </EditorErrorBoundary>
+         </div>
+       </div>
       )}
 
-      <Menu
-        open={Boolean(contextMenu)}
-        onClose={() => setContextMenu(null)}
-        anchorReference="anchorPosition"
-        anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
-        slotProps={{
-          paper: {
-            sx: {
-              bgcolor: 'surface.elevated',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-            },
-          },
-          list: {
-            dense: true,
-          },
-        }}
-      >
-        <MenuItem
-          onClick={() => {
-            if (contextMenu) startCreateForDate(contextMenu.date, 'daily-note')
-            setContextMenu(null)
-          }}
-        >
-          New Daily Note
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            if (contextMenu) startCreateForDate(contextMenu.date, 'topic-note')
-            setContextMenu(null)
-          }}
-        >
-          New Topic Note
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            if (contextMenu) startCreateForDate(contextMenu.date, 'habit')
-            setContextMenu(null)
-          }}
-        >
-          New Habit
-        </MenuItem>
-      </Menu>
+      {contextMenu && (
+       <DropdownMenu open onOpenChange={(open) => { if (!open) setContextMenu(null) }}>
+         <DropdownMenuTrigger asChild>
+           <button
+             type="button"
+             aria-label="Open calendar context actions"
+             className="fixed h-px w-px opacity-0"
+             style={{ left: contextMenu.mouseX, top: contextMenu.mouseY }}
+           />
+         </DropdownMenuTrigger>
+         <DropdownMenuContent align="start" className="w-44">
+           <DropdownMenuItem
+             onSelect={() => {
+               startCreateForDate(contextMenu.date, 'daily-note')
+               setContextMenu(null)
+             }}
+           >
+             New Daily Note
+           </DropdownMenuItem>
+           <DropdownMenuItem
+             onSelect={() => {
+               startCreateForDate(contextMenu.date, 'topic-note')
+               setContextMenu(null)
+             }}
+           >
+             New Topic Note
+           </DropdownMenuItem>
+           <DropdownMenuItem
+             onSelect={() => {
+               startCreateForDate(contextMenu.date, 'habit')
+               setContextMenu(null)
+             }}
+           >
+             New Habit
+           </DropdownMenuItem>
+         </DropdownMenuContent>
+       </DropdownMenu>
+      )}
 
        {/* Confirmation Dialog for unsaved changes */}
-       <Dialog
-         open={showConfirmClose}
-         onClose={() => setShowConfirmClose(false)}
-       >
-         <DialogTitle>Unsaved Changes</DialogTitle>
-         <DialogContent>
-           <Typography>
+      <Dialog open={showConfirmClose} onOpenChange={setShowConfirmClose}>
+       <DialogContent>
+         <DialogHeader>
+           <DialogTitle>Unsaved Changes</DialogTitle>
+           <DialogDescription>
              You have unsaved changes. Are you sure you want to close without saving?
-           </Typography>
-         </DialogContent>
-         <DialogActions>
-           <Button onClick={() => setShowConfirmClose(false)}>Cancel</Button>
-           <Button onClick={handleConfirmClose} variant="contained" color="error">
+           </DialogDescription>
+         </DialogHeader>
+         <DialogFooter>
+           <Button variant="outline" onClick={() => setShowConfirmClose(false)}>Cancel</Button>
+           <Button variant="destructive" onClick={handleConfirmClose}>
              Discard Changes
            </Button>
-         </DialogActions>
-       </Dialog>
-    </Stack>
+         </DialogFooter>
+       </DialogContent>
+      </Dialog>
+    </div>
   )
 }
