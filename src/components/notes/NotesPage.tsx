@@ -1026,7 +1026,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}
       >
         <div
-          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[18px] bg-[var(--color-surface-elevated)]"
+          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--color-surface-elevated)]"
           style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
           {activeObject && !isSmallScreen ? (
@@ -1049,7 +1049,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                 <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Browse</div>
                 <div className="mt-1 text-base font-semibold text-[var(--color-text-primary)]">All items</div>
               </div>
-              <div className="rounded-[8px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-xs text-[var(--color-text-secondary)]">
+              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-[11px] leading-none text-[var(--color-text-secondary)]">
                 {resultsLabel}
               </div>
             </div>
@@ -1147,7 +1147,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                   </div>
                 </div>
                 {activeObject.isDirty ? (
-                  <div className="rounded-[8px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[11px] text-[var(--color-text-secondary)]">
+                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[11px] leading-none text-[var(--color-text-secondary)]">
                     Unsaved
                   </div>
                 ) : null}

@@ -108,7 +108,7 @@ export default function ObjectList({
                                   bgcolor: token.bg,
                                   px: 0.75,
                                   py: 0.25,
-                                  borderRadius: '2px',
+                                  borderRadius: '6px',
                                   fontSize: '10px',
                                   color: token.text,
                                 }}

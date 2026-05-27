@@ -469,7 +469,7 @@ function StackedPinnedHeader({ loadingPinned, count }: { loadingPinned: boolean;
         Pinned
       </span>
       {loadingPinned ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
-        <span className="rounded-[10px] bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[9px] text-[var(--color-text-disabled)]">
+        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-text-disabled)]">
           {count}
         </span>
       )}

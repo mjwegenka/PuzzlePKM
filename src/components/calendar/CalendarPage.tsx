@@ -498,7 +498,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
       </div>
 
       {selectedObject && !onOpenObjectTab && (
-        <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+        <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col overflow-hidden rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
           <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-3 py-2">
             <h3 className="text-lg font-bold">
               {selectedType === 'daily-note' ? 'Daily Note'

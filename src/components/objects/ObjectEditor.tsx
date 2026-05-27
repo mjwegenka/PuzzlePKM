@@ -381,7 +381,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     const hasDailyRelations =
       type === 'daily-note' &&
       ((Array.isArray(object?.links) && object.links.length > 0) ||
-        (Array.isArray(object?.backlinks) && object.backlinks.length > 0));
+        (Array.isArray(object?.backlinks) && object.backlinks.length > 0) ||
+        tags.length > 0);
 
     if (isEmptyNoteContent && !hasDailyRelations) {
       setPendingDeleteReason('empty-note');

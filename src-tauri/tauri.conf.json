@@ -20,8 +20,8 @@
         "decorations": true,
         "resizable": true,
         "backgroundColor": "#1b1d20",
-        "titleBarStyle": "Transparent",
-        "hiddenTitle": false
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

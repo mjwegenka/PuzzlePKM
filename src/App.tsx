@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
+import TitleBarHandler from './components/app-shell/TitleBarHandler'
 import CalendarPage from './components/calendar/CalendarPage'
 import NotesPage from './components/notes/NotesPage'
 import GraphPage from './components/graph/GraphPage'
@@ -58,7 +59,9 @@ export default function App() {
   }, [])
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--color-surface-app)] p-3 text-foreground sm:p-4">
+    <>
+      <TitleBarHandler />
+      <div className="h-screen overflow-hidden bg-[var(--color-surface-app)] p-3 text-foreground sm:p-4">
       <div className="ui-shell-panel flex h-full overflow-hidden border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] shadow-[0_10px_36px_rgba(0,0,0,0.28)]">
         <NavigationSidebar
           currentSection={sidebarSection}
@@ -103,6 +106,7 @@ export default function App() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
