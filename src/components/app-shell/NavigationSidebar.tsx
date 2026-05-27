@@ -6,12 +6,12 @@ import {
   CalendarDays,
   FileText,
   Folder,
+  Hash,
   Loader2,
   Network,
   Pin,
   RefreshCw,
   Repeat,
-  Settings,
   X,
 } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -19,7 +19,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { cn } from '../../lib/utils';
 import { useSyncStatus } from '../../lib/syncContext';
 import { formatDatePretty } from '../../lib/dateUtils';
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta, writeObject } from '../../lib/cliService';
+import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTags, listTopicNoteMeta, writeObject, type TagSummary } from '../../lib/cliService';
+import { normalizeTagFilterValue, type TagFilterState } from '../../lib/tagFilters';
 
 interface NavigationItem {
   id: string;
@@ -31,6 +32,8 @@ interface NavigationSidebarProps {
   onNavigate: (section: string) => void;
   currentSection: string;
   onNavigateToPinned: (target: { id: string; type: 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' }) => void | Promise<void>;
+  tagFilters: TagFilterState;
+  onToggleTagFilter: (tag: string) => void;
 }
 
 type PinnedType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material';
@@ -101,12 +104,14 @@ function objectIcon(type: PinnedType): React.ReactNode {
   return <FileText className="h-4 w-4" />;
 }
 
-export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned }: NavigationSidebarProps) {
+export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned, tagFilters, onToggleTagFilter }: NavigationSidebarProps) {
   const { syncing, lastSyncedAt, syncError, triggerSync } = useSyncStatus();
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedNavItem[]>([]);
+  const [tags, setTags] = useState<TagSummary[]>([]);
   const [loadingPinned, setLoadingPinned] = useState(false);
+  const [loadingTags, setLoadingTags] = useState(false);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -224,17 +229,28 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     }
   }, [orderPinnedItems]);
 
+  const loadTags = useCallback(async () => {
+    setLoadingTags(true);
+    try {
+      setTags(await listTags());
+    } finally {
+      setLoadingTags(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPinnedItems();
-  }, [loadPinnedItems]);
+    void loadTags();
+  }, [loadPinnedItems, loadTags]);
 
   useEffect(() => {
     const handleObjectsUpdated = () => {
       void loadPinnedItems();
+      void loadTags();
     };
     window.addEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
     return () => window.removeEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
-  }, [loadPinnedItems]);
+  }, [loadPinnedItems, loadTags]);
 
   const movePinned = useCallback((sourceIdx: number, targetIdx: number) => {
     setPinnedItems((prev) => {
@@ -275,10 +291,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   return (
     <TooltipProvider>
       <aside
-        className="relative flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-border-subtle)] bg-[color:rgba(18,18,20,0.94)] px-1.5 pb-2 backdrop-blur-md"
+        className="relative flex shrink-0 flex-col overflow-hidden rounded-l-[22px] border-r border-[var(--color-border-subtle)] bg-[color:rgba(18,18,20,0.94)] px-2 pb-2 backdrop-blur-md"
         style={{
           width: sidebarWidth,
-            paddingTop: 'calc(env(titlebar-area-height, 0px) + 12px)',
+          paddingTop: '12px',
         }}
       >
         <div
@@ -294,8 +310,8 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           />
         </div>
 
-        <div className="ui-scroller flex flex-1 flex-col overflow-auto px-1 pb-2">
-          <div className="mb-3 border-b border-[var(--color-border-subtle)]/80 px-1 pb-3">
+        <div className="ui-scroller flex flex-1 flex-col overflow-auto px-0.5 pb-2">
+          <div className="mb-3 px-0.5 pb-2">
           {navItems.map((item) => {
             const selected = currentSection === item.id;
             return (
@@ -305,7 +321,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 variant="ghost"
                 onClick={() => onNavigate(item.id)}
                 className={cn(
-                  'mb-1 h-11 w-full justify-start rounded-[12px] px-4 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
+                  'mb-0.5 h-9 w-full justify-start rounded-[9px] px-3 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
                   selected
                     ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)] shadow-none'
                     : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
@@ -320,7 +336,8 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           })}
           </div>
 
-          <div className="mb-3 border-b border-[var(--color-border-subtle)]/80 px-1 pb-3">
+          {pinnedItems.length > 0 ? (
+          <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
           <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
 
           {pinnedItems.map((item) => {
@@ -345,7 +362,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   type="button"
                   variant="ghost"
                   onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  className="relative mb-1 h-10 w-full justify-start gap-2.5 rounded-[10px] border border-transparent px-3 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  className="relative mb-0.5 h-8 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
                 >
                   <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
                     {objectIcon(item.type)}
@@ -399,6 +416,40 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             );
           })}
           </div>
+          ) : null}
+
+          <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
+            <StackedTagsHeader loadingTags={loadingTags} count={tags.length} />
+            {tags.length === 0 && !loadingTags ? (
+              <div className="px-2.5 py-2 text-[11px] text-[var(--color-text-disabled)]">No tags yet</div>
+            ) : null}
+            {tags.map((tag) => {
+              const value = normalizeTagFilterValue(tag.name || tag.displayName);
+              const mode = tagFilters[value];
+              return (
+                <Button
+                  key={tag.id}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onToggleTagFilter(value)}
+                  aria-pressed={Boolean(mode)}
+                  className={cn(
+                    'mb-0.5 h-8 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[12px] font-medium transition-[background-color,border-color,color]',
+                    mode === 'include'
+                      ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]'
+                      : mode === 'exclude'
+                        ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
+                        : 'text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                  )}
+                  title={mode === 'include' ? 'Included in current filter. Click to exclude.' : mode === 'exclude' ? 'Excluded from current filter. Click to clear.' : 'Click to include this tag.'}
+                >
+                  <Hash className={cn('h-3.5 w-3.5 shrink-0', mode === 'include' ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')} />
+                  <span className="min-w-0 flex-1 truncate text-left">{tag.displayName || tag.name}</span>
+                  <span className="text-[10px] text-[var(--color-text-disabled)] no-underline">{tag.objectCount}</span>
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mb-2 border-t border-[var(--color-border-subtle)]/80 px-2 py-3">
@@ -438,26 +489,24 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </div>
         </div>
 
-        <div className="px-1 pb-1">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onNavigate('settings')}
-            className={cn(
-              'h-11 w-full justify-start rounded-[12px] px-4 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
-              currentSection === 'settings'
-                ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)] shadow-none'
-                : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
-            )}
-          >
-            <span className={cn('mr-2 flex h-5 w-5 items-center justify-center', currentSection === 'settings' ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')}>
-              <Settings className="h-[21px] w-[21px]" />
-            </span>
-            <span>Settings</span>
-          </Button>
-        </div>
       </aside>
     </TooltipProvider>
+  );
+}
+
+function StackedTagsHeader({ loadingTags, count }: { loadingTags: boolean; count: number }) {
+  return (
+    <div className="flex min-h-[28px] items-center gap-1.5 px-2 py-1">
+      <Hash className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
+      <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+        Tags
+      </span>
+      {loadingTags ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
+        <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--color-surface-control)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--color-text-disabled)]">
+          {count}
+        </span>
+      )}
+    </div>
   );
 }
 

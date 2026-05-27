@@ -43,6 +43,13 @@ export interface ResolvedObjectRef {
   syncPath: string;
 }
 
+export interface TagSummary {
+  id: string;
+  name: string;
+  displayName: string;
+  objectCount: number;
+}
+
 type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
 
 type CliObjectByType = {
@@ -572,6 +579,32 @@ export async function listScriptureMeta(): Promise<
         };
       })
       .filter((entry) => entry.id);
+  } catch {
+    return [];
+  }
+}
+
+export async function listTags(): Promise<TagSummary[]> {
+  try {
+    const stdout = await listObjects('tag');
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => Boolean(line) && line.includes('\t'))
+      .map((line) => {
+        const parts = line.split('\t');
+        const id = parts[0] ?? '';
+        const displayName = parts[1] ?? id;
+        const countMatch = /^(\d+)/.exec(parts[2] ?? '0');
+        return {
+          id,
+          name: id,
+          displayName,
+          objectCount: countMatch ? Number.parseInt(countMatch[1], 10) : 0,
+        };
+      })
+      .filter((entry) => entry.id)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
   } catch {
     return [];
   }

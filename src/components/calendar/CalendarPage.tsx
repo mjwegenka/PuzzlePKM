@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { addDays, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from 'date-fns'
-import { ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import { Button } from '../ui/button'
+import FilterChip from '../ui/FilterChip'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ import {
 } from '../ui/dialog'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -24,6 +26,7 @@ import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
 import { cn } from '../../lib/utils'
+import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -46,10 +49,12 @@ interface CalEvent {
   date: string
   label: string
   type: CalObjectType
+  tags: string[]
 }
 
 interface CalendarPageProps {
   onOpenObjectTab?: (target: { id: string; type: CalObjectType; forceNewTab?: boolean }) => void | Promise<void>
+  tagFilters?: TagFilterState
 }
 
 const TYPE_COLORS: Record<CalObjectType, ObjectColorToken> = {
@@ -69,6 +74,16 @@ const TYPE_LABELS: Record<CalObjectType, string> = {
 }
 
 const CALENDAR_VIEWS = ['Day', 'Week', 'Month', 'Quarter', 'Year'] as const
+const CAL_OBJECT_TYPE_OPTIONS: Array<{ value: CalObjectType; label: string; checkedByDefault: boolean }> = [
+  { value: 'daily-note', label: 'Daily Notes', checkedByDefault: true },
+  { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
+  { value: 'habit', label: 'Habits', checkedByDefault: true },
+  { value: 'project', label: 'Projects', checkedByDefault: true },
+  { value: 'ref-material', label: 'Reference Materials', checkedByDefault: false },
+]
+const DEFAULT_VISIBLE_CAL_TYPES = CAL_OBJECT_TYPE_OPTIONS
+  .filter((option) => option.checkedByDefault)
+  .map((option) => option.value)
 const EVENT_TYPE_ORDER: Record<CalObjectType, number> = {
   project: 0,
   'ref-material': 1,
@@ -81,7 +96,7 @@ function formatDateKey(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
-export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
+export default function CalendarPage({ onOpenObjectTab, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
   const [loading, setLoading] = useState(false)
@@ -91,6 +106,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
   const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
+  const [visibleObjectTypes, setVisibleObjectTypes] = useState<CalObjectType[]>(DEFAULT_VISIBLE_CAL_TYPES)
 
   const today = useMemo(() => new Date(), [])
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
@@ -100,6 +116,19 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
     [gridStart],
   )
   const createTargetDate = selectedDate || getTodayDate()
+  const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
+  const isObjectTypeFilterCustomized = useMemo(
+    () => CAL_OBJECT_TYPE_OPTIONS.some((option) => visibleObjectTypeSet.has(option.value) !== option.checkedByDefault),
+    [visibleObjectTypeSet],
+  )
+  const toggleObjectTypeVisibility = useCallback((type: CalObjectType) => {
+    setVisibleObjectTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return CAL_OBJECT_TYPE_OPTIONS.map((option) => option.value).filter((value) => next.has(value))
+    })
+  }, [])
 
   const loadEvents = useCallback(async () => {
     setLoading(true)
@@ -113,24 +142,28 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
       const evts: CalEvent[] = []
       if (dailyRes.status === 'fulfilled') {
         for (const n of dailyRes.value) {
-          if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note' })
+          if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
         }
       }
       if (topicRes.status === 'fulfilled') {
         for (const n of topicRes.value) {
           const d = (n as Record<string, unknown>).date as string | undefined
-          if (d) evts.push({ id: n.id, date: d, label: n.title || d, type: 'topic-note' })
+          if (d) evts.push({ id: n.id, date: d, label: n.title || d, type: 'topic-note', tags: n.tags ?? [] })
         }
       }
       if (habitRes.status === 'fulfilled') {
         for (const h of habitRes.value) {
-          if (h.date) evts.push({ id: h.id, date: h.date, label: h.text || 'Habit', type: 'habit' })
+          if (h.date) evts.push({ id: h.id, date: h.date, label: h.text || 'Habit', type: 'habit', tags: h.tags ?? [] })
         }
       }
       if (projectRes.status === 'fulfilled') {
         for (const p of projectRes.value) {
           if (p.type === 'project' && p.startDate) {
-            evts.push({ id: p.id, date: p.startDate, label: p.name, type: 'project' })
+            evts.push({ id: p.id, date: p.startDate, label: p.name, type: 'project', tags: p.tags ?? [] })
+          }
+          if (p.type === 'ref-material') {
+            const datedRef = (p as { startDate?: string }).startDate
+            if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.name, type: 'ref-material', tags: p.tags ?? [] })
           }
         }
       }
@@ -146,12 +179,14 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
 
   const filteredEvents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    if (!query) return events
     return events.filter((event) => {
+      if (!visibleObjectTypeSet.has(event.type)) return false
+      if (!itemMatchesTagFilters(event.tags, tagFilters)) return false
+      if (!query) return true
       const typeLabel = TYPE_LABELS[event.type].toLowerCase()
       return event.label.toLowerCase().includes(query) || typeLabel.includes(query)
     })
-  }, [events, searchQuery])
+  }, [events, searchQuery, tagFilters, visibleObjectTypeSet])
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>()
@@ -311,14 +346,56 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
 
   return (
     <div className="flex min-h-0 flex-1 gap-3">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
-        <div className="border-b border-[var(--color-border-subtle)] px-4 py-3">
+      <div className="ui-shell-panel flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface-elevated)]">
+        <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3">
+          <div className="min-w-[180px] flex-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Calendar</div>
+            <div className="mt-1 text-sm text-[var(--color-text-secondary)]">
+              {loading ? 'Loading events…' : searchQuery.trim() ? `${visibleEventCount} matching events` : `${visibleEventCount} events this month`}
+            </div>
+          </div>
+          <div className="ui-scroller flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <FilterChip
+                  icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+                  label="Object type"
+                  showCaret
+                  selected={isObjectTypeFilterCustomized}
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                {CAL_OBJECT_TYPE_OPTIONS.map((option) => (
+                  <DropdownMenuCheckboxItem
+                    key={option.value}
+                    checked={visibleObjectTypeSet.has(option.value)}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
+                  >
+                    {option.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <div className="relative w-[248px] max-w-full shrink-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search"
+              className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="border-b border-[var(--color-border-subtle)] px-4 pb-3 pt-1">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon" className="h-10 w-10 rounded-full">
-                    <Plus className="h-4 w-4" />
+                    <SquarePen className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
@@ -368,15 +445,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
               })}
             </div>
 
-            <div className="relative w-full max-w-[280px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search"
-                className="h-10 rounded-full pl-9"
-              />
-            </div>
+            <div />
           </div>
 
           <div className="mt-5 flex items-end justify-between gap-3">
@@ -386,9 +455,7 @@ export default function CalendarPage({ onOpenObjectTab }: CalendarPageProps) {
                 <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
               </h2>
             </div>
-            <div className="text-xs text-[var(--color-text-secondary)]">
-              {loading ? 'Loading events…' : searchQuery.trim() ? `${visibleEventCount} matching events` : `${visibleEventCount} events this month`}
-            </div>
+            <div />
           </div>
         </div>
 

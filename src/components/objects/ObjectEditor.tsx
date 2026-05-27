@@ -8,7 +8,7 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import { Plus, Save } from 'lucide-react';
+import { Pin, PinOff, Plus, Save } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
@@ -65,6 +65,14 @@ function isEffectivelyEmptyNoteContent(value: string): boolean {
     .replace(/&nbsp;/gi, '')
     .trim();
   return normalized.length === 0;
+}
+
+function normalizeTagValue(tag: string): string {
+  return String(tag ?? '').trim().replace(/^#/, '').toLowerCase();
+}
+
+function isPinnedTag(tag: string): boolean {
+  return normalizeTagValue(tag) === 'pinned';
 }
 
 function fallbackBlockId(index: number): string {
@@ -317,13 +325,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     return () => window.cancelAnimationFrame(frame);
   }, [showTagDialog]);
 
-  const persistCurrentObject = useCallback(async (): Promise<Record<string, unknown>> => {
+  const persistCurrentObject = useCallback(async (tagsOverride?: string[]): Promise<Record<string, unknown>> => {
+    const tagsToPersist = tagsOverride ?? tags;
     setSaving(true);
     setSaveError(null);
     try {
       const data: Record<string, unknown> = {
         id: object?.id,
-        tags,
+        tags: tagsToPersist,
       };
 
       if (type === 'topic-note') {
@@ -356,8 +365,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         author,
         date,
         content,
-        tags: [...tags],
+        tags: [...tagsToPersist],
       };
+      setTags(tagsToPersist);
       setIsDirty(false);
       onDirty?.(false);
       window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
@@ -371,6 +381,22 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       setSaving(false);
     }
   }, [author, content, date, noteBlocks, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, tags, title, triggerSyncInBackground, type]);
+
+  const isPinned = tags.some(isPinnedTag);
+  const canPin = type === 'topic-note' || type === 'daily-note' || type === 'habit' || type === 'project' || type === 'ref-material';
+  const handleTogglePinned = useCallback(async () => {
+    if (!canPin) return;
+    const nextTags = isPinned
+      ? tags.filter((tag) => !isPinnedTag(tag))
+      : [...tags.filter((tag) => !isPinnedTag(tag)), 'pinned'];
+    setTags(nextTags);
+    try {
+      const saved = await persistCurrentObject(nextTags);
+      onSave?.(saved);
+    } catch {
+      // Error already set by persistCurrentObject.
+    }
+  }, [canPin, isPinned, onSave, persistCurrentObject, tags]);
 
   const handleSave = async () => {
     const isEmptyNoteContent =
@@ -753,6 +779,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     Cancel
                   </Button>
                 )}
+                {canPin && (
+                  <Button
+                    type="button"
+                    variant={isPinned ? 'outline' : 'ghost'}
+                    onClick={() => { void handleTogglePinned(); }}
+                    disabled={saving}
+                    size="sm"
+                    title={isPinned ? 'Remove from Pinned' : 'Pin to sidebar'}
+                  >
+                    {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                    {isPinned ? 'Unpin' : 'Pin'}
+                  </Button>
+                )}
                 <Button
                   onClick={handleSave}
                   disabled={saving}
@@ -862,6 +901,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 {onCancel && (
                   <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
                     Cancel
+                  </Button>
+                )}
+                {canPin && (
+                  <Button
+                    type="button"
+                    variant={isPinned ? 'outline' : 'ghost'}
+                    onClick={() => { void handleTogglePinned(); }}
+                    disabled={saving}
+                    size="sm"
+                    title={isPinned ? 'Remove from Pinned' : 'Pin to sidebar'}
+                  >
+                    {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                    {isPinned ? 'Unpin' : 'Pin'}
                   </Button>
                 )}
                 <Button

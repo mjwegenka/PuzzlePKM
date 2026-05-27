@@ -2,8 +2,11 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::process::Command;
 use std::io::ErrorKind;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
+
+const SETTINGS_MENU_ID: &str = "app-settings";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,8 +141,53 @@ fn open_url(url: String) -> Result<(), String> {
     }
 }
 
+fn open_settings_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+
+    let _ = WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("index.html?settings=true".into()),
+    )
+    .title("Settings")
+    .inner_size(680.0, 560.0)
+    .resizable(false)
+    .focused(true)
+    .build();
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            let handle = app.handle();
+            let app_menu = SubmenuBuilder::new(handle, "PuzzlePKM")
+                .about_with_text("About PuzzlePKM", None)
+                .separator()
+                .text(SETTINGS_MENU_ID, "Settings…")
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            let menu = MenuBuilder::new(handle)
+                .item(&app_menu)
+                .build()?;
+            app.set_menu(menu)?;
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == SETTINGS_MENU_ID {
+                open_settings_window(app);
+            }
+        })
         .invoke_handler(tauri::generate_handler![run_puzzlepkm_cli, open_url])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

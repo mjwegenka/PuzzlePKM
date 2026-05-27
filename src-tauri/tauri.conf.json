@@ -19,9 +19,7 @@
         "minHeight": 640,
         "decorations": true,
         "resizable": true,
-        "backgroundColor": "#1b1d20",
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "backgroundColor": "#1b1d20"
       }
     ],
     "security": {

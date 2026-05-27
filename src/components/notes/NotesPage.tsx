@@ -5,11 +5,10 @@ import {
   Inbox,
   Loader2,
   NotebookPen,
-  Plus,
   Repeat2,
   Search,
   SlidersHorizontal,
-  Tags,
+  SquarePen,
   X,
 } from 'lucide-react'
 import {
@@ -41,7 +40,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 import { Input } from '../ui/input'
@@ -64,6 +62,7 @@ import {
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayShort, getTodayDate } from '@/lib/dateUtils'
+import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -81,6 +80,7 @@ interface NotesPageProps {
   onSaved?: () => void
   pendingSelection?: { id: string; type: EditorObjectType; nonce: number } | null
   onPendingSelectionHandled?: (nonce: number) => void
+  tagFilters?: TagFilterState
 }
 
 // ── Typed list items ──────────────────────────────────────────────────────────
@@ -361,7 +361,7 @@ function CreatePanel({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function NotesPage({ onSaved, pendingSelection, onPendingSelectionHandled }: NotesPageProps) {
+export default function NotesPage({ onSaved, pendingSelection, onPendingSelectionHandled, tagFilters = {} }: NotesPageProps) {
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const listRowRef = useRef<HTMLDivElement | null>(null)
@@ -389,7 +389,6 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
   const [boardFilter, setBoardFilter] = useState('')
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
-  const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([])
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
   const [isResizingFileList, setIsResizingFileList] = useState(false)
 
@@ -469,40 +468,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
     })
   }, [])
 
-  const availableTagOptions = useMemo(() => {
-    const counts = new Map<string, { label: string; count: number }>()
-    const registerTags = (tags: string[]) => {
-      for (const rawTag of tags ?? []) {
-        const label = String(rawTag ?? '').trim()
-        if (!label) continue
-        const key = label.toLowerCase()
-        const existing = counts.get(key)
-        if (existing) {
-          existing.count += 1
-          continue
-        }
-        counts.set(key, { label, count: 1 })
-      }
-    }
-
-    for (const item of topicNotes) registerTags(item.tags)
-    for (const item of dailyNotes) registerTags(item.tags)
-    for (const item of habits) registerTags(item.tags)
-    for (const item of files) registerTags(item.tags)
-
-    return [...counts.entries()]
-      .map(([value, meta]) => ({ value, label: meta.label, count: meta.count }))
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-  }, [topicNotes, dailyNotes, habits, files])
-  const selectedTagFilterSet = useMemo(() => new Set(selectedTagFilters), [selectedTagFilters])
-  const isTagFilterCustomized = selectedTagFilters.length > 0
-  const toggleTagFilter = useCallback((tagValue: string) => {
-    setSelectedTagFilters((prev) => (
-      prev.includes(tagValue)
-        ? prev.filter((value) => value !== tagValue)
-        : [...prev, tagValue]
-    ))
-  }, [])
+  const isTagFilterCustomized = hasActiveTagFilters(tagFilters)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -807,9 +773,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         return isInboxEligibleCardType(card.type) && hasInboxTag(card.tags ?? [])
       }
 
-      if (selectedTagFilterSet.size > 0) {
-        return (card.tags ?? []).some((tag) => selectedTagFilterSet.has(String(tag ?? '').trim().toLowerCase()))
-      }
+      if (!itemMatchesTagFilters(card.tags, tagFilters)) return false
 
       return true
     })
@@ -819,7 +783,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, selectedTagFilterSet, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
   const activeNoteType = activeObject?.type ?? null
   const activeNoteId = activeObject?.objectId ?? null
   const isGalleryMode = !activeObject
@@ -889,46 +853,6 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <FilterChip
-                icon={<Tags className="h-3.5 w-3.5" />}
-                label="Tags"
-                showCaret
-                selected={isTagFilterCustomized}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60">
-              {availableTagOptions.length === 0 ? (
-                <DropdownMenuItem disabled>No tags yet</DropdownMenuItem>
-              ) : (
-                availableTagOptions.map((option) => (
-                  <DropdownMenuCheckboxItem
-                    key={option.value}
-                    checked={selectedTagFilterSet.has(option.value)}
-                    onSelect={(event) => event.preventDefault()}
-                    onCheckedChange={() => toggleTagFilter(option.value)}
-                  >
-                    <span className="flex flex-1 items-center justify-between gap-3">
-                      <span>#{option.label}</span>
-                      <span className="text-xs text-[var(--color-text-disabled)]">{option.count} {option.count === 1 ? 'object' : 'objects'}</span>
-                    </span>
-                  </DropdownMenuCheckboxItem>
-                ))
-              )}
-              {availableTagOptions.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={selectedTagFilters.length === 0}
-                    onSelect={() => setSelectedTagFilters([])}
-                  >
-                    Clear selection
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
@@ -964,12 +888,11 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="outline"
-                      size="sm"
+                      size="icon"
                       aria-label="Create a new object"
-                      className="h-10 rounded-[10px] px-4 text-xs"
+                      className="h-10 w-10 rounded-[10px]"
                     >
-                      <Plus className="h-4 w-4" />
-                      <span className="hidden sm:inline">New</span>
+                      <SquarePen className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -1026,7 +949,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}
       >
         <div
-          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--color-surface-elevated)]"
+          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col bg-[var(--color-surface-elevated)]"
           style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
           {activeObject && !isSmallScreen ? (
@@ -1035,7 +958,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize file list"
-              className="absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize"
+              className="absolute right-0 top-0 z-[2] h-full w-[6px] cursor-col-resize"
             >
               <div
                 className="absolute right-[2px] top-0 h-full w-px transition-colors"
