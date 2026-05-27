@@ -76,8 +76,7 @@ export default function App() {
   return (
     <>
       <TitleBarHandler />
-      <div className="h-screen overflow-hidden bg-[var(--color-surface-app)] p-3 text-foreground sm:p-4">
-      <div className="ui-shell-panel flex h-full overflow-hidden border-[var(--color-border-strong)] bg-[var(--color-surface-elevated)] shadow-[0_10px_36px_rgba(0,0,0,0.28)]">
+      <div className="flex h-screen overflow-hidden bg-[var(--color-surface-app)] text-foreground">
         <NavigationSidebar
           currentSection={sidebarSection}
           onNavigate={handleNavigate}
@@ -86,40 +85,33 @@ export default function App() {
           onToggleTagFilter={handleToggleTagFilter}
         />
 
-        <div className="flex min-h-0 min-w-0 flex-1 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),rgba(255,255,255,0))]">
-          <div className="flex min-h-0 flex-1 flex-col p-2 sm:p-3">
-            <div className="ui-shell-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:rgba(23,23,25,0.96)]">
-              <div className="flex min-h-0 flex-1 overflow-hidden p-2 sm:p-3">
-                <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
-                  <NotesPage
-                    pendingSelection={libraryPendingSelection}
-                    onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
-                    tagFilters={tagFilters}
-                  />
-                </div>
-
-                {sidebarSection === 'calendar' ? (
-                  <CalendarPage
-                    tagFilters={tagFilters}
-                    onOpenObjectTab={async (target) => {
-                      openLibrarySelection({ id: target.id, type: target.type })
-                    }}
-                  />
-                ) : null}
-
-                {sidebarSection === 'graph' ? (
-                  <GraphPage
-                    tagFilters={tagFilters}
-                    onOpenNode={async (target) => {
-                      openLibrarySelection({ id: target.id, type: target.type })
-                    }}
-                  />
-                ) : null}
-              </div>
-            </div>
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--color-surface-app)]">
+          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
+            <NotesPage
+              pendingSelection={libraryPendingSelection}
+              onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
+              tagFilters={tagFilters}
+            />
           </div>
+
+          {sidebarSection === 'calendar' ? (
+            <CalendarPage
+              tagFilters={tagFilters}
+              onOpenObjectTab={async (target) => {
+                openLibrarySelection({ id: target.id, type: target.type })
+              }}
+            />
+          ) : null}
+
+          {sidebarSection === 'graph' ? (
+            <GraphPage
+              tagFilters={tagFilters}
+              onOpenNode={async (target) => {
+                openLibrarySelection({ id: target.id, type: target.type })
+              }}
+            />
+          ) : null}
         </div>
-      </div>
       </div>
     </>
   )

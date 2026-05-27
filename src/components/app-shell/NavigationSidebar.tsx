@@ -291,7 +291,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   return (
     <TooltipProvider>
       <aside
-        className="relative flex shrink-0 flex-col overflow-hidden rounded-l-[22px] border-r border-[var(--color-border-subtle)] bg-[color:rgba(18,18,20,0.94)] px-2 pb-2 backdrop-blur-md"
+        className="relative flex shrink-0 flex-col overflow-hidden border-r border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] px-2 pb-2"
         style={{
           width: sidebarWidth,
           paddingTop: '12px',
@@ -321,10 +321,10 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                 variant="ghost"
                 onClick={() => onNavigate(item.id)}
                 className={cn(
-                  'mb-0.5 h-9 w-full justify-start rounded-[9px] px-3 py-1 text-[13px] font-medium transition-[background-color,border-color,color,box-shadow]',
+                  'mb-0.5 h-9 w-full justify-start rounded-[8px] px-3 py-1 text-[13px] font-medium transition-[background-color,color]',
                   selected
-                    ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)] shadow-none'
-                    : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                    ? 'bg-[var(--color-surface-control)] text-[var(--color-accent-metadata)]'
+                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
                 )}
               >
                 <span className={cn('mr-2 flex h-5 w-5 items-center justify-center', selected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]')}>
@@ -368,7 +368,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     {objectIcon(item.type)}
                   </span>
                   <span className="min-w-0 flex-1 truncate pr-2 text-left text-[12px] leading-[1.25]">{item.title}</span>
-                  <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[rgba(18,18,20,0.92)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                     <Button
                       type="button"
                       variant="ghost"

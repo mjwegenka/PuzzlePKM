@@ -177,8 +177,20 @@ fn main() {
                 .separator()
                 .quit()
                 .build()?;
+
+            let edit_menu = SubmenuBuilder::new(handle, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
             let menu = MenuBuilder::new(handle)
                 .item(&app_menu)
+                .item(&edit_menu)
                 .build()?;
             app.set_menu(menu)?;
             Ok(())

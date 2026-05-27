@@ -21,24 +21,24 @@
   --input: 36 16% 84%;
   --ring: 44 78% 52%;
   --radius: 0.875rem;
-  --surface-app: #0b0b0c;
-  --surface-elevated: #1a1a1c;
-  --surface-sunken: #121214;
-  --surface-control: #1d1d21;
-  --surface-hover: rgba(255, 255, 255, 0.035);
-  --surface-active: rgba(255, 255, 255, 0.085);
-  --selected-fill: #9a7a2a;
-  --selected-fill-soft: rgba(154, 122, 42, 0.16);
-  --border-subtle-raw: rgba(241, 234, 220, 0.075);
-  --border-strong-raw: rgba(241, 234, 220, 0.13);
-  --text-primary-raw: #f3efe7;
-  --text-secondary-raw: #beb6a8;
-  --text-tertiary-raw: #8d8678;
-  --text-inverse-raw: #221b0d;
-  --accent-link-raw: #f2cb63;
-  --accent-metadata-raw: #ddb550;
+  --surface-app: #1c1c1e;
+  --surface-elevated: #2a2a2c;
+  --surface-sunken: #161618;
+  --surface-control: #323234;
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.1);
+  --selected-fill: #e3b341;
+  --selected-fill-soft: rgba(227, 179, 65, 0.2);
+  --border-subtle-raw: rgba(255, 255, 255, 0.09);
+  --border-strong-raw: rgba(255, 255, 255, 0.18);
+  --text-primary-raw: #f5f3ef;
+  --text-secondary-raw: #c7c0b2;
+  --text-tertiary-raw: #8a8478;
+  --text-inverse-raw: #1c1500;
+  --accent-link-raw: #e3b341;
+  --accent-metadata-raw: #e3b341;
   --success-main-raw: #87b487;
-  --focus-ring-raw: rgba(242, 203, 99, 0.42);
+  --focus-ring-raw: rgba(227, 179, 65, 0.42);
   font-family: Inter, -apple-system, BlinkMacSystemFont, system-ui, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -122,9 +122,7 @@
 }
 
 body {
-  background:
-    radial-gradient(circle at top, rgba(242, 203, 99, 0.08), transparent 26%),
-    linear-gradient(180deg, #0e0e10 0%, #080809 100%);
+  background: var(--surface-app);
   color: hsl(var(--foreground));
   margin: 0;
   min-width: 320px;
@@ -145,15 +143,14 @@ textarea {
 
 .ui-shell-panel {
   border: 1px solid var(--color-border-subtle);
-  background: color-mix(in srgb, var(--color-surface-elevated) 96%, transparent);
-  border-radius: 22px;
+  background: var(--color-surface-app);
+  border-radius: 12px;
 }
 
 .ui-toolbar-panel {
-  border: 1px solid var(--color-border-subtle);
-  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
-  border-radius: 16px;
-  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-app);
+  border-radius: 0;
 }
 
 .ui-pane-divider {

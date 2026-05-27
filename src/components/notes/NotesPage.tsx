@@ -673,6 +673,11 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
     if (showInbox) {
       return new Set<LibraryObjectFilterType>(LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => option.value))
     }
+    // If the user has somehow ended up with zero selected types, fall back to
+    // the default set so the library doesn't appear empty with no recourse.
+    if (visibleObjectTypeSet.size === 0) {
+      return new Set<LibraryObjectFilterType>(DEFAULT_VISIBLE_LIBRARY_TYPES)
+    }
     return visibleObjectTypeSet
   }, [showInbox, visibleObjectTypeSet])
   const hasActiveBoardFilters = isObjectTypeFilterCustomized || isTagFilterCustomized
@@ -949,7 +954,7 @@ export default function NotesPage({ onSaved, pendingSelection, onPendingSelectio
         sx={{ flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}
       >
         <div
-          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col bg-[var(--color-surface-elevated)]"
+          className="ui-shell-panel relative flex min-h-0 min-w-0 flex-col bg-[var(--color-surface-app)]"
           style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
           {activeObject && !isSmallScreen ? (

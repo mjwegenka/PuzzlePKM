@@ -62,23 +62,23 @@ declare module '@mui/material/Typography' {
 
 export const neutralDarkTokens = {
   surface: {
-    app: '#0b0b0c',
-    elevated: '#171719',
-    sunken: '#121214',
+    app: '#1c1c1e',
+    elevated: '#2a2a2c',
+    sunken: '#161618',
   },
   border: {
-    subtle: alpha('#f1eadc', 0.09),
-    strong: alpha('#f1eadc', 0.16),
+    subtle: alpha('#ffffff', 0.09),
+    strong: alpha('#ffffff', 0.18),
   },
   text: {
-    primary: '#f3efe7',
-    secondary: '#beb6a8',
-    muted: '#8d8678',
+    primary: '#f5f3ef',
+    secondary: '#c7c0b2',
+    muted: '#8a8478',
   },
   accent: {
-    link: '#f2cb63',
-    selected: '#ad8a2f',
-    metadata: '#ddb550',
+    link: '#e3b341',
+    selected: '#e3b341',
+    metadata: '#e3b341',
   },
 } as const
 
@@ -212,8 +212,8 @@ export const appTheme = createTheme({
         root: ({ theme }) => ({
           backgroundImage: 'none',
           backgroundColor: theme.palette.surface.elevated,
-          border: `1px solid ${theme.palette.border.subtle}`,
-          borderRadius: 22,
+          border: 'none',
+          borderRadius: 0,
         }),
       },
     },
