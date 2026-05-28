@@ -278,5 +278,31 @@ export async function handleObjectsCommand(action, args, ctx) {
     return true;
   }
 
+  // Author catalog commands (DEC-29)
+  if (action === 'list-authors') {
+    const rows = ctx.withDb((db) => ctx.listAuthors(db));
+    for (const row of rows) {
+      console.log(`${row.name}\t${row.usage_count}`);
+    }
+    return true;
+  }
+
+  if (action === 'create-author') {
+    const name = args[0];
+    if (!name) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} create-author <name>`);
+    const result = ctx.withDb((db) => ctx.createAuthor(db, name));
+    console.log(ctx.formatCompact(result));
+    return true;
+  }
+
+  if (action === 'delete-author') {
+    const name = args[0];
+    if (!name) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} delete-author <name>`);
+    const deleted = ctx.withDb((db) => ctx.deleteAuthor(db, name));
+    if (!deleted) throw new Error(`Author not found: ${name}`);
+    console.log(`Deleted author: ${name}`);
+    return true;
+  }
+
   return false;
 }

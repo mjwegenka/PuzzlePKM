@@ -39,6 +39,9 @@ export function createRefMaterialRepository(deps) {
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(input.id, input.name, input.author ?? null, input.syncPath, input.createdAt, input.updatedAt);
       syncObjectTags(db, input.id, 'ref-material', input.tags ?? []);
+      // Auto-register non-empty author in catalog (DEC-29)
+      const authorName = typeof input.author === 'string' ? input.author.trim() : '';
+      if (authorName) db.prepare('INSERT OR IGNORE INTO authors (name) VALUES (?)').run(authorName);
       return getRefMat(db, input.id);
     });
   }
@@ -68,6 +71,11 @@ export function createRefMaterialRepository(deps) {
       db.prepare(`UPDATE ref_materials SET ${fields.join(', ')} WHERE id = ?`).run(...values);
       if (input.tags !== undefined) {
         syncObjectTags(db, id, 'ref-material', input.tags);
+      }
+      // Auto-register non-empty author in catalog (DEC-29)
+      if (input.author !== undefined) {
+        const authorName = typeof input.author === 'string' ? input.author.trim() : '';
+        if (authorName) db.prepare('INSERT OR IGNORE INTO authors (name) VALUES (?)').run(authorName);
       }
       return getRefMat(db, id);
     });

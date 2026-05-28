@@ -215,6 +215,10 @@ const schema = `
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS authors (
+    name TEXT PRIMARY KEY
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
@@ -306,6 +310,18 @@ const schema = `
       }
     } catch (e) {
       // Column may already exist or table doesn't exist yet
+    }
+
+    try {
+      // Ensure authors catalog table (DEC-29)
+      db.prepare('CREATE TABLE IF NOT EXISTS authors (name TEXT PRIMARY KEY)').run();
+      // Backfill from existing ref_materials authors
+      db.prepare(`
+        INSERT OR IGNORE INTO authors (name)
+        SELECT DISTINCT trim(author) FROM ref_materials WHERE trim(COALESCE(author, '')) != ''
+      `).run();
+    } catch (e) {
+      // Table may already exist
     }
   }
 
@@ -2113,6 +2129,38 @@ const {
   getTag,
   listTags,
 } = tagRepository;
+
+// ── Author catalog functions (DEC-29) ───────────────────────────────────────
+function listAuthors(db) {
+  return db.prepare(`
+    SELECT a.name,
+           COUNT(r.id) AS usage_count
+    FROM authors a
+    LEFT JOIN ref_materials r ON trim(r.author) = a.name
+    GROUP BY a.name
+    ORDER BY a.name COLLATE NOCASE
+  `).all();
+}
+
+function createAuthor(db, name) {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) throw new Error('Author name cannot be empty');
+  db.prepare('INSERT OR IGNORE INTO authors (name) VALUES (?)').run(trimmed);
+  return { name: trimmed };
+}
+
+function deleteAuthor(db, name) {
+  const trimmed = String(name ?? '').trim();
+  const row = db.prepare(`
+    SELECT COUNT(*) AS cnt FROM ref_materials WHERE trim(COALESCE(author, '')) = ?
+  `).get(trimmed);
+  if (row && row.cnt > 0) {
+    throw new Error(`Cannot delete author "${trimmed}": still referenced by ${row.cnt} ref-material(s).`);
+  }
+  const result = db.prepare('DELETE FROM authors WHERE name = ?').run(trimmed);
+  return result.changes > 0;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const linkRepository = createLinkRepository();
 const linkService = createLinkService({
@@ -4062,6 +4110,9 @@ function createCommandContext(rl) {
     runSync,
     runSyncWatch,
     runLegacyLinkMigration,
+    listAuthors,
+    createAuthor,
+    deleteAuthor,
   };
 }
 

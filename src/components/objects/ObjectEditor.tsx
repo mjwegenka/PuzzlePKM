@@ -15,7 +15,8 @@ import {
 } from '../ui/dialog'
 import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../../lib/cliService'
+import { AuthorSelect } from './AuthorSelect'
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, type ResolvedObjectRef, type AuthorSummary } from '../../lib/cliService'
 import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
 import { useSyncStatus } from '../../lib/syncContext'
 import { cn } from '../../lib/utils'
@@ -157,6 +158,31 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [liveBacklinkLinks, setLiveBacklinkLinks] = useState<Array<Record<string, unknown>>>([]);
   const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Authors catalog for ref-material type
+  const [authors, setAuthors] = useState<AuthorSummary[]>([]);
+  const [authorsLoading, setAuthorsLoading] = useState(false);
+
+  useEffect(() => {
+    if (type !== 'ref-material') return;
+    setAuthorsLoading(true);
+    void listAuthors().then((result) => {
+      setAuthors(result);
+      setAuthorsLoading(false);
+    });
+  }, [type]);
+
+  const handleCreateAuthor = useCallback(async (name: string) => {
+    await createAuthor(name);
+    const updated = await listAuthors();
+    setAuthors(updated);
+  }, []);
+
+  const handleDeleteAuthor = useCallback(async (name: string) => {
+    await deleteAuthor(name);
+    const updated = await listAuthors();
+    setAuthors(updated);
+  }, []);
 
   // Reset form when a different object payload is loaded.
   useEffect(() => {
@@ -753,10 +779,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
-                  <Input
+                  <AuthorSelect
                     value={author}
-                    onChange={(event) => setAuthor(event.target.value)}
-                    placeholder="Author name…"
+                    onChange={setAuthor}
+                    authors={authors}
+                    loading={authorsLoading}
+                    onCreateAuthor={handleCreateAuthor}
+                    onDeleteAuthor={handleDeleteAuthor}
+                    disabled={saving || deleting}
                   />
                   </div>
                 )}

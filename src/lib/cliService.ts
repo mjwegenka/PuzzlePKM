@@ -692,6 +692,47 @@ export async function listTags(): Promise<TagSummary[]> {
   }
 }
 
+export interface AuthorSummary {
+  name: string;
+  usageCount: number;
+}
+
+export async function listAuthors(): Promise<AuthorSummary[]> {
+  try {
+    const result = await runPuzzlePKMCli(['list-authors']);
+    if (result.exitCode !== 0) return [];
+    return result.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split('\t');
+        return {
+          name: parts[0] ?? '',
+          usageCount: Number.parseInt(parts[1] ?? '0', 10) || 0,
+        };
+      })
+      .filter((entry) => Boolean(entry.name));
+  } catch {
+    return [];
+  }
+}
+
+export async function createAuthor(name: string): Promise<AuthorSummary> {
+  const result = await runPuzzlePKMCli(['create-author', name]);
+  if (result.exitCode !== 0) {
+    throw new Error(stripNodeWarnings(result.stderr) || `Failed to create author: ${name}`);
+  }
+  return { name, usageCount: 0 };
+}
+
+export async function deleteAuthor(name: string): Promise<void> {
+  const result = await runPuzzlePKMCli(['delete-author', name]);
+  if (result.exitCode !== 0) {
+    throw new Error(stripNodeWarnings(result.stderr) || `Failed to delete author: ${name}`);
+  }
+}
+
 export async function getScriptureById(id: string): Promise<Scripture | null> {
   try {
     return await getObject('scripture', id);
