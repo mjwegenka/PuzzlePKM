@@ -212,9 +212,6 @@ export async function handleObjectsCommand(action, args, ctx) {
         case 'daily-note': {
           const existing = ctx.getDailyNote(db, reference);
           if (!existing) return null;
-          if (!ctx.isDailyNoteDeleteEligible(db, existing.id)) {
-            throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
-          }
           return {
             path: existing.syncPath || ctx.dailyNoteSyncPath(rootFolder, existing.date),
             requiresRemoteDelete: ctx.hasKnownRemoteCopy(db, 'daily-note', existing.id),

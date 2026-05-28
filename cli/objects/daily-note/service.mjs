@@ -73,9 +73,6 @@ export function createDailyNoteService(deps) {
   function deleteDailyNoteRecord(db, reference) {
     const existing = findDailyNoteRow(db, reference);
     if (!existing) return false;
-    if (!isDailyNoteDeleteEligible(db, existing.id)) {
-      throw new Error(`Cannot delete daily note ${existing.date}: clear content/tags and remove links/backlinks first.`);
-    }
     return withTransaction(db, () => {
       const linkedScriptureIds = db
         .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
