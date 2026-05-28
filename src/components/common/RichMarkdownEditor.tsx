@@ -34,6 +34,7 @@ import TurndownService from 'turndown'
 import { invoke } from '@tauri-apps/api/core'
 import MentionPopup, { type MentionOption } from './MentionPopup'
 import { searchObjects } from '../../lib/cliService'
+import { fallbackBlockId } from '../../lib/noteBlocks'
 import type { NoteBlock } from '../../shared/types'
 import { cn } from '../../lib/utils'
 import { Textarea } from '../ui/textarea'
@@ -56,6 +57,8 @@ interface RichMarkdownEditorProps {
   resolveMentionHref?: (option: MentionOption) => string | Promise<string>
   maxLength?: number
   onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
+  /** Block ID to scroll and focus after the editor loads (e.g. from a `objectId#blockId` link). */
+  scrollToBlockId?: string
 }
 
 type AdmonitionType = 'note' | 'tip' | 'important' | 'warn' | 'caution'
@@ -275,13 +278,6 @@ function htmlToMarkdown(html: string): string {
   return markdown === '\n' ? '' : markdown
 }
 
-function fallbackBlockId(index: number): string {
-  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID().replace(/-/g, '')
-    : `${Date.now().toString(16)}${index.toString(16).padStart(2, '0')}`
-  return `blk-${random.slice(0, 12).padEnd(12, '0')}`
-}
-
 function splitMarkdownIntoParagraphs(markdown: string): string[] {
   const raw = String(markdown ?? '')
     .replace(/\r\n/g, '\n')
@@ -434,6 +430,7 @@ export default function RichMarkdownEditor({
   resolveMentionHref,
   maxLength,
   onShiftClickLink,
+  scrollToBlockId,
 }: RichMarkdownEditorProps) {
   const lastMarkdownRef = useRef(value)
   const lastBlocksRef = useRef<NoteBlock[]>(blocks ?? reconcileBlocksWithMarkdown([], value))
@@ -745,6 +742,42 @@ export default function RichMarkdownEditor({
   useEffect(() => {
     editorRef.current = editor ?? null
   }, [editor])
+
+  // DEC-34: Scroll/focus to a specific block when `scrollToBlockId` changes.
+  // This handles the `objectId#blockId` link navigation flow.
+  useEffect(() => {
+    if (!scrollToBlockId || !editor) return
+
+    const currentBlocks = lastBlocksRef.current
+    const sortedBlocks = currentBlocks.slice().sort((a, b) => a.position - b.position)
+    const targetIdx = sortedBlocks.findIndex((b) => b.blockId === scrollToBlockId)
+    if (targetIdx < 0) return
+
+    const frameId = window.requestAnimationFrame(() => {
+      const activeEditor = editorRef.current
+      if (!activeEditor) return
+
+      // Scroll the target paragraph into view via the DOM.
+      const editorDom = activeEditor.view.dom
+      const blockElements = Array.from(editorDom.children)
+      const targetElement = blockElements[targetIdx] as HTMLElement | undefined
+      if (targetElement) {
+        targetElement.scrollIntoView({ block: 'nearest' })
+      }
+
+      // Move the cursor to the start of the target block so keyboard navigation
+      // begins from the right position.
+      const doc = activeEditor.state.doc
+      let offset = 0
+      for (let i = 0; i < targetIdx && i < doc.childCount; i++) {
+        offset += doc.child(i).nodeSize
+      }
+      const pos = Math.min(offset + 1, doc.content.size)
+      activeEditor.commands.setTextSelection(pos)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [scrollToBlockId, editor])
 
   useEffect(() => {
     if (blocks) {

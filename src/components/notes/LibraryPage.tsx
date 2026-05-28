@@ -304,6 +304,7 @@ export default function LibraryPage({
 
   const [activeObject, setActiveObject] = useState<ActiveLibraryObject | null>(null)
   const [deferredSelection, setDeferredSelection] = useState<{ id: string; type: EditorObjectType } | null>(null)
+  const [pendingBlockId, setPendingBlockId] = useState<string | undefined>(undefined)
 
   // Create mode
   const [isCreating, setIsCreating] = useState(false)
@@ -523,6 +524,7 @@ export default function LibraryPage({
   }, [handleSelectItem, onPendingSelectionHandled, pendingSelection])
 
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
+    setPendingBlockId(target.blockId)
     const opened = await openObjectInPanel(target.id, target.type)
     if (opened) return
 
@@ -1121,6 +1123,7 @@ export default function LibraryPage({
                           setActiveObject((prev) => (prev ? { ...prev, isDirty } : prev))
                         }}
                         onNavigateToObject={handleNavigateToObject}
+                        initialBlockId={pendingBlockId}
                       />
                     )}
                   </EditorErrorBoundary>

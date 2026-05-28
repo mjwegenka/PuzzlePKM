@@ -149,6 +149,62 @@ test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relat
   }
 });
 
+test('CLI block-ID round-trip: block IDs survive write→get→write and explicit-blocks payload', () => {
+  const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-blocks-'));
+  const dbPath = join(sandboxDir, 'blocks.sqlite');
+  const env = {
+    PUZZLEPKM_DB_PATH: dbPath,
+  };
+
+  try {
+    // 1. Write a note with plain markdown – CLI should auto-assign block IDs.
+    const created = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ title: 'Block Round-trip', contentMarkdown: 'First para\n\nSecond para' })], { env }).stdout,
+    );
+    assert.ok(Array.isArray(created.blocks) && created.blocks.length === 2, 'initial write should produce 2 blocks');
+    const [blk0, blk1] = created.blocks;
+    assert.match(blk0.blockId, /^blk-[a-f0-9]{12}$/, 'block ID should match blk-<12 hex> format');
+    assert.match(blk1.blockId, /^blk-[a-f0-9]{12}$/, 'block ID should match blk-<12 hex> format');
+
+    // 2. Fetch the note and verify block IDs match.
+    const fetched = parseLastJson(runCli(['get', 'topic-note', created.id], { env }).stdout);
+    assert.equal(fetched.blocks[0].blockId, blk0.blockId, 'block IDs should be stable after get');
+    assert.equal(fetched.blocks[1].blockId, blk1.blockId, 'block IDs should be stable after get');
+
+    // 3. Re-write with the embedded block-ID comments – IDs must not change.
+    const rewritten = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ id: created.id, title: 'Block Round-trip', contentMarkdown: created.contentMarkdown })], { env }).stdout,
+    );
+    assert.equal(rewritten.blocks[0].blockId, blk0.blockId, 'block IDs must survive a re-write via contentMarkdown embedding');
+    assert.equal(rewritten.blocks[1].blockId, blk1.blockId, 'block IDs must survive a re-write via contentMarkdown embedding');
+
+    // 4. Write a fresh note with explicit block IDs in the payload.
+    const explicitId0 = 'blk-aabbccddeeff';
+    const explicitId1 = 'blk-112233445566';
+    const explicit = parseLastJson(
+      runCli([
+        'write',
+        'topic-note',
+        JSON.stringify({
+          title: 'Explicit Blocks',
+          blocks: [
+            { blockId: explicitId0, position: 0, contentMarkdown: 'Block A' },
+            { blockId: explicitId1, position: 1, contentMarkdown: 'Block B' },
+          ],
+        }),
+      ], { env }).stdout,
+    );
+    assert.equal(explicit.blocks[0].blockId, explicitId0, 'explicit block ID 0 should be preserved');
+    assert.equal(explicit.blocks[1].blockId, explicitId1, 'explicit block ID 1 should be preserved');
+
+    const explicitFetched = parseLastJson(runCli(['get', 'topic-note', explicit.id], { env }).stdout);
+    assert.equal(explicitFetched.blocks[0].blockId, explicitId0, 'explicit block IDs should survive a get');
+    assert.equal(explicitFetched.blocks[1].blockId, explicitId1, 'explicit block IDs should survive a get');
+  } finally {
+    rmSync(sandboxDir, { recursive: true, force: true });
+  }
+});
+
 test('CLI migrate-links dry-run/apply converts unambiguous legacy paths and reports unresolved links', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-migrate-links-'));
   const dbPath = join(sandboxDir, 'migrate-links.sqlite');
