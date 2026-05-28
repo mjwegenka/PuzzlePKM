@@ -99,7 +99,6 @@ function formatDateKey(date: Date): string {
 export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
-  const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate())
   const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | undefined>()
@@ -114,6 +113,10 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const calendarDays = useMemo(
     () => Array.from({ length: 42 }, (_, index) => addDays(gridStart, index)),
     [gridStart],
+  )
+  const calendarWeeks = useMemo(
+    () => Array.from({ length: 6 }, (_, weekIndex) => calendarDays.slice(weekIndex * 7, weekIndex * 7 + 7)),
+    [calendarDays],
   )
   const createTargetDate = selectedDate || getTodayDate()
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
@@ -131,46 +134,41 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [])
 
   const loadEvents = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [dailyRes, topicRes, habitRes, projectRes] = await Promise.allSettled([
-        listDailyNoteMeta(),
-        listTopicNoteMeta(),
-        listHabitMeta(),
-        listFileMeta(),
-      ])
-      const evts: CalEvent[] = []
-      if (dailyRes.status === 'fulfilled') {
-        for (const n of dailyRes.value) {
-          if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
-        }
+    const [dailyRes, topicRes, habitRes, projectRes] = await Promise.allSettled([
+      listDailyNoteMeta(),
+      listTopicNoteMeta(),
+      listHabitMeta(),
+      listFileMeta(),
+    ])
+    const evts: CalEvent[] = []
+    if (dailyRes.status === 'fulfilled') {
+      for (const n of dailyRes.value) {
+        if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
       }
-      if (topicRes.status === 'fulfilled') {
-        for (const n of topicRes.value) {
-          const d = (n as Record<string, unknown>).date as string | undefined
-          if (d) evts.push({ id: n.id, date: d, label: n.title || d, type: 'topic-note', tags: n.tags ?? [] })
-        }
-      }
-      if (habitRes.status === 'fulfilled') {
-        for (const h of habitRes.value) {
-          if (h.date) evts.push({ id: h.id, date: h.date, label: h.text || 'Habit', type: 'habit', tags: h.tags ?? [] })
-        }
-      }
-      if (projectRes.status === 'fulfilled') {
-        for (const p of projectRes.value) {
-          if (p.type === 'project' && p.startDate) {
-            evts.push({ id: p.id, date: p.startDate, label: p.name, type: 'project', tags: p.tags ?? [] })
-          }
-          if (p.type === 'ref-material') {
-            const datedRef = (p as { startDate?: string }).startDate
-            if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.name, type: 'ref-material', tags: p.tags ?? [] })
-          }
-        }
-      }
-      setEvents(evts)
-    } finally {
-      setLoading(false)
     }
+    if (topicRes.status === 'fulfilled') {
+      for (const n of topicRes.value) {
+        const d = (n as Record<string, unknown>).date as string | undefined
+        if (d) evts.push({ id: n.id, date: d, label: n.title || d, type: 'topic-note', tags: n.tags ?? [] })
+      }
+    }
+    if (habitRes.status === 'fulfilled') {
+      for (const h of habitRes.value) {
+        if (h.date) evts.push({ id: h.id, date: h.date, label: h.text || 'Habit', type: 'habit', tags: h.tags ?? [] })
+      }
+    }
+    if (projectRes.status === 'fulfilled') {
+      for (const p of projectRes.value) {
+        if (p.type === 'project' && p.startDate) {
+          evts.push({ id: p.id, date: p.startDate, label: p.name, type: 'project', tags: p.tags ?? [] })
+        }
+        if (p.type === 'ref-material') {
+          const datedRef = (p as { startDate?: string }).startDate
+          if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.name, type: 'ref-material', tags: p.tags ?? [] })
+        }
+      }
+    }
+    setEvents(evts)
   }, [])
 
   useEffect(() => {
@@ -207,8 +205,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     }
     return map
   }, [filteredEvents])
-
-  const visibleEventCount = filteredEvents.filter((event) => event.type !== 'daily-note').length
 
   const openEvent = useCallback(async (evt: CalEvent) => {
     if (onOpenObjectTab) {
@@ -352,14 +348,46 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   return (
     <div className="flex min-h-0 flex-1 gap-3">
       <div className="ui-shell-panel flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface-elevated)]">
-        <div className="ui-toolbar-panel mb-3 flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3">
-          <div className="min-w-[180px] flex-1">
-            <div className="text-sm font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">Calendar</div>
-            <div className="mt-1 text-sm text-[var(--color-text-secondary)]">
-              {loading ? 'Loading events…' : searchQuery.trim() ? `${visibleEventCount} matching events` : `${visibleEventCount} events this month`}
-            </div>
+        <div className="ui-toolbar-panel flex min-h-[76px] flex-nowrap items-center gap-2 border-b border-[var(--color-border-subtle)] px-4 py-3">
+          <div className="mr-2 py-1">
+            <h2 className="calendar-filter-month-year font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
+              {monthLabel}{' '}
+              <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
+            </h2>
           </div>
-          <div className="ui-scroller flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground" aria-label="Create new item">
+                <SquarePen className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'daily-note') }}>
+                New Daily Note
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
+                New Topic Note
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
+                New Habit
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <div className="inline-flex items-center rounded-full border border-current bg-[var(--color-surface-control)]/88 p-1 text-[var(--color-text-disabled)] hover:bg-[var(--color-surface-hover)]">
+            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handlePrevMonth}>
+              <ChevronLeft className="h-4.5 w-4.5" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 px-4 text-sm text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleToday}>
+              Today
+            </Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleNextMonth}>
+              <ChevronRight className="h-4.5 w-4.5" />
+            </Button>
+          </div>
+
+          <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <FilterChip
@@ -383,7 +411,8 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="relative w-[248px] max-w-full shrink-0">
+
+          <div className="relative w-[248px] max-w-full min-w-0 flex-[1_1_120px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
             <Input
               value={searchQuery}
@@ -391,50 +420,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
               placeholder="Search"
               className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
             />
-          </div>
-        </div>
-
-        <div className="border-b border-[var(--color-border-subtle)] px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 py-1">
-            <div className="py-1.5">
-              <h2 className="text-2xl font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
-                {monthLabel}{' '}
-                <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
-              </h2>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-10 w-10 rounded-full">
-                    <SquarePen className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'daily-note') }}>
-                    New Daily Note
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
-                    New Topic Note
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
-                    New Habit
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <div className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1">
-                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full" onClick={handlePrevMonth}>
-                  <ChevronLeft className="h-4.5 w-4.5" />
-                </Button>
-                <Button size="sm" variant="ghost" className="h-8 rounded-full px-4 text-sm text-[var(--color-text-primary)]" onClick={handleToday}>
-                  Today
-                </Button>
-                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full" onClick={handleNextMonth}>
-                  <ChevronRight className="h-4.5 w-4.5" />
-                </Button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -446,100 +431,72 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
           ))}
         </div>
 
-        <div
-          className="grid flex-1 grid-cols-7 overflow-auto bg-[var(--color-border-subtle)]/60"
-          style={{ gridTemplateRows: 'repeat(6, minmax(136px, 1fr))' }}
-        >
-          {calendarDays.map((dayValue) => {
-            const dateKey = formatDateKey(dayValue)
-            const dayEvents = eventsByDate.get(dateKey) ?? []
-            const dailyNote = dayEvents.find((event) => event.type === 'daily-note')
-            const nonNoteEvents = dayEvents.filter((event) => event.type !== 'daily-note')
-            const visibleDayEvents = nonNoteEvents.slice(0, 4)
-            const hiddenCount = Math.max(nonNoteEvents.length - visibleDayEvents.length, 0)
-            const selected = dateKey === selectedDate
-            const isCurrentMonthDay = isSameMonth(dayValue, currentMonth)
-            const isTodayDate = isSameDay(dayValue, today)
+        <div className="flex flex-1 flex-col overflow-auto bg-[var(--color-border-subtle)]/60">
+          {calendarWeeks.map((week, weekIndex) => (
+            <div key={`week-${weekIndex}`} className="grid grid-cols-7">
+              {week.map((dayValue) => {
+                const dateKey = formatDateKey(dayValue)
+                const dayEvents = eventsByDate.get(dateKey) ?? []
+                const selected = dateKey === selectedDate
+                const isCurrentMonthDay = isSameMonth(dayValue, currentMonth)
+                const isTodayDate = isSameDay(dayValue, today)
 
-            return (
-              <div
-                key={dateKey}
-                onClick={() => { void handleDayClick(dayValue) }}
-                className={cn(
-                  'flex min-h-[136px] min-w-0 cursor-pointer flex-col bg-[var(--color-surface-app)] px-2.5 py-2 transition-colors',
-                  isCurrentMonthDay ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-disabled)]',
-                )}
-                style={{
-                  boxShadow: selected ? 'inset 0 0 0 1px rgba(242, 203, 99, 0.28)' : 'none',
-                  backgroundColor: selected
-                    ? 'color-mix(in srgb, var(--color-selected-fill-soft) 55%, var(--color-surface-app))'
-                    : isCurrentMonthDay
-                      ? 'var(--color-surface-app)'
-                      : 'color-mix(in srgb, var(--color-surface-app) 82%, var(--color-surface-elevated))',
-                }}
-              >
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  {dailyNote ? (
-                    <span className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-0.5 text-xs uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
-                      Note
-                    </span>
-                  ) : <span />}
-                  <span
+                return (
+                  <div
+                    key={dateKey}
+                    onClick={() => { void handleDayClick(dayValue) }}
                     className={cn(
-                      'inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-sm font-medium',
-                      isTodayDate ? 'bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : '',
+                      'flex min-h-[136px] min-w-0 cursor-pointer flex-col bg-[var(--color-surface-app)] px-2.5 py-2 transition-colors',
+                      isCurrentMonthDay ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-disabled)]',
                     )}
+                    style={{
+                      boxShadow: selected ? 'inset 0 0 0 1px rgba(242, 203, 99, 0.28)' : 'none',
+                      backgroundColor: selected
+                        ? 'color-mix(in srgb, var(--color-selected-fill-soft) 55%, var(--color-surface-app))'
+                        : isCurrentMonthDay
+                          ? 'var(--color-surface-app)'
+                          : 'color-mix(in srgb, var(--color-surface-app) 82%, var(--color-surface-elevated))',
+                    }}
                   >
-                    {format(dayValue, 'd')}
-                  </span>
-                </div>
-
-                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-                  {visibleDayEvents.map((event, index) => {
-                    const colors = TYPE_COLORS[event.type]
-                    const compact = index >= 2
-                    return compact ? (
-                      <button
-                        key={event.id}
-                        type="button"
-                        onClick={(clickEvent) => {
-                          clickEvent.stopPropagation()
-                          void openEvent(event)
-                        }}
-                        className="flex items-center gap-1.5 rounded-[6px] px-1 py-0.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                    <div className="mb-2 flex items-center justify-end gap-2">
+                      <span
+                        className={cn(
+                          'inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-sm font-medium',
+                          isTodayDate ? 'bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : '',
+                        )}
                       >
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.accent }} />
-                        <span className="truncate">{event.label}</span>
-                      </button>
-                    ) : (
-                      <button
-                        key={event.id}
-                        type="button"
-                        onClick={(clickEvent) => {
-                          clickEvent.stopPropagation()
-                          void openEvent(event)
-                        }}
-                        className="truncate rounded-[7px] border px-2 py-1 text-left text-sm font-medium hover:brightness-110"
-                        style={{
-                          backgroundColor: colors.bg,
-                          borderColor: colors.border,
-                          color: colors.text,
-                        }}
-                      >
-                        {event.label}
-                      </button>
-                    )
-                  })}
+                        {format(dayValue, 'd')}
+                      </span>
+                    </div>
 
-                  {hiddenCount > 0 ? (
-                    <span className="px-1 text-sm text-[var(--color-text-disabled)]">
-                      +{hiddenCount} more
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
+                    <div className="flex flex-col gap-1">
+                      {dayEvents.map((event) => {
+                        const colors = TYPE_COLORS[event.type]
+                        return (
+                          <button
+                            key={event.id}
+                            type="button"
+                            onClick={(clickEvent) => {
+                              clickEvent.stopPropagation()
+                              void openEvent(event)
+                            }}
+                            className="rounded-[7px] border px-2 py-1 text-left text-sm font-medium break-words whitespace-normal leading-snug hover:brightness-110"
+                            style={{
+                              backgroundColor: colors.bg,
+                              borderColor: colors.border,
+                              color: colors.text,
+                            }}
+                          >
+                            {event.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </div>
 

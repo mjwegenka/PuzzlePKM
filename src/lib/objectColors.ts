@@ -33,12 +33,12 @@ function buildToken(accent: string): ObjectColorToken {
 
 /** One canonical color mapping per object type. */
 export const objectColors: Record<ColorableType, ObjectColorToken> = {
-  'daily-note': buildToken('#f2cb63'),
-  'topic-note': buildToken('#81c784'),
-  'habit': buildToken('#ffb74d'),
-  'project': buildToken('#ba9ffb'),
-  'ref-material': buildToken('#f48fb1'),
-  'scripture': buildToken('#f2cb63'),
+  'daily-note': buildToken('#36cfc9'),
+  'topic-note': buildToken('#52c41a'),
+  'habit': buildToken('#1677ff'),
+  'project': buildToken('#722ed1'),
+  'ref-material': buildToken('#eb2f96'),
+  'scripture': buildToken('#f5222d'),
 }
 
 /** Look up the color token for a given object type string, falling back to daily-note colors. */

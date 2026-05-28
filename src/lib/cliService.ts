@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
+import { formatDatePretty } from './dateUtils';
 
 export interface CliRunResult {
   exitCode: number;
@@ -35,6 +36,49 @@ function stripHtmlComments(value: string): string {
     .replace(/<!--[^]*?-->/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function sanitizeCardText(value: string): string {
+  return String(value)
+    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
+  const trimmedTitle = sanitizeCardText(title)
+  if (trimmedTitle) return trimmedTitle
+
+  const previewCandidate = sanitizeCardText(preview)
+    .replaceAll('[', ' ')
+    .replaceAll(']', ' ')
+    .replace(/[*_`#>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (previewCandidate) return previewCandidate.slice(0, 60)
+
+  if (date) return formatDatePretty(date)
+  return 'Topic Note'
+}
+
+function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
+  const primaryTag = tags
+    .map((tag) => String(tag ?? '').trim())
+    .find(Boolean)
+  const friendlyDate = date ? formatDatePretty(date) : ''
+
+  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
+  if (primaryTag) return primaryTag
+  if (friendlyDate) return friendlyDate
+  return sanitizeCardText(text) || '(no text)'
+}
+
+function deriveFileCardTitle(type: 'project' | 'ref-material', name: string): string {
+  const trimmed = sanitizeCardText(name)
+  if (trimmed) return trimmed
+  return type === 'project' ? 'Project' : 'Reference Material'
 }
 
 export interface ResolvedObjectRef {
@@ -339,53 +383,6 @@ export async function runSync(): Promise<void> {
 }
 
 /**
- * Parse tab-separated list output from the CLI into structured objects.
- * Formats:
- *   daily-note  : id \t date \t preview \t syncPath [\t #tag1, #tag2]
- *   topic-note  : id \t updatedAt \t title \t syncPath \t date \t preview [\t #tag1, #tag2]
- *   project     : id \t name \t syncPath \t startDate [\t #tag1, #tag2]
- *   ref-material: id \t name \t author \t syncPath [\t #tag1, #tag2]
- *   habit       : id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
- */
-function parseListOutput(
-  type: string,
-  stdout: string,
-): MentionSearchResult[] {
-  const normalizePath = (value: string | undefined): string | undefined => {
-    const v = (value ?? '').trim();
-    return v && v !== '(no path)' ? v : undefined;
-  };
-
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    // CLI emits human-readable status lines (e.g. "No <type> found.") when empty.
-    // Those lines are not tabular rows and should never be parsed as objects.
-    .filter((line) => Boolean(line) && line.includes('\t'))
-    .map((line) => {
-      const parts = line.split('\t');
-      const id = parts[0] ?? '';
-      const path3 = normalizePath(parts[3]);
-      const path2 = normalizePath(parts[2]);
-      switch (type) {
-        case 'daily-note':
-          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[2] ?? ''), date: parts[1], syncPath: path3 ?? '' });
-        case 'topic-note':
-          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[2] ?? ''), date: parts[4] ?? '', syncPath: path3 ?? '' });
-        case 'project':
-          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[1] ?? ''), syncPath: path2 ?? '', date: parts[3] });
-        case 'ref-material':
-          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[1] ?? ''), author: stripHtmlComments(parts[2] ?? ''), syncPath: normalizePath(parts[3]) ?? '' });
-        case 'habit':
-          return withLegacyPathAlias({ id, type, title: stripHtmlComments(parts[3] ?? ''), syncPath: normalizePath(parts[4]) ?? '', date: parts[1] });
-        default:
-          return { id, type, title: stripHtmlComments(parts[1] ?? '') };
-      }
-    })
-    .filter((r) => r.id);
-}
-
-/**
  * Search all objects (daily-note, topic-note, project, ref-material, habit)
  * by title or date. Returns up to `limit` results.
  */
@@ -393,32 +390,75 @@ export async function searchObjects(
   query: string,
   limit = 10,
 ): Promise<MentionSearchResult[]> {
-  const types = ['daily-note', 'topic-note', 'project', 'ref-material', 'habit'] as const;
-  const results: MentionSearchResult[] = [];
   const q = query.toLowerCase();
+  const results: MentionSearchResult[] = [];
 
-  await Promise.allSettled(
-    types.map(async (type) => {
-      try {
-        const stdout = await listObjects(type);
-        const parsed = parseListOutput(type, stdout);
-        for (const item of parsed) {
-          if (
-            !q ||
-            item.title.toLowerCase().includes(q) ||
-            (item.author ?? '').toLowerCase().includes(q) ||
-            (item.date ?? '').includes(q)
-          ) {
-            results.push(item);
-          }
-        }
-      } catch {
-        // silently skip unavailable types
+  const [topicsRes, dailiesRes, habitsRes, filesRes] = await Promise.allSettled([
+    listTopicNoteMeta(),
+    listDailyNoteMeta(),
+    listHabitMeta(),
+    listFileMeta(),
+  ]);
+
+  if (topicsRes.status === 'fulfilled') {
+    for (const item of topicsRes.value) {
+      const title = deriveTopicCardTitle(item.title, item.preview ?? '', item.date)
+      if (!q || title.toLowerCase().includes(q) || (item.date ?? '').includes(q)) {
+        results.push({
+          id: item.id,
+          type: 'topic-note',
+          title,
+          date: item.date,
+        })
       }
-    }),
-  );
+    }
+  }
 
-  return results.slice(0, limit);
+  if (dailiesRes.status === 'fulfilled') {
+    for (const item of dailiesRes.value) {
+      const title = item.date ? formatDatePretty(item.date) : 'Daily Note'
+      if (!q || title.toLowerCase().includes(q) || item.preview.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+        results.push({
+          id: item.id,
+          type: 'daily-note',
+          title,
+          date: item.date,
+        })
+      }
+    }
+  }
+
+  if (habitsRes.status === 'fulfilled') {
+    for (const item of habitsRes.value) {
+      const title = deriveHabitCardTitle(item.tags ?? [], item.date, item.text ?? '')
+      if (!q || title.toLowerCase().includes(q) || item.text.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+        results.push({
+          id: item.id,
+          type: 'habit',
+          title,
+          date: item.date,
+        })
+      }
+    }
+  }
+
+  if (filesRes.status === 'fulfilled') {
+    for (const item of filesRes.value) {
+      const title = deriveFileCardTitle(item.type, item.name ?? '')
+      if (!q || title.toLowerCase().includes(q) || (item.author ?? '').toLowerCase().includes(q) || (item.startDate ?? '').includes(q)) {
+        results.push({
+          id: item.id,
+          type: item.type,
+          title,
+          author: item.author,
+          date: item.startDate,
+          syncPath: item.syncPath,
+        })
+      }
+    }
+  }
+
+  return results.slice(0, limit)
 }
 
 /**
@@ -531,6 +571,13 @@ export async function listFileMeta(): Promise<
   Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }>
 > {
   const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }> = [];
+  let syncRootFolder: string | null = null;
+  try {
+    syncRootFolder = await getSyncRootFolder();
+  } catch {
+    syncRootFolder = null;
+  }
+
   for (const type of ['project', 'ref-material'] as const) {
     try {
       const stdout = await listObjects(type);
@@ -541,11 +588,12 @@ export async function listFileMeta(): Promise<
           ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
           : [];
         if (parts[0]) {
+          const rawSyncPath = type === 'ref-material' ? (parts[3] ?? '') : (parts[2] ?? '');
           results.push({
             id: parts[0],
             name: parts[1] ?? '',
             author: type === 'ref-material' ? (parts[2] ?? '') : undefined,
-            ...withLegacyPathAlias({ syncPath: type === 'ref-material' ? (parts[3] ?? '') : (parts[2] ?? '') }),
+            ...withLegacyPathAlias({ syncPath: resolveDisplaySyncPath(rawSyncPath, syncRootFolder) }),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
             tags,
             type,
@@ -557,6 +605,39 @@ export async function listFileMeta(): Promise<
     }
   }
   return results;
+}
+
+function resolveDisplaySyncPath(path: string, rootFolder: string | null): string {
+  const raw = String(path ?? '').trim();
+  if (!raw || raw === '(no path)') return '';
+  if (!rootFolder) return raw;
+
+  const normalizedRaw = raw.replace(/\\/g, '/');
+  const normalizedRoot = rootFolder.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (normalizedRaw.startsWith(`${normalizedRoot}/`) || normalizedRaw === normalizedRoot) {
+    return raw;
+  }
+
+  const rawSegments = normalizedRaw.replace(/^\/+/, '').split('/').filter(Boolean);
+  const firstSegment = rawSegments[0]?.toLowerCase();
+  const secondSegment = rawSegments[1]?.toLowerCase();
+  const rootName = normalizedRoot.split('/').filter(Boolean).at(-1)?.toLowerCase();
+  const knownObjectFolders = new Set(['topic-notes', 'daily-notes', 'habits', 'projects', 'ref-materials', 'scriptures', 'tags']);
+  const filesystemRootSegments = new Set(['users', 'volumes', 'private', 'tmp', 'var', 'etc', 'home']);
+  const looksRootRelativeAlias = Boolean(firstSegment) && (
+    firstSegment === 'puzzlepkm'
+    || (rootName ? firstSegment === rootName : false)
+    || knownObjectFolders.has(firstSegment)
+    // Legacy absolute-like aliases can look like /Dropith/projects/...; detect
+    // by checking a non-filesystem root segment followed by a known object folder.
+    || (Boolean(secondSegment) && !filesystemRootSegments.has(firstSegment ?? '') && knownObjectFolders.has(secondSegment ?? ''))
+  );
+
+  if (!looksRootRelativeAlias) return raw;
+
+  const suffix = getRootRelativeSuffix(normalizedRaw, normalizedRoot);
+  if (!suffix) return raw;
+  return joinPath(normalizedRoot, suffix);
 }
 
 export async function listScriptureMeta(): Promise<

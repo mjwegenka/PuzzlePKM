@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Loader2, Pin, PinOff, Plus, Save } from 'lucide-react';
+import { Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
@@ -49,14 +49,6 @@ function isExternalHttpUrl(value: string): boolean {
 function openExternalUrl(value: string): void {
   if (typeof window === 'undefined') return;
   window.open(value, '_blank', 'noopener,noreferrer');
-}
-
-function isEffectivelyEmptyNoteContent(value: string): boolean {
-  const normalized = value
-    .replace(/<br\s*\/?>/gi, '')
-    .replace(/&nbsp;/gi, '')
-    .trim();
-  return normalized.length === 0;
 }
 
 function normalizeTagValue(tag: string): string {
@@ -155,12 +147,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [showTagDialog, setShowTagDialog] = useState(false);
   const [tagDialogError, setTagDialogError] = useState<string | null>(null);
   const [navigationDialogError, setNavigationDialogError] = useState<string | null>(null);
-  const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
-  const [pendingDeleteReason, setPendingDeleteReason] = useState<'empty-note' | 'untagged-habit' | null>(null);
   const [liveForwardLinks, setLiveForwardLinks] = useState<Array<Record<string, unknown>>>([]);
   const [liveBacklinkLinks, setLiveBacklinkLinks] = useState<Array<Record<string, unknown>>>([]);
   const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
@@ -204,7 +195,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setIsDirty(false);
     setPendingNavigation(null);
     setNavigationDialogError(null);
-    setDeleteDialogError(null);
     mentionTargetBlockCacheRef.current = new Map();
     onDirtyRef.current?.(false);
   }, [object, defaultDate, type]);
@@ -329,104 +319,99 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     return () => window.cancelAnimationFrame(frame);
   }, [showTagDialog]);
 
-  const persistCurrentObject = useCallback(async (tagsOverride?: string[]): Promise<Record<string, unknown>> => {
+  const buildPersistPayload = useCallback((tagsOverride?: string[]): { data: Record<string, unknown>; tagsToPersist: string[] } => {
     const tagsToPersist = tagsOverride ?? tags;
+    const data: Record<string, unknown> = {
+      id: object?.id,
+      tags: tagsToPersist,
+    };
+
+    if (type === 'topic-note') {
+      data.title = title;
+      data.date = date;
+      data.contentMarkdown = content;
+      data.blocks = noteBlocks;
+      data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
+    } else if (type === 'daily-note') {
+      data.date = date;
+      data.contentMarkdown = content;
+      data.blocks = noteBlocks;
+      data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
+    } else if (type === 'project') {
+      data.name = title;
+      data.startDate = date || undefined;
+      data.syncPath = (object?.syncPath as string) ?? '';
+    } else if (type === 'ref-material') {
+      data.name = title;
+      data.author = author || '';
+      data.syncPath = (object?.syncPath as string) ?? '';
+    } else if (type === 'habit') {
+      data.text = content;
+      data.date = date;
+    }
+
+    return { data, tagsToPersist };
+  }, [author, content, date, noteBlocks, object?.id, object?.linkedObjectIds, object?.syncPath, tags, title, type]);
+
+  const commitSavedSnapshot = useCallback((tagsToPersist: string[]) => {
+    initialRef.current = {
+      title,
+      author,
+      date,
+      content,
+      tags: [...tagsToPersist],
+    };
+    setTags(tagsToPersist);
+    setIsDirty(false);
+    onDirty?.(false);
+    window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
+    // Queue sync after save without extending the save interaction.
+    triggerSyncInBackground();
+  }, [author, content, date, onDirty, title, triggerSyncInBackground]);
+
+  const persistCurrentObject = async (tagsOverride?: string[]): Promise<Record<string, unknown>> => {
     setSaving(true);
     setSaveError(null);
     try {
-      const data: Record<string, unknown> = {
-        id: object?.id,
-        tags: tagsToPersist,
-      };
-
-      if (type === 'topic-note') {
-        data.title = title;
-        data.date = date;
-        data.contentMarkdown = content;
-        data.blocks = noteBlocks;
-        data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
-      } else if (type === 'daily-note') {
-        data.date = date;
-        data.contentMarkdown = content;
-        data.blocks = noteBlocks;
-        data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
-      } else if (type === 'project') {
-        data.name = title;
-        data.startDate = date || undefined;
-        data.syncPath = (object?.syncPath as string) ?? '';
-      } else if (type === 'ref-material') {
-        data.name = title;
-        data.author = author || '';
-        data.syncPath = ((object?.syncPath as string) ?? (object?.syncPath as string)) ?? '';
-      } else if (type === 'habit') {
-        data.text = content;
-        data.date = date;
-      }
-
+      const { data, tagsToPersist } = buildPersistPayload(tagsOverride);
       const saved = await writeObject(type, data);
-      initialRef.current = {
-        title,
-        author,
-        date,
-        content,
-        tags: [...tagsToPersist],
-      };
-      setTags(tagsToPersist);
-      setIsDirty(false);
-      onDirty?.(false);
-      window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
-      // Queue sync after save without extending the save interaction.
-      triggerSyncInBackground();
+      commitSavedSnapshot(tagsToPersist);
       return saved;
     } catch (err) {
       const message = String(err);
       if (showTagDialog) setTagDialogError(message);
       else if (pendingNavigation) setNavigationDialogError(message);
-      else if (pendingDeleteReason) setDeleteDialogError(message);
       else setSaveError(message);
       throw err;
     } finally {
       setSaving(false);
     }
-  }, [author, content, date, noteBlocks, object?.syncPath, object?.id, object?.linkedObjectIds, onDirty, pendingDeleteReason, pendingNavigation, showTagDialog, tags, title, triggerSyncInBackground, type]);
+  };
 
   const isPinned = tags.some(isPinnedTag);
   const canPin = type === 'topic-note' || type === 'daily-note' || type === 'project' || type === 'ref-material';
-  const handleTogglePinned = useCallback(async () => {
+  const canDelete = Boolean(object?.id) && (type === 'topic-note' || type === 'daily-note' || type === 'habit');
+  const handleTogglePinned = async () => {
     if (!canPin) return;
     const nextTags = isPinned
       ? tags.filter((tag) => !isPinnedTag(tag))
       : [...tags.filter((tag) => !isPinnedTag(tag)), 'pinned'];
     setTags(nextTags);
+
+    // If the editor is otherwise clean, pin/unpin should save immediately.
+    // If there are other unsaved edits, keep the pin state local and let the
+    // normal Save flow persist everything together.
+    if (isDirty) return;
+
     try {
       const saved = await persistCurrentObject(nextTags);
       onSave?.(saved);
     } catch {
       // Error already set by persistCurrentObject.
     }
-  }, [canPin, isPinned, onSave, persistCurrentObject, tags]);
+  };
 
   const handleSave = async () => {
-    const isEmptyNoteContent =
-      (type === 'topic-note' || type === 'daily-note') &&
-      isEffectivelyEmptyNoteContent(content);
-    const isHabitWithoutTags = type === 'habit' && tags.length === 0;
-
-    const hasDailyRelations =
-      type === 'daily-note' &&
-      ((Array.isArray(object?.links) && object.links.length > 0) ||
-        (Array.isArray(object?.backlinks) && object.backlinks.length > 0) ||
-        tags.length > 0);
-
-    if (isEmptyNoteContent && !hasDailyRelations) {
-      setPendingDeleteReason('empty-note');
-      return;
-    }
-    if (isHabitWithoutTags) {
-      setPendingDeleteReason('untagged-habit');
-      return;
-    }
-
     try {
       const saved = await persistCurrentObject();
       onSave?.(saved);
@@ -435,52 +420,47 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     }
   };
 
-  const handleConfirmDeleteOnSave = async () => {
-    if (!pendingDeleteReason) return;
-
+  const handleDelete = async () => {
+    if (!canDelete) return;
     const id = (object?.id as string | undefined) ?? '';
-    const hasPersistedObject = Boolean(id);
+    if (!id) return;
 
-    setSaving(true);
-    setDeleteDialogError(null);
+    setDeleting(true);
+    setSaveError(null);
     try {
-      if (hasPersistedObject) {
-        // Pre-sync the current editor state (e.g. removed tags) to the DB
-        // before attempting deletion. The CLI eligibility check reads the DB
-        // directly, so unsaved changes (like a removed tag) would otherwise
-        // cause the delete to be incorrectly rejected.
-        try {
-          await persistCurrentObject();
-        } catch {
-          // Pre-sync failure is non-fatal — proceed to the delete attempt.
-          // If the DB state still blocks deletion, the error surfaces below.
-        }
-        // persistCurrentObject resets saving to false in its finally block;
-        // re-establish the saving state for the delete step.
-        setSaving(true);
-        setDeleteDialogError(null);
+      const { data, tagsToPersist } = buildPersistPayload();
 
-        try {
-          await deleteObject(type, id);
-        } catch (err) {
-          const message = String(err instanceof Error ? err.message : err).toLowerCase();
-          if (!message.includes('not found')) {
-            setDeleteDialogError(String(err));
-            return;
-          }
-        }
-        triggerSyncInBackground();
+      // Pre-sync the current editor state (for example, removed tags or a
+      // cleared date) to the DB before attempting deletion. The CLI deletion
+      // checks read the DB directly, so stale in-memory changes could block
+      // the delete path incorrectly.
+      try {
+        const saved = await writeObject(type, data);
+        commitSavedSnapshot(tagsToPersist);
+        onSave?.(saved);
+      } catch {
+        // Pre-sync failure is non-fatal — proceed to the delete attempt.
+        // If the DB state still blocks deletion, the error surfaces below.
       }
 
-      setPendingDeleteReason(null);
-      setDeleteDialogError(null);
+      try {
+        await deleteObject(type, id);
+      } catch (err) {
+        const message = String(err instanceof Error ? err.message : err).toLowerCase();
+        if (!message.includes('not found')) {
+          setSaveError(String(err));
+          return;
+        }
+      }
+
+      triggerSyncInBackground();
       setIsDirty(false);
       onDirty?.(false);
       onSave?.({ id: id || undefined, type, deleted: true });
     } catch (err) {
-      setDeleteDialogError(String(err));
+      setSaveError(String(err));
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
   };
 
@@ -635,7 +615,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             key={tag}
             type="button"
             onClick={() => handleRemoveTag(tag)}
-            className="inline-flex h-[22px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
+            className="inline-flex min-h-[28px] items-center gap-1 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]"
             title="Remove tag"
           >
             <span className="ui-tag-text">#{tag}</span>
@@ -647,12 +627,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   );
 
   const relationshipsSection = (
-    <div className="mb-2 space-y-4">
-      <div>
-        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+    <div className="py-1.5 space-y-2">
+      <div className="space-y-2">
+        <p className="block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Links
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2.5 pb-1 pt-0.5">
           {forwardLinks.length === 0 ? (
             <p className="text-xs italic text-[var(--color-text-disabled)]">
               No links
@@ -664,7 +644,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {relationLabel(relation)}
               </button>
@@ -672,11 +652,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           )}
         </div>
       </div>
-      <div>
-        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+      <div className="mt-[12px] space-y-2">
+        <p className="block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Backlinks
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2.5 pt-0.5">
           {backlinkLinks.length === 0 ? (
             <p className="text-xs italic text-[var(--color-text-disabled)]">
               No backlinks
@@ -688,7 +668,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex h-[22px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2.5 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {relationLabel(relation)}
               </button>
@@ -711,7 +691,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               <div className="space-y-6 py-2">
                 <div className="space-y-3">
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                <label className="block text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
                 </label>
                 <Input
@@ -730,6 +710,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   <div className="w-full max-w-[320px] py-1.5">
                     <DatePicker
                       label={type === 'project' ? 'Start Date' : 'Date'}
+                      labelClassName="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]"
                       value={date}
                       onChange={setDate}
                       helperText={!date && isOptionalDate ? 'No date set' : undefined}
@@ -755,7 +736,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   <ObjectDirectoryBrowser object={object} type={type} embedded />
                 </div>
 
-                <div className="shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
+                <div className="shrink-0 border-t border-[var(--color-border-subtle)] pb-1 pt-2">
                   {relationshipsSection}
                 </div>
               </div>
@@ -769,7 +750,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   </Alert>
                 )}
                 {onCancel && (
-                  <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
+                  <Button variant="outline" onClick={onCancel} disabled={saving || deleting} size="sm">
                     Cancel
                   </Button>
                 )}
@@ -778,7 +759,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     type="button"
                     variant={isPinned ? 'outline' : 'ghost'}
                     onClick={() => { void handleTogglePinned(); }}
-                    disabled={saving}
+                    disabled={saving || deleting}
                     size="sm"
                     title={isPinned ? 'Remove from Pinned' : 'Pin to sidebar'}
                   >
@@ -786,9 +767,22 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {isPinned ? 'Unpin' : 'Pin'}
                   </Button>
                 )}
+                {canDelete && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => { void handleDelete(); }}
+                    disabled={saving || deleting}
+                    size="sm"
+                    title="Delete this object"
+                  >
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    {deleting ? 'Deleting…' : 'Delete'}
+                  </Button>
+                )}
                 <Button
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saving || deleting}
                   size="sm"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -833,6 +827,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   <div className="w-full max-w-[320px] py-1.5">
                       <DatePicker
                         label="Date"
+                        labelClassName="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]"
                         value={date}
                         onChange={setDate}
                         helperText={!date && isOptionalDate ? 'No date set' : undefined}
@@ -877,7 +872,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               )}
 
               {/* ── BOTTOM: Relationships + Tags ── */}
-              <div className="min-h-0 shrink-0 border-t border-[var(--color-border-subtle)] pt-6">
+              <div className="min-h-0 shrink-0 border-t border-[var(--color-border-subtle)] pb-1 pt-2">
                 {isNoteType && relationshipsSection}
               </div>
             </div>
@@ -890,7 +885,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   </Alert>
                 )}
                 {onCancel && (
-                  <Button variant="outline" onClick={onCancel} disabled={saving} size="sm">
+                  <Button variant="outline" onClick={onCancel} disabled={saving || deleting} size="sm">
                     Cancel
                   </Button>
                 )}
@@ -899,7 +894,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     type="button"
                     variant={isPinned ? 'outline' : 'ghost'}
                     onClick={() => { void handleTogglePinned(); }}
-                    disabled={saving}
+                    disabled={saving || deleting}
                     size="sm"
                     title={isPinned ? 'Remove from Pinned' : 'Pin to sidebar'}
                   >
@@ -907,9 +902,22 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {isPinned ? 'Unpin' : 'Pin'}
                   </Button>
                 )}
+                {canDelete && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => { void handleDelete(); }}
+                    disabled={saving || deleting}
+                    size="sm"
+                    title="Delete this object"
+                  >
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    {deleting ? 'Deleting…' : 'Delete'}
+                  </Button>
+                )}
                 <Button
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saving || deleting}
                   size="sm"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -1003,39 +1011,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         ) : null}
       </Dialog>
 
-      <Dialog
-        open={!!pendingDeleteReason}
-        onOpenChange={(open) => {
-          if (!open && !saving) {
-            setPendingDeleteReason(null);
-            setDeleteDialogError(null);
-          }
-        }}
-      >
-        {pendingDeleteReason ? (
-          <DialogContent className="max-w-sm" aria-label="Confirm Delete">
-            <DialogHeader>
-              <DialogTitle>Confirm Delete</DialogTitle>
-              <DialogDescription>
-                {pendingDeleteReason === 'empty-note'
-                  ? 'This note has empty content. Delete it instead of saving?'
-                  : 'This habit has no tags. Delete it instead of saving?'}
-              </DialogDescription>
-            </DialogHeader>
-            {deleteDialogError ? (
-              <Alert variant="destructive" className="py-2 text-xs">
-                {deleteDialogError}
-              </Alert>
-            ) : null}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => { setPendingDeleteReason(null); setDeleteDialogError(null); }} disabled={saving}>Cancel</Button>
-              <Button variant="destructive" onClick={() => { void handleConfirmDeleteOnSave(); }} disabled={saving}>
-                {saving ? 'Deleting…' : 'Delete'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        ) : null}
-      </Dialog>
     </div>
   );
 }

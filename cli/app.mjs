@@ -909,6 +909,19 @@ function withDb(action) {
   }
 }
 
+function cleanupOrphanedScriptures(db) {
+  const orphans = db.prepare(`
+    SELECT s.id, s.reference
+    FROM scriptures s
+    LEFT JOIN object_links ol ON ol.target_id = s.id AND ol.target_type = ?
+    WHERE ol.target_id IS NULL
+  `).all(SCRIPTURE_TYPE);
+  if (orphans.length === 0) return [];
+  const del = db.prepare('DELETE FROM scriptures WHERE id = ?');
+  for (const row of orphans) del.run(row.id);
+  return orphans;
+}
+
 function openDb() {
   mkdirSync(dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
@@ -916,6 +929,7 @@ function openDb() {
   backfillMissingSyncPaths(db);
   backfillNoteBlocks(db);
   repairNoteBlocksIntegrity(db);
+  cleanupOrphanedScriptures(db);
   return db;
 }
 

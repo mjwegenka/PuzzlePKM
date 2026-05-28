@@ -9,6 +9,7 @@ import { Calendar } from './calendar'
 
 interface DatePickerProps {
   label: string
+  labelClassName?: string
   value?: string
   onChange: (value: string) => void
   helperText?: string
@@ -19,6 +20,7 @@ interface DatePickerProps {
 
 export default function DatePicker({
   label,
+  labelClassName,
   value = '',
   onChange,
   helperText,
@@ -36,7 +38,7 @@ export default function DatePicker({
 
   return (
     <div className={cn('space-y-2.5', className)}>
-      <label className="block text-sm font-medium text-[var(--color-text-primary)]">{label}</label>
+      <label className={cn('block text-sm font-medium text-[var(--color-text-primary)]', labelClassName)}>{label}</label>
       <div className="flex items-center gap-2">
         <Popover.Root open={open} onOpenChange={setOpen}>
           <Popover.Trigger asChild>

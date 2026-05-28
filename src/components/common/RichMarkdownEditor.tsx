@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Bold,
   Code2,
@@ -10,6 +11,8 @@ import {
   ListChecks,
   ListOrdered,
   Minus,
+  Maximize2,
+  Minimize2,
   Quote,
   Strikethrough,
   Underline as UnderlineIcon,
@@ -32,6 +35,7 @@ import MentionPopup, { type MentionOption } from './MentionPopup'
 import { searchObjects } from '../../lib/cliService'
 import type { NoteBlock } from '../../shared/types'
 import { cn } from '../../lib/utils'
+import { Textarea } from '../ui/textarea'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -431,13 +435,30 @@ export default function RichMarkdownEditor({
   const isApplyingExternalValueRef = useRef(false)
   const mentionRangeRef = useRef<{ from: number; to: number } | null>(null)
   const lastHandledLinkRef = useRef<{ href: string; at: number } | null>(null)
+  const markdownTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const previousMarkdownViewRef = useRef(false)
   const [mentionActive, setMentionActive] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([])
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
   const [mentionPosition, setMentionPosition] = useState<{ top: number; left: number } | null>(null)
   const [showMarkdownView, setShowMarkdownView] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const [markdownPreview, setMarkdownPreview] = useState(value)
+
+  const commitMarkdownChange = useCallback((nextMarkdown: string) => {
+    const normalizedMarkdown = String(nextMarkdown ?? '').replace(/\r\n/g, '\n')
+    if (normalizedMarkdown === lastMarkdownRef.current) return
+
+    lastMarkdownRef.current = normalizedMarkdown
+    setMarkdownPreview(normalizedMarkdown)
+    const nextBlocks = reconcileBlocksWithMarkdown(lastBlocksRef.current, normalizedMarkdown)
+    if (!areBlocksEqual(nextBlocks, lastBlocksRef.current)) {
+      lastBlocksRef.current = nextBlocks
+      onBlocksChange?.(nextBlocks)
+    }
+    onChange(normalizedMarkdown)
+  }, [onBlocksChange, onChange])
 
   const extensions = useMemo<AnyExtension[]>(() => [
       Blockquote.extend({
@@ -662,17 +683,7 @@ export default function RichMarkdownEditor({
     onUpdate: ({ editor: nextEditor }) => {
       updateMentionState(nextEditor)
       if (isApplyingExternalValueRef.current) return
-      const nextMarkdown = htmlToMarkdown(nextEditor.getHTML())
-      if (nextMarkdown !== lastMarkdownRef.current) {
-        lastMarkdownRef.current = nextMarkdown
-        setMarkdownPreview(nextMarkdown)
-        const nextBlocks = reconcileBlocksWithMarkdown(lastBlocksRef.current, nextMarkdown)
-        if (!areBlocksEqual(nextBlocks, lastBlocksRef.current)) {
-          lastBlocksRef.current = nextBlocks
-          onBlocksChange?.(nextBlocks)
-        }
-        onChange(nextMarkdown)
-      }
+      commitMarkdownChange(htmlToMarkdown(nextEditor.getHTML()))
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
       updateMentionState(nextEditor)
@@ -739,6 +750,38 @@ export default function RichMarkdownEditor({
     isApplyingExternalValueRef.current = false
     updateMentionState(editor)
   }, [editor, updateMentionState, value])
+
+  useEffect(() => {
+    const wasMarkdownView = previousMarkdownViewRef.current
+    previousMarkdownViewRef.current = showMarkdownView
+
+    if (!editor || showMarkdownView || !wasMarkdownView) return
+
+    const nextMarkdown = markdownPreview.replace(/\r\n/g, '\n')
+    isApplyingExternalValueRef.current = true
+    editor.commands.setContent(markdownToHtml(nextMarkdown), { emitUpdate: false })
+    lastMarkdownRef.current = nextMarkdown
+    isApplyingExternalValueRef.current = false
+    updateMentionState(editor)
+  }, [editor, markdownPreview, showMarkdownView, updateMentionState])
+
+  useEffect(() => {
+    if (!showMarkdownView) return
+    const frame = window.requestAnimationFrame(() => {
+      markdownTextareaRef.current?.focus()
+      markdownTextareaRef.current?.select()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [showMarkdownView, isFullscreen])
+
+  useEffect(() => {
+    if (!isFullscreen || typeof document === 'undefined') return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isFullscreen])
 
   useEffect(() => {
     return () => editor?.destroy()
@@ -812,8 +855,11 @@ export default function RichMarkdownEditor({
     }
   }, [editor])
 
-  return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+  const shell = (
+    <div className={cn(
+      'relative flex h-full min-h-0 flex-1 flex-col overflow-hidden',
+      isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen bg-[var(--color-surface-app)] p-4' : '',
+    )}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
           {label}
@@ -825,9 +871,15 @@ export default function RichMarkdownEditor({
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
+      <div className={cn(
+        'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]',
+        isFullscreen && 'rounded-[18px]',
+      )}>
         <TooltipProvider>
-          <div className="flex shrink-0 flex-wrap gap-1 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-2">
+          <div className={cn(
+            'flex shrink-0 flex-wrap gap-1 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-2',
+            isFullscreen && 'p-3',
+          )}>
             <ToolbarButton title="Heading" active={editor?.isActive('heading', { level: 2 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
               <Heading2 className="h-4 w-4" />
             </ToolbarButton>
@@ -870,6 +922,13 @@ export default function RichMarkdownEditor({
               onClick={() => setShowMarkdownView((current) => !current)}
             >
               <span className="text-xs font-bold leading-none tracking-[0.04em]">MD</span>
+            </ToolbarButton>
+            <ToolbarButton
+              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              active={isFullscreen}
+              onClick={() => setIsFullscreen((current) => !current)}
+            >
+              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </ToolbarButton>
             <DropdownMenu>
               <Tooltip>
@@ -914,7 +973,10 @@ export default function RichMarkdownEditor({
         </TooltipProvider>
 
         <div
-          className="relative flex-1 overflow-auto bg-[var(--color-surface-elevated)] px-5 py-4"
+          className={cn(
+            'relative flex-1 overflow-auto bg-[var(--color-surface-elevated)] px-5 py-4',
+            showMarkdownView && 'overflow-hidden p-0',
+          )}
           onMouseDownCapture={(event) => {
             handleModifiedLinkClick(event)
           }}
@@ -923,9 +985,16 @@ export default function RichMarkdownEditor({
           }}
         >
           {showMarkdownView ? (
-            <pre className="m-0 p-0.5 font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-[var(--color-text-secondary)]">
-              {markdownPreview || ''}
-            </pre>
+            <Textarea
+              ref={markdownTextareaRef}
+              aria-label={`${label} markdown`}
+              value={markdownPreview}
+              onChange={(event) => {
+                commitMarkdownChange(event.target.value)
+              }}
+              spellCheck={false}
+              className="puzzlepkm-rich-editor-markdown h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[var(--color-text-primary)] shadow-none outline-none placeholder:text-[var(--color-text-disabled)] focus-visible:ring-0"
+            />
           ) : (
             <EditorContent editor={editor} />
           )}
@@ -946,4 +1015,8 @@ export default function RichMarkdownEditor({
       )}
     </div>
   )
+
+  return isFullscreen && typeof document !== 'undefined'
+    ? createPortal(shell, document.body)
+    : shell
 }

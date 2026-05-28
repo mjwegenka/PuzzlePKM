@@ -773,7 +773,7 @@ export default function NotesPage({
           ? (f.startDate ? formatDatePretty(f.startDate) : undefined)
           : (f.author ? `by ${f.author}` : undefined),
         metadataAccent: f.type === 'project' && Boolean(f.startDate),
-        snippet: f.syncPath || undefined,
+        snippet: undefined,
         tags: f.tags,
         sortTimestamp: toSortTimestamp(f.startDate),
       }))
@@ -784,7 +784,7 @@ export default function NotesPage({
         type: 'scripture' as const,
         title: s.reference || 'Scripture',
         metadata: s.noteCount === 1 ? '1 linked note' : `${s.noteCount} linked notes`,
-        snippet: s.passageUrl || undefined,
+        snippet: undefined,
         tags: [],
         sortTimestamp: 0,
       }))
@@ -918,7 +918,7 @@ export default function NotesPage({
           <Inbox className="h-[18px] w-[18px]" />
         </Button>
 
-        <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
+        <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <FilterChip
@@ -1020,7 +1020,8 @@ export default function NotesPage({
                     return (
                       <div
                         key={`${card.type}:${card.id}`}
-                        className="mb-3 w-full break-inside-avoid inline-block"
+                        className="w-full break-inside-avoid inline-block"
+                        style={{ marginBottom: '14px' }}
                       >
                         <NoteCard
                           card={card}
@@ -1033,7 +1034,7 @@ export default function NotesPage({
                   })}
                 </div>
               ) : (
-                <div className="mx-auto flex w-full max-w-[960px] flex-col gap-2.5">
+                <div className="mx-auto flex w-full max-w-[960px] flex-col" style={{ gap: '14px' }}>
                   {allCards.map((card) => {
                     const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
                     return (
@@ -1053,11 +1054,11 @@ export default function NotesPage({
 
           <div className="px-3 pb-1 pt-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs text-[var(--color-text-secondary)]">{resultsLabel}</div>
+              <div className="pb-[3px] text-xs text-[var(--color-text-secondary)]">{resultsLabel}</div>
               {showInbox && (
                 <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
                   <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
-                  Inbox only — showing imported objects tagged Inbox
+                  Inbox only — imported items tagged Inbox
                 </div>
               )}
             </div>

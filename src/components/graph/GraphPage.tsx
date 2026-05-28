@@ -9,6 +9,8 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../../lib/cliService'
+import { formatDatePretty } from '../../lib/dateUtils'
+import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
 type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material'
@@ -42,6 +44,49 @@ const GRAPH_OBJECT_TYPE_OPTIONS: Array<{ value: GraphNodeType; label: string; ch
 const DEFAULT_VISIBLE_GRAPH_TYPES = GRAPH_OBJECT_TYPE_OPTIONS
   .filter((option) => option.checkedByDefault)
   .map((option) => option.value)
+
+function sanitizeCardText(value: string): string {
+  return String(value)
+    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
+    .replace(/<!--[^]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
+  const trimmedTitle = sanitizeCardText(title)
+  if (trimmedTitle) return trimmedTitle
+
+  const previewCandidate = sanitizeCardText(preview)
+    .replaceAll('[', ' ')
+    .replaceAll(']', ' ')
+    .replace(/[*_`#>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (previewCandidate) return previewCandidate.slice(0, 60)
+
+  if (date) return formatDatePretty(date)
+  return 'Topic Note'
+}
+
+function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
+  const primaryTag = tags
+    .map((tag) => String(tag ?? '').trim())
+    .find(Boolean)
+  const friendlyDate = date ? formatDatePretty(date) : ''
+
+  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
+  if (primaryTag) return primaryTag
+  if (friendlyDate) return friendlyDate
+  return sanitizeCardText(text) || '(no text)'
+}
+
+function deriveFileCardTitle(type: GraphNodeType, name: string): string {
+  const trimmed = sanitizeCardText(name)
+  if (trimmed) return trimmed
+  return type === 'project' ? 'Project' : 'Reference Material'
+}
 
 export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProps) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -87,10 +132,30 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
         ])
 
         const all = [
-          ...topics.map((item) => ({ id: item.id, type: 'topic-note' as const, label: item.title || item.date || 'Topic Note', tags: item.tags ?? [] })),
-          ...dailies.map((item) => ({ id: item.id, type: 'daily-note' as const, label: item.date || 'Daily Note', tags: item.tags ?? [] })),
-          ...habits.map((item) => ({ id: item.id, type: 'habit' as const, label: item.text || item.date || 'Habit', tags: item.tags ?? [] })),
-          ...files.map((item) => ({ id: item.id, type: item.type, label: item.name || 'File', tags: item.tags ?? [] })),
+          ...topics.map((item) => ({
+            id: item.id,
+            type: 'topic-note' as const,
+            label: deriveTopicCardTitle(item.title, item.preview ?? '', item.date),
+            tags: item.tags ?? [],
+          })),
+          ...dailies.map((item) => ({
+            id: item.id,
+            type: 'daily-note' as const,
+            label: formatDatePretty(item.date),
+            tags: item.tags ?? [],
+          })),
+          ...habits.map((item) => ({
+            id: item.id,
+            type: 'habit' as const,
+            label: deriveHabitCardTitle(item.tags ?? [], item.date, item.text ?? ''),
+            tags: item.tags ?? [],
+          })),
+          ...files.map((item) => ({
+            id: item.id,
+            type: item.type,
+            label: deriveFileCardTitle(item.type, item.name ?? ''),
+            tags: item.tags ?? [],
+          })),
         ]
 
         const radius = 210
@@ -160,6 +225,11 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
   const visibleEdges = useMemo(
     () => edges.filter((edge) => visibleNodeIds.has(edge.sourceId) && visibleNodeIds.has(edge.targetId)),
     [edges, visibleNodeIds],
+  )
+
+  const focusedNode = useMemo(
+    () => nodes.find((node) => node.id === focusedNodeId) ?? null,
+    [focusedNodeId, nodes],
   )
 
   const handleNodeClick = async (node: GraphNode) => {
@@ -299,29 +369,43 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
             })}
             {filteredNodes.map((node) => {
               const focused = node.id === focusedNodeId
+              const colors = getObjectColor(node.type)
               return (
                 <g key={node.id} data-node="true" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void handleNodeClick(node) }}>
                   <circle
                     cx={node.x}
                     cy={node.y}
-                    r={focused ? 8 : 6}
-                    fill={focused ? 'var(--color-selected-fill-soft)' : 'var(--color-surface-control)'}
-                    stroke={focused ? 'var(--color-accent-metadata)' : 'var(--color-border-strong)'}
-                    strokeWidth={focused ? 2 : 1}
+                    r={focused ? 9 : 7}
+                    fill={focused ? colors.bg : 'rgba(52, 50, 52, 0.95)'}
+                    stroke={focused ? colors.accent : colors.border}
+                    strokeWidth={focused ? 2 : 1.5}
                   />
-                  <text
-                    x={node.x + 10}
-                    y={node.y + 3}
-                    fill="var(--color-text-secondary)"
-                    className="graph-node-label"
-                  >
-                    {node.label.slice(0, 28)}
-                  </text>
                 </g>
               )
             })}
             </g>
           </svg>
+        )}
+      </div>
+
+      <div className="mx-3 mt-3 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+        {focusedNode ? (
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: getObjectColor(focusedNode.type).accent }}
+              />
+              <span className="min-w-0 break-words font-semibold text-[var(--color-text-primary)]">
+                {focusedNode.label}
+              </span>
+            </div>
+            <div className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+              {focusedNode.type.replace('-', ' ')} · {focusedNode.tags.length} tags
+            </div>
+          </div>
+        ) : (
+          <span>Click a node to show its full label and details here.</span>
         )}
       </div>
 

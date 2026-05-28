@@ -1,6 +1,8 @@
 import React from 'react'
 import { BookOpenText, CalendarDays, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
+import { getObjectColor } from '@/lib/objectColors'
+import { withAlpha } from '@/lib/colorUtils'
 import { Badge } from './badge'
 import { cn } from '@/lib/utils'
 
@@ -210,6 +212,8 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
   const visibleTags = card.hideTags || card.type === 'tag' ? [] : tags
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
   const isTagCard = card.type === 'tag'
+  const suppressMetadataDot = card.type === 'project' || card.type === 'topic-note'
+  const typeColor = card.type === 'tag' ? undefined : getObjectColor(card.type).accent
   const contentToneClass = 'text-[var(--color-text-primary)]'
   const metaToneClass = isSelected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]'
   const emphasizedMetadataClass = card.type === 'topic-note' || card.type === 'project'
@@ -237,7 +241,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       }}
     >
       {/* 1. Title / date — large, prominent */}
-      <div style={{ marginBottom: card.snippet || card.mediaUrl || visibleTags.length > 0 || card.metadata || card.weekdayLabel ? '0.7rem' : 0 }}>
+      <div style={{ marginBottom: '0.7rem' }}>
         <span
           className={cn('w-full break-words text-xl font-semibold leading-[1.25]', contentToneClass, card.type === 'tag' ? 'ui-tag-text' : undefined)}
           style={{
@@ -253,11 +257,20 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
 
       {/* 2. Metadata row — type icon + label + optional weekday / metadata string + tags */}
       <div className={cn('mb-2.5 flex flex-wrap items-center gap-1.5', metaToneClass)}>
-        <div className="flex shrink-0 items-center gap-1 text-inherit">
+        <div
+          className={cn(
+            'flex h-5 shrink-0 items-center gap-1 rounded-[8px] border px-2 leading-none [&_svg]:h-3 [&_svg]:w-3',
+            card.type === 'tag' ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)]' : 'text-[var(--color-text-secondary)]',
+          )}
+          style={card.type === 'tag'
+            ? undefined
+            : {
+                backgroundColor: withAlpha(typeColor ?? '#ffffff', 0.16),
+                borderColor: withAlpha(typeColor ?? '#ffffff', 0.42),
+              }}
+        >
           <TypeIcon type={card.type} />
-          <span className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: 'inherit' }}>
-            {typeLabel}
-          </span>
+          <span className="ui-tag-text text-xs font-medium leading-none">{typeLabel}</span>
         </div>
 
         {card.weekdayLabel && (
@@ -275,7 +288,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
             )}
             style={{ color: card.metadataAccent || isTagCard ? undefined : 'inherit' }}
           >
-            {isTagCard ? card.metadata : `· ${card.metadata}`}
+            {isTagCard || suppressMetadataDot ? card.metadata : `· ${card.metadata}`}
           </span>
         )}
 

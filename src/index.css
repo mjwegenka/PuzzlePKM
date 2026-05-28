@@ -152,6 +152,12 @@ h2 * {
   line-height: 1.22 !important;
 }
 
+.calendar-filter-month-year,
+.calendar-filter-month-year * {
+  font-size: 25px !important;
+  line-height: 1.08 !important;
+}
+
 h3,
 h3 * {
   font-size: var(--font-size-heading-sm) !important;
@@ -261,8 +267,8 @@ textarea {
 .ProseMirror {
   outline: none;
   min-height: 200px;
-  font-size: var(--font-size-body);
-  line-height: 1.65;
+  font-size: 17px !important;
+  line-height: 1.6;
   color: var(--color-text-primary);
   padding: 0.1rem 0;
 }
@@ -276,6 +282,13 @@ textarea {
   width: 100%;
   max-width: none;
   margin: 0;
+}
+
+.puzzlepkm-rich-editor-markdown {
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace !important;
+  font-size: 17px !important;
+  line-height: 1.55 !important;
+  letter-spacing: 0.01em;
 }
 
 .ProseMirror > * + * {
