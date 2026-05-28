@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
-// Dialog is retained for the unsaved-changes confirmation only; creation no longer uses a modal.
+
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -378,7 +378,7 @@ export default function LibraryPage({
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (!activeObject && !isCreating || isSmallScreen) return
+    if ((!activeObject && !isCreating) || isSmallScreen) return
 
     const clampToContainer = () => {
       const containerWidth = listRowRef.current?.getBoundingClientRect().width
@@ -388,10 +388,10 @@ export default function LibraryPage({
     clampToContainer()
     window.addEventListener('resize', clampToContainer)
     return () => window.removeEventListener('resize', clampToContainer)
-  }, [activeObject, isSmallScreen])
+  }, [activeObject, isCreating, isSmallScreen])
 
   const handleFileListResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!activeObject && !isCreating || isSmallScreen) return
+    if ((!activeObject && !isCreating) || isSmallScreen) return
 
     event.preventDefault()
     const previousCursor = document.body.style.cursor
@@ -420,7 +420,7 @@ export default function LibraryPage({
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-  }, [activeObject, isSmallScreen])
+  }, [activeObject, isCreating, isSmallScreen])
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
