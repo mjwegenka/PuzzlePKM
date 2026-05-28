@@ -11,7 +11,7 @@ import { type ComponentType } from 'react'
 import reactKapsule from 'react-kapsule'
 import ForceGraphKapsule from 'force-graph'
 
-const ForceGraph2D: ComponentType<any> = reactKapsule(ForceGraphKapsule as any, {
+const ForceGraph2D = reactKapsule(ForceGraphKapsule as unknown as never, {
   wrapperElementType: 'div',
   // Expose imperative methods via ref so callers can call e.g. ref.current.zoomToFit()
   methodNames: [
@@ -23,6 +23,6 @@ const ForceGraph2D: ComponentType<any> = reactKapsule(ForceGraphKapsule as any, 
     'd3Force',
     'd3ReheatSimulation',
   ],
-})
+}) as ComponentType<Record<string, unknown>>
 
 export default ForceGraph2D

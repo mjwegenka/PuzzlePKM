@@ -12,4 +12,8 @@ export default defineConfig({
       '@shared': path.join(__dirname, 'src/shared'),
     },
   },
+  build: {
+    // Current app shell chunk is intentionally large; avoid noisy warnings in CI/local checks.
+    chunkSizeWarningLimit: 1100,
+  },
 })

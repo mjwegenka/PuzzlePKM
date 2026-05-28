@@ -10,13 +10,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:all": "npm run build",
-    "test:smoke": "node --test ./scripts/cli_smoke.test.mjs",
+    "test:smoke": "node --no-warnings --test ./scripts/cli_smoke.test.mjs",
     "benchmark:sqlite": "node ./scripts/sqlite_benchmark.mjs",
     "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
     "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint": "TYPESCRIPT_ESLINT_IGNORE_UNSUPPORTED_VERSION=true eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -8,6 +8,10 @@ module.exports = {
   ],
   ignorePatterns: ['dist', '.eslintrc.cjs'],
   parser: '@typescript-eslint/parser',
+  parserOptions: {
+    // Suppress noisy parser compatibility warning for current TS toolchain.
+    warnOnUnsupportedTypeScriptVersion: false,
+  },
   plugins: ['react-refresh'],
   rules: {
     'react-refresh/only-export-components': [
