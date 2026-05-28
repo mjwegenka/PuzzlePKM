@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
+// Dialog is retained for the unsaved-changes confirmation only; creation no longer uses a modal.
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -377,7 +378,7 @@ export default function LibraryPage({
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (!activeObject || isSmallScreen) return
+    if (!activeObject && !isCreating || isSmallScreen) return
 
     const clampToContainer = () => {
       const containerWidth = listRowRef.current?.getBoundingClientRect().width
@@ -390,7 +391,7 @@ export default function LibraryPage({
   }, [activeObject, isSmallScreen])
 
   const handleFileListResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!activeObject || isSmallScreen) return
+    if (!activeObject && !isCreating || isSmallScreen) return
 
     event.preventDefault()
     const previousCursor = document.body.style.cursor
@@ -991,14 +992,14 @@ export default function LibraryPage({
 
       <div
         ref={listRowRef}
-        className={`flex min-h-0 w-full min-w-0 gap-1.5 ${activeObject && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
+        className={`flex min-h-0 w-full min-w-0 gap-1.5 ${(activeObject || isCreating) && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
       >
         <div
           className="flex min-h-0 min-w-0 flex-col"
-          style={activeObject && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
+          style={(activeObject || isCreating) && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
         >
           <div className="ui-shell-panel relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-surface-app)]">
-            {activeObject && !isSmallScreen ? (
+            {(activeObject || isCreating) && !isSmallScreen ? (
               <div
                 onMouseDown={handleFileListResizeStart}
                 role="separator"
@@ -1081,29 +1082,51 @@ export default function LibraryPage({
           </div>
         </div>
 
-        {activeObject && (
+        {(activeObject || isCreating) && (
           <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
             <>
-              <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
-                <div className="min-w-0 flex-1 px-2">
-                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-                    Open item
+              {/* Panel header */}
+              {isCreating ? (
+                /* Create panel has its own header inside CreatePanel */
+                null
+              ) : activeObject ? (
+                <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
+                  <div className="min-w-0 flex-1 px-2">
+                    <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+                      Open item
+                    </div>
+                    <div className={cn('mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]', activeObject.type === 'tag' || activeObject.type === 'habit' ? 'ui-tag-text' : undefined)}>
+                      {getObjectPanelLabel(activeObject)}
+                    </div>
                   </div>
-                  <div className={cn('mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]', activeObject.type === 'tag' || activeObject.type === 'habit' ? 'ui-tag-text' : undefined)}>
-                    {getObjectPanelLabel(activeObject)}
-                  </div>
+                  {activeObject.isDirty ? (
+                    <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
+                      Unsaved
+                    </div>
+                  ) : null}
+                  <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
-                {activeObject.isDirty ? (
-                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
-                    Unsaved
-                  </div>
-                ) : null}
-                <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+              ) : null}
               <div className="flex min-h-0 flex-1 overflow-hidden p-0">
-                {activeObject ? (
+                {isCreating ? (
+                  <CreatePanel
+                    createType={createType}
+                    initialDate={createInitialDate}
+                    createKey={createKey}
+                    onTypeChange={(t) => {
+                      setCreateType(t)
+                      setCreateKey((k) => k + 1)
+                    }}
+                    onSave={handleSaveNew}
+                    onClose={handleCloseEditor}
+                    onDirty={setCreateHasUnsavedChanges}
+                    onNavigateToObject={handleNavigateToObject}
+                    onCreateDateChange={handleCreateDateChange}
+                    showHeader
+                  />
+                ) : activeObject ? (
                   <EditorErrorBoundary>
                     {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
                       <ObjectMetaDetailPanel

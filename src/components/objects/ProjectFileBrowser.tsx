@@ -18,7 +18,7 @@ import { Button } from '../ui/button'
 
 type FileObjectType = 'project' | 'ref-material'
 
-interface ObjectDirectoryBrowserProps {
+interface ProjectFileBrowserProps {
   type: FileObjectType
   object?: Record<string, unknown>
   embedded?: boolean
@@ -63,7 +63,7 @@ function fileIconForName(name: string): React.ReactNode {
   return <FileText className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
 }
 
-export default function ObjectDirectoryBrowser({ type, object, embedded = false }: ObjectDirectoryBrowserProps) {
+export default function ProjectFileBrowser({ type, object, embedded = false }: ProjectFileBrowserProps) {
   const syncPath = String((object?.syncPath ?? object?.syncPath ?? '') as string).trim()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

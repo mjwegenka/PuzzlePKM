@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
-import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
+import ProjectFileBrowser from './ProjectFileBrowser';
 import { Button } from '../ui/button'
 import { Alert } from '../ui/alert'
 import {
@@ -784,7 +784,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
 
                 <div className="min-h-[280px] overflow-hidden py-1">
-                  <ObjectDirectoryBrowser object={object} type={type} embedded />
+                  <ProjectFileBrowser object={object} type={type} embedded />
                 </div>
 
                 <div className="shrink-0 border-t border-[var(--color-border-subtle)] pb-1 pt-2">
