@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
-import { formatDatePretty } from './dateUtils';
+import { getObjectDisplayTitle } from './objectTypeDefinitions';
 
 export interface CliRunResult {
   exitCode: number;
@@ -29,56 +29,6 @@ export interface MentionSearchResult {
   author?: string;
   date?: string;
   syncPath?: string;
-}
-
-function stripHtmlComments(value: string): string {
-  return String(value ?? '')
-    .replace(/<!--[^]*?-->/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function sanitizeCardText(value: string): string {
-  return String(value)
-    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
-    .replace(/<!--[^]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
-  const trimmedTitle = sanitizeCardText(title)
-  if (trimmedTitle) return trimmedTitle
-
-  const previewCandidate = sanitizeCardText(preview)
-    .replaceAll('[', ' ')
-    .replaceAll(']', ' ')
-    .replace(/[*_`#>]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (previewCandidate) return previewCandidate.slice(0, 60)
-
-  if (date) return formatDatePretty(date)
-  return 'Topic Note'
-}
-
-function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
-  const primaryTag = tags
-    .map((tag) => String(tag ?? '').trim())
-    .find(Boolean)
-  const friendlyDate = date ? formatDatePretty(date) : ''
-
-  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
-  if (primaryTag) return primaryTag
-  if (friendlyDate) return friendlyDate
-  return sanitizeCardText(text) || '(no text)'
-}
-
-function deriveFileCardTitle(type: 'project' | 'ref-material', name: string): string {
-  const trimmed = sanitizeCardText(name)
-  if (trimmed) return trimmed
-  return type === 'project' ? 'Project' : 'Reference Material'
 }
 
 export interface ResolvedObjectRef {
@@ -402,7 +352,7 @@ export async function searchObjects(
 
   if (topicsRes.status === 'fulfilled') {
     for (const item of topicsRes.value) {
-      const title = deriveTopicCardTitle(item.title, item.preview ?? '', item.date)
+      const title = item.displayTitle
       if (!q || title.toLowerCase().includes(q) || (item.date ?? '').includes(q)) {
         results.push({
           id: item.id,
@@ -416,7 +366,7 @@ export async function searchObjects(
 
   if (dailiesRes.status === 'fulfilled') {
     for (const item of dailiesRes.value) {
-      const title = item.date ? formatDatePretty(item.date) : 'Daily Note'
+      const title = item.displayTitle
       if (!q || title.toLowerCase().includes(q) || item.preview.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
         results.push({
           id: item.id,
@@ -430,7 +380,7 @@ export async function searchObjects(
 
   if (habitsRes.status === 'fulfilled') {
     for (const item of habitsRes.value) {
-      const title = deriveHabitCardTitle(item.tags ?? [], item.date, item.text ?? '')
+      const title = item.displayTitle
       if (!q || title.toLowerCase().includes(q) || item.text.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
         results.push({
           id: item.id,
@@ -444,7 +394,7 @@ export async function searchObjects(
 
   if (filesRes.status === 'fulfilled') {
     for (const item of filesRes.value) {
-      const title = deriveFileCardTitle(item.type, item.name ?? '')
+      const title = item.displayTitle
       if (!q || title.toLowerCase().includes(q) || (item.author ?? '').toLowerCase().includes(q) || (item.startDate ?? '').includes(q)) {
         results.push({
           id: item.id,
@@ -465,7 +415,7 @@ export async function searchObjects(
  * List daily notes for calendar/list views (returns parsed metadata, not full content).
  */
 export async function listDailyNoteMeta(): Promise<
-  Array<{ id: string; date: string; preview: string; tags: string[]; type: 'daily-note' }>
+  Array<{ id: string; date: string; preview: string; tags: string[]; displayTitle: string; type: 'daily-note' }>
 > {
   try {
     const stdout = await listObjects('daily-note');
@@ -484,6 +434,7 @@ export async function listDailyNoteMeta(): Promise<
           date: parts[1] ?? '',
           preview: parts[2] ?? '',
           tags,
+          displayTitle: getObjectDisplayTitle('daily-note', { date: parts[1] ?? '' }),
           type: 'daily-note' as const,
         };
       })
@@ -497,7 +448,7 @@ export async function listDailyNoteMeta(): Promise<
  * List topic notes for list views (metadata only).
  */
 export async function listTopicNoteMeta(): Promise<
-  Array<{ id: string; title: string; updatedAt: string; date?: string; preview: string; tags: string[]; type: 'topic-note' }>
+  Array<{ id: string; title: string; updatedAt: string; date?: string; preview: string; tags: string[]; displayTitle: string; type: 'topic-note' }>
 > {
   try {
     const stdout = await listObjects('topic-note');
@@ -511,13 +462,17 @@ export async function listTopicNoteMeta(): Promise<
         const tags = rawTags
           ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
           : [];
+        const title = parts[2] ?? '';
+        const date = (parts[4] ?? '').trim() || undefined;
+        const preview = parts[5] ?? '';
         return {
           id: parts[0] ?? '',
           updatedAt: parts[1] ?? '',
-          title: parts[2] ?? '',
-          date: (parts[4] ?? '').trim() || undefined,
-          preview: parts[5] ?? '',
+          title,
+          date,
+          preview,
           tags,
+          displayTitle: getObjectDisplayTitle('topic-note', { title, date, preview }),
           type: 'topic-note' as const,
         };
       })
@@ -532,7 +487,7 @@ export async function listTopicNoteMeta(): Promise<
  * CLI format: id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 export async function listHabitMeta(): Promise<
-  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; tags: string[]; type: 'habit' }>
+  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; tags: string[]; displayTitle: string; type: 'habit' }>
 > {
   try {
     const stdout = await listObjects('habit');
@@ -547,13 +502,16 @@ export async function listHabitMeta(): Promise<
           ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
           : [];
         const status: 'planned' | 'accomplished' = parts[2] === 'accomplished' ? 'accomplished' : 'planned';
+        const date = parts[1] ?? '';
+        const text = parts[3] ?? '';
         return {
           id: parts[0] ?? '',
-          date: parts[1] ?? '',
+          date,
           status,
-          text: parts[3] ?? '',
+          text,
           ...withLegacyPathAlias({ syncPath: parts[4] ?? '' }),
           tags,
+          displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),
           type: 'habit' as const,
         };
       })
@@ -568,9 +526,9 @@ export async function listHabitMeta(): Promise<
  * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }>
+  Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; displayTitle: string; type: 'project' | 'ref-material' }>
 > {
-  const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; type: 'project' | 'ref-material' }> = [];
+  const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; displayTitle: string; type: 'project' | 'ref-material' }> = [];
   let syncRootFolder: string | null = null;
   try {
     syncRootFolder = await getSyncRootFolder();
@@ -589,13 +547,15 @@ export async function listFileMeta(): Promise<
           : [];
         if (parts[0]) {
           const rawSyncPath = type === 'ref-material' ? (parts[3] ?? '') : (parts[2] ?? '');
+          const name = parts[1] ?? '';
           results.push({
             id: parts[0],
-            name: parts[1] ?? '',
+            name,
             author: type === 'ref-material' ? (parts[2] ?? '') : undefined,
             ...withLegacyPathAlias({ syncPath: resolveDisplaySyncPath(rawSyncPath, syncRootFolder) }),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
             tags,
+            displayTitle: getObjectDisplayTitle(type, { name }),
             type,
           });
         }
@@ -641,7 +601,7 @@ function resolveDisplaySyncPath(path: string, rootFolder: string | null): string
 }
 
 export async function listScriptureMeta(): Promise<
-  Array<{ id: string; reference: string; passageUrl: string; noteCount: number; type: 'scripture' }>
+  Array<{ id: string; reference: string; passageUrl: string; noteCount: number; displayTitle: string; type: 'scripture' }>
 > {
   try {
     const stdout = await listObjects('scripture');
@@ -656,6 +616,7 @@ export async function listScriptureMeta(): Promise<
           reference: parts[1] ?? '',
           passageUrl: parts[2] ?? '',
           noteCount: Number.parseInt(parts[3] ?? '0', 10) || 0,
+          displayTitle: getObjectDisplayTitle('scripture', { reference: parts[1] ?? '' }),
           type: 'scripture' as const,
         };
       })

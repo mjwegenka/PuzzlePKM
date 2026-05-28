@@ -5,6 +5,7 @@ import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, getObject } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { formatDatePretty } from '../../lib/dateUtils'
+import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -42,17 +43,17 @@ export default function TagsPage() {
        const collected: TaggedItem[] = []
        if (dailyRes.status === 'fulfilled') {
          for (const n of dailyRes.value) {
-            collected.push({ id: n.id, type: 'daily-note', title: formatDatePretty(n.date) || n.date, date: n.date, tags: n.tags })
+            collected.push({ id: n.id, type: 'daily-note', title: getObjectDisplayTitle('daily-note', n), date: n.date, tags: n.tags })
          }
        }
        if (topicRes.status === 'fulfilled') {
          for (const n of topicRes.value) {
-            collected.push({ id: n.id, type: 'topic-note', title: n.title, date: n.date, tags: n.tags })
+            collected.push({ id: n.id, type: 'topic-note', title: getObjectDisplayTitle('topic-note', n), date: n.date, tags: n.tags })
          }
        }
        if (habitRes.status === 'fulfilled') {
          for (const h of habitRes.value) {
-           collected.push({ id: h.id, type: 'habit', title: h.text, date: h.date, tags: h.tags })
+           collected.push({ id: h.id, type: 'habit', title: getObjectDisplayTitle('habit', h), date: h.date, tags: h.tags })
          }
        }
        setItems(collected)

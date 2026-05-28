@@ -17,7 +17,8 @@ import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
 import { AuthorSelect } from './AuthorSelect'
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, type ResolvedObjectRef, type AuthorSummary } from '../../lib/cliService'
-import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
+import { getTodayDate } from '../../lib/dateUtils'
+import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
 import { useSyncStatus } from '../../lib/syncContext'
 import { cn } from '../../lib/utils'
 import type { NoteBlock } from '../../shared/types'
@@ -475,9 +476,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       // checks read the DB directly, so stale in-memory changes could block
       // the delete path incorrectly.
       try {
-        const saved = await writeObject(type, data);
+        await writeObject(type, data);
         commitSavedSnapshot(tagsToPersist);
-        onSave?.(saved);
+        // Do not notify parent on pre-delete pre-sync writes.
+        // The parent save handler reloads list state, which can reset
+        // list scroll before the actual delete completion callback runs.
       } catch {
         // Pre-sync failure is non-fatal — proceed to the delete attempt.
         // If the DB state still blocks deletion, the error surfaces below.
@@ -587,45 +590,21 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const forwardLinks = liveForwardLinks;
   const backlinkLinks = liveBacklinkLinks;
   const relationLabel = (relation: Record<string, unknown>) => {
-    const rawTitle = String(relation.title ?? '').trim();
-    const rawName = String(relation.name ?? '').trim();
-    const rawText = String(relation.text ?? '').trim();
-    const rawDate = String(relation.date ?? '').trim();
-    const rawReference = String(relation.reference ?? '').trim();
-    const rawTags = Array.isArray(relation.tags) ? (relation.tags as string[]) : [];
     const relationType = String(relation.type ?? '').trim();
 
-    if (relationType === 'daily-note') {
-      return rawDate ? formatDatePretty(rawDate) : '(no date)';
+    if (isObjectType(relationType)) {
+      return getObjectDisplayTitle(relationType, relation);
     }
-    if (relationType === 'habit') {
-      const primaryTag = rawTags.map((t) => String(t ?? '').trim()).find(Boolean);
-      const friendlyDate = rawDate ? formatDatePretty(rawDate) : '';
-      if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`;
-      if (primaryTag) return primaryTag;
-      if (friendlyDate) return friendlyDate;
-      return rawText || '(no text)';
-    }
-    if (relationType === 'topic-note') {
-      if (rawTitle) return rawTitle;
-      if (rawDate) return formatDatePretty(rawDate);
-      return 'Topic Note';
-    }
-    if (relationType === 'project') {
-      return rawTitle || 'Project';
-    }
-    if (relationType === 'ref-material') {
-      return rawTitle || 'Reference Material';
-    }
-    if (relationType === 'scripture') {
-      return rawTitle || rawReference || 'Scripture';
-    }
-    // Fallback: tag or unknown
-    if (rawTitle) return rawTitle;
-    if (rawName) return rawName;
-    if (rawText) return rawText;
-    if (rawDate) return rawDate;
-    return String(relation.id ?? '');
+
+    const fallbackLabel = String(
+      relation.title
+      ?? relation.name
+      ?? relation.text
+      ?? relation.date
+      ?? relation.id
+      ?? '',
+    ).trim();
+    return fallbackLabel || 'Object';
   };
   const relationToTarget = (relation: Record<string, unknown>): ResolvedObjectRef | null => {
     const id = String(relation.id ?? '').trim();

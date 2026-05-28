@@ -53,6 +53,7 @@ import {
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
+import { getObjectDisplayTitle } from '@/lib/objectTypeDefinitions'
 import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
 import { cn } from '@/lib/utils'
 
@@ -87,6 +88,7 @@ interface TopicItem {
   date?: string
   updatedAt: string
   tags: string[]
+  displayTitle: string
   type: 'topic-note'
 }
 
@@ -95,6 +97,7 @@ interface DailyItem {
   date: string
   preview: string
   tags: string[]
+  displayTitle: string
   type: 'daily-note'
 }
 
@@ -103,6 +106,7 @@ interface HabitItem {
   date: string
   text: string
   tags: string[]
+  displayTitle: string
   type: 'habit'
 }
 
@@ -113,6 +117,7 @@ interface FileItem {
   syncPath: string
   startDate?: string
   tags: string[]
+  displayTitle: string
   type: 'project' | 'ref-material'
 }
 
@@ -121,6 +126,7 @@ interface ScriptureItem {
   reference: string
   passageUrl: string
   noteCount: number
+  displayTitle: string
   type: 'scripture'
 }
 
@@ -177,17 +183,6 @@ function clampLibraryListWidth(width: number, containerWidth?: number): number {
   return Math.min(maxFromContainer, Math.max(LIBRARY_LIST_MIN_WIDTH, width))
 }
 
-function sanitizeCardText(value: string): string {
-  return String(value)
-    // Remove block-id comments that can leak into previews.
-    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
-    // Remove generic HTML comments.
-    .replace(/<!--[^]*?-->/g, ' ')
-    // Remove HTML tags like <br>, <div>, etc.
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 function sanitizeCardPreview(value: string): string {
   return String(value)
@@ -214,37 +209,6 @@ function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet
   return [card.title, card.metadata, card.snippet].some((value) =>
     String(value ?? '').toLowerCase().includes(query),
   )
-}
-
-function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
-  const trimmedTitle = sanitizeCardText(title)
-  if (trimmedTitle) return trimmedTitle
-
-  // Strip block-id comments and markdown artifacts from previews before using as a fallback title.
-  const previewCandidate = sanitizeCardText(preview)
-    .replaceAll('[', ' ')
-    .replaceAll(']', ' ')
-    .replace(/[*_`#>]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (previewCandidate) {
-    return previewCandidate.slice(0, 60)
-  }
-
-  if (date) return formatDatePretty(date)
-  return 'Topic Note'
-}
-
-function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
-  const primaryTag = tags
-    .map((tag) => String(tag ?? '').trim())
-    .find(Boolean)
-  const friendlyDate = date ? formatDatePretty(date) : ''
-
-  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
-  if (primaryTag) return primaryTag
-  if (friendlyDate) return friendlyDate
-  return sanitizeCardText(text) || '(no text)'
 }
 
 function toSortTimestamp(...values: Array<string | undefined>): number {
@@ -354,6 +318,8 @@ export default function NotesPage({
   tagFilters = {},
 }: NotesPageProps) {
   const listRowRef = useRef<HTMLDivElement | null>(null)
+  const listScrollerRef = useRef<HTMLDivElement | null>(null)
+  const pendingScrollRestoreRef = useRef<number | null>(null)
   const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 900 : false))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
@@ -502,6 +468,28 @@ export default function NotesPage({
     }
   }, [])
 
+  const captureListScrollForRestore = useCallback(() => {
+    const node = listScrollerRef.current
+    if (!node) return
+    pendingScrollRestoreRef.current = node.scrollTop
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const targetScrollTop = pendingScrollRestoreRef.current
+    if (targetScrollTop == null) return
+    const node = listScrollerRef.current
+    pendingScrollRestoreRef.current = null
+    if (!node) return
+
+    // Wait until post-load render paints, then restore the previous offset.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        node.scrollTop = targetScrollTop
+      })
+    })
+  }, [loading])
+
   useEffect(() => {
     loadAll()
   }, [loadAll])
@@ -642,17 +630,53 @@ export default function NotesPage({
     onSaved?.()
   }
 
-  const handleSaveEdit = (saved: Record<string, unknown>) => {
-    const id = saved.id as string | undefined
-    const type = saved.type as EditorObjectType | undefined
-    if (id && type) {
-      setActiveObject((prev) => (prev
-        ? { ...prev, objectId: id, type, object: { ...saved, type }, isDirty: false }
-        : prev
-      ))
+    const handleSaveEdit = (saved: Record<string, unknown>) => {
+      const id = saved.id as string | undefined
+      const type = saved.type as EditorObjectType | undefined
+      const deleted = Boolean(saved.deleted)
+
+      if (deleted) {
+        captureListScrollForRestore()
+
+        // Try to navigate to the next or previous object to stay in list view
+        // DEC-65: After deletion, open the next object in the list if available,
+        // otherwise open the previous object, keeping the user in list view
+        // with their filters and scroll position preserved
+        const currentIndex = activeObject
+          ? editorNavigationCards.findIndex((card) => card.id === activeObject.objectId && card.type === activeObject.type)
+          : -1
+
+        let nextTarget = null
+        if (currentIndex >= 0 && currentIndex < editorNavigationCards.length - 1) {
+          nextTarget = editorNavigationCards[currentIndex + 1]
+        } else if (currentIndex > 0) {
+          nextTarget = editorNavigationCards[currentIndex - 1]
+        }
+
+        if (nextTarget) {
+          // Open next/previous object and reload in parallel, then restore scroll
+          void (async () => {
+            await openObjectInPanel(nextTarget.id, nextTarget.type, { skipDirtyCheck: true })
+            await loadAll()
+          })()
+        } else {
+          // No adjacent objects - close editor and return to list view
+          setActiveObject(null)
+          void (async () => {
+            await loadAll()
+          })()
+        }
+        return
+      }
+
+      if (id && type) {
+        setActiveObject((prev) => (prev
+          ? { ...prev, objectId: id, type, object: { ...saved, type }, isDirty: false }
+          : prev
+        ))
+      }
+      void loadAll()
     }
-    loadAll()
-  }
 
   const handleRequestCloseEditor = useCallback(() => {
     if (!activeObject) return
@@ -721,7 +745,7 @@ export default function NotesPage({
     const topicCards: BoardCard[] = topicNotes
       .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n): BoardCard | null => {
-        const title = deriveTopicCardTitle(n.title, n.preview, n.date)
+        const title = n.displayTitle
         const snippet = sanitizeCardPreview(n.preview) || undefined
         const hasMeaningfulTopicContent = Boolean(title || snippet || n.date)
         if (!hasMeaningfulTopicContent) return null
@@ -744,7 +768,7 @@ export default function NotesPage({
       .map((n) => ({
         id: n.id,
         type: 'daily-note' as NoteType,
-        title: formatDatePretty(n.date),
+        title: n.displayTitle,
         weekdayLabel: formatWeekdayFull(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         tags: n.tags,
@@ -756,7 +780,7 @@ export default function NotesPage({
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
-        title: deriveHabitCardTitle(n.tags, n.date, n.text),
+        title: n.displayTitle,
         weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
         snippet: sanitizeCardPreview(n.text) || undefined,
         tags: n.tags,
@@ -769,7 +793,7 @@ export default function NotesPage({
       .map((f) => ({
         id: f.id,
         type: f.type,
-        title: f.name || (f.type === 'project' ? 'Project' : 'Reference Material'),
+        title: f.displayTitle,
         metadata: f.type === 'project'
           ? (f.startDate ? formatDatePretty(f.startDate) : undefined)
           : (f.author ? `by ${f.author}` : undefined),
@@ -783,7 +807,7 @@ export default function NotesPage({
       .map((s) => ({
         id: s.id,
         type: 'scripture' as const,
-        title: s.reference || 'Scripture',
+        title: s.displayTitle,
         metadata: s.noteCount === 1 ? '1 linked note' : `${s.noteCount} linked notes`,
         snippet: undefined,
         tags: [],
@@ -859,30 +883,7 @@ export default function NotesPage({
     await openObjectInPanel(nextEditorNavigationTarget.id, nextEditorNavigationTarget.type, { skipDirtyCheck: true })
   }, [nextEditorNavigationTarget, openObjectInPanel])
   const getObjectPanelLabel = (item: ActiveLibraryObject) => {
-    if (item.type === 'daily-note') {
-      const value = item.object.date as string | undefined
-      return value ? formatDatePretty(value) : 'Daily Note'
-    }
-    if (item.type === 'habit') {
-      const tags = Array.isArray(item.object.tags) ? item.object.tags as string[] : []
-      const date = String(item.object.date ?? '').trim()
-      const text = String(item.object.text ?? '').trim()
-      return deriveHabitCardTitle(tags, date, text)
-    }
-    if (item.type === 'project') {
-      return (item.object.name as string | undefined)?.trim() || 'Project'
-    }
-    if (item.type === 'ref-material') {
-      return (item.object.name as string | undefined)?.trim() || 'Reference Material'
-    }
-    if (item.type === 'scripture') {
-      return (item.object.reference as string | undefined)?.trim() || 'Scripture'
-    }
-    if (item.type === 'tag') {
-      const display = (item.object.displayName as string | undefined)?.trim() || (item.object.name as string | undefined)?.trim()
-      return display ? `#${display}` : 'Tag'
-    }
-    return (item.object.title as string | undefined)?.trim() || 'Topic Note'
+    return getObjectDisplayTitle(item.type, item.object)
   }
 
   return (
@@ -1026,7 +1027,7 @@ export default function NotesPage({
               </div>
             ) : null}
 
-            <div className="ui-scroller flex-1 overflow-auto px-3 py-2">
+            <div ref={listScrollerRef} className="ui-scroller flex-1 overflow-auto px-3 py-2">
               {loading ? (
                 <div className="flex h-full min-h-[240px] items-center justify-center">
                   <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />

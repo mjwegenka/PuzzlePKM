@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../../lib/cliService'
-import { formatDatePretty } from '../../lib/dateUtils'
+import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
@@ -44,49 +44,6 @@ const GRAPH_OBJECT_TYPE_OPTIONS: Array<{ value: GraphNodeType; label: string; ch
 const DEFAULT_VISIBLE_GRAPH_TYPES = GRAPH_OBJECT_TYPE_OPTIONS
   .filter((option) => option.checkedByDefault)
   .map((option) => option.value)
-
-function sanitizeCardText(value: string): string {
-  return String(value)
-    .replace(/<!--\s*blk-[a-f0-9]{12}\s*-->/gi, ' ')
-    .replace(/<!--[^]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function deriveTopicCardTitle(title: string, preview: string, date?: string): string {
-  const trimmedTitle = sanitizeCardText(title)
-  if (trimmedTitle) return trimmedTitle
-
-  const previewCandidate = sanitizeCardText(preview)
-    .replaceAll('[', ' ')
-    .replaceAll(']', ' ')
-    .replace(/[*_`#>]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (previewCandidate) return previewCandidate.slice(0, 60)
-
-  if (date) return formatDatePretty(date)
-  return 'Topic Note'
-}
-
-function deriveHabitCardTitle(tags: string[], date: string, text: string): string {
-  const primaryTag = tags
-    .map((tag) => String(tag ?? '').trim())
-    .find(Boolean)
-  const friendlyDate = date ? formatDatePretty(date) : ''
-
-  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
-  if (primaryTag) return primaryTag
-  if (friendlyDate) return friendlyDate
-  return sanitizeCardText(text) || '(no text)'
-}
-
-function deriveFileCardTitle(type: GraphNodeType, name: string): string {
-  const trimmed = sanitizeCardText(name)
-  if (trimmed) return trimmed
-  return type === 'project' ? 'Project' : 'Reference Material'
-}
 
 export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProps) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -135,25 +92,25 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
           ...topics.map((item) => ({
             id: item.id,
             type: 'topic-note' as const,
-            label: deriveTopicCardTitle(item.title, item.preview ?? '', item.date),
+            label: getObjectDisplayTitle('topic-note', item),
             tags: item.tags ?? [],
           })),
           ...dailies.map((item) => ({
             id: item.id,
             type: 'daily-note' as const,
-            label: formatDatePretty(item.date),
+            label: getObjectDisplayTitle('daily-note', item),
             tags: item.tags ?? [],
           })),
           ...habits.map((item) => ({
             id: item.id,
             type: 'habit' as const,
-            label: deriveHabitCardTitle(item.tags ?? [], item.date, item.text ?? ''),
+            label: getObjectDisplayTitle('habit', item),
             tags: item.tags ?? [],
           })),
           ...files.map((item) => ({
             id: item.id,
             type: item.type,
-            label: deriveFileCardTitle(item.type, item.name ?? ''),
+            label: getObjectDisplayTitle(item.type, item),
             tags: item.tags ?? [],
           })),
         ]

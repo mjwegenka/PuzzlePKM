@@ -18,7 +18,7 @@ import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
 import { useSyncStatus } from '../../lib/syncContext';
-import { formatDatePretty } from '../../lib/dateUtils';
+import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions';
 import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTags, listTopicNoteMeta, writeObject, type TagSummary } from '../../lib/cliService';
 import { normalizeTagFilterValue, type TagFilterState } from '../../lib/tagFilters';
 
@@ -111,15 +111,6 @@ function objectIcon(type: PinnedType): React.ReactNode {
   if (type === 'habit') return <Repeat className="h-4 w-4" />;
   if (type === 'project' || type === 'ref-material') return <Folder className="h-4 w-4" />;
   return <FileText className="h-4 w-4" />;
-}
-
-function deriveHabitTitle(tags: string[], date: string, fallbackText: string): string {
-  const primaryTag = tags.map((tag) => String(tag ?? '').trim()).find(Boolean);
-  const friendlyDate = date ? formatDatePretty(date) : '';
-  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`;
-  if (primaryTag) return primaryTag;
-  if (friendlyDate) return friendlyDate;
-  return fallbackText.trim() || 'Habit';
 }
 
 export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned, tagFilters, onToggleTagFilter }: NavigationSidebarProps) {
@@ -218,25 +209,25 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
         ...topicNotes.map((item) => ({
           id: item.id,
           type: 'topic-note' as const,
-          title: item.title || '(untitled topic)',
+          title: getObjectDisplayTitle('topic-note', item),
           tags: item.tags ?? [],
         })),
         ...dailyNotes.map((item) => ({
           id: item.id,
           type: 'daily-note' as const,
-          title: formatDatePretty(item.date),
+          title: getObjectDisplayTitle('daily-note', item),
           tags: item.tags ?? [],
         })),
         ...habits.map((item) => ({
           id: item.id,
           type: 'habit' as const,
-          title: deriveHabitTitle(item.tags ?? [], item.date, item.text || ''),
+          title: getObjectDisplayTitle('habit', item),
           tags: item.tags ?? [],
         })),
         ...files.map((item) => ({
           id: item.id,
           type: item.type,
-          title: item.name || '(untitled file)',
+          title: getObjectDisplayTitle(item.type, item),
           tags: item.tags ?? [],
         })),
       ];

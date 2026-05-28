@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import type { ResolvedObjectRef } from '../../lib/cliService'
-import { formatDatePretty } from '../../lib/dateUtils'
+import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
 import { Button } from '../ui/button'
 
 interface ObjectMetaDetailPanelProps {
@@ -19,24 +19,16 @@ function toTarget(row: Record<string, unknown>): ResolvedObjectRef | null {
 }
 
 function relationLabel(row: Record<string, unknown>): string {
-  const title = String(row.title ?? '').trim()
-  const name = String(row.name ?? '').trim()
-  const text = String(row.text ?? '').trim()
-  const date = String(row.date ?? '').trim()
-  if (title) return title
-  if (name) return name
-  if (text) return text
-  if (date) return date
-  return String(row.id ?? '')
+  const type = String(row.type ?? '').trim()
+  if (isObjectType(type)) return getObjectDisplayTitle(type, row)
+  const fallback = String(row.title ?? row.name ?? row.text ?? row.date ?? row.id ?? '').trim()
+  return fallback || 'Object'
 }
 
 export default function ObjectMetaDetailPanel({ object, type, flatTop = false, onNavigateToObject }: ObjectMetaDetailPanelProps) {
   const header = type === 'scripture' ? 'Scripture' : 'Tag'
   const title = useMemo(() => {
-    if (type === 'scripture') return String(object?.reference ?? '').trim() || 'Scripture'
-    const displayName = String(object?.displayName ?? '').trim()
-    const fallbackName = String(object?.name ?? '').trim()
-    return displayName ? `#${displayName}` : fallbackName ? `#${fallbackName}` : '#Tag'
+    return getObjectDisplayTitle(type, object)
   }, [object, type])
 
   const subtitle = useMemo(() => {
@@ -97,9 +89,7 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
             ) : (
               relations.map((row) => {
                 const target = toTarget(row)
-                const label = relationLabel(row)
-                const date = String(row.date ?? '').trim()
-                const primaryLabel = date && row.type === 'daily-note' ? formatDatePretty(date) : label
+                const primaryLabel = relationLabel(row)
                 const secondaryLabel = String(row.type ?? '').trim().replace(/-/g, ' ')
                 return (
                   <Button
