@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Network, Search, SlidersHorizontal } from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2, Maximize2, Network, Search, SlidersHorizontal } from 'lucide-react'
 import { Input } from '../ui/input'
 import FilterChip from '../ui/FilterChip'
 import {
@@ -13,195 +13,24 @@ import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
-// Stub global dependencies that react-force-graph's AR/VR components expect
-// We only use 2D, so these won't actually be used, but the module load requires them
-(() => {
-  if (typeof window !== 'undefined') {
-    const w = window as any
-
-    // Stub AFRAME to prevent "Can't find variable: AFRAME" errors
-    w.AFRAME = w.AFRAME || {
-      registerComponent: () => {},
-      registerGeometry: () => {},
-      registerSystem: () => {},
-    }
-
-    // Create minimal THREE stub with basic vector/math classes
-    // These are needed for force-graph's physics calculations
-    if (!w.THREE) {
-      class Vector3 {
-        x: number
-        y: number
-        z: number
-        constructor(x = 0, y = 0, z = 0) {
-          this.x = x
-          this.y = y
-          this.z = z
-        }
-        copy(v: Vector3) {
-          this.x = v.x
-          this.y = v.y
-          this.z = v.z
-          return this
-        }
-        add(v: Vector3) {
-          this.x += v.x
-          this.y += v.y
-          this.z += v.z
-          return this
-        }
-        sub(v: Vector3) {
-          this.x -= v.x
-          this.y -= v.y
-          this.z -= v.z
-          return this
-        }
-        multiplyScalar(s: number) {
-          this.x *= s
-          this.y *= s
-          this.z *= s
-          return this
-        }
-        length() {
-          return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z)
-        }
-        normalize() {
-          const len = this.length()
-          if (len > 0) {
-            this.x /= len
-            this.y /= len
-            this.z /= len
-          }
-          return this
-        }
-        distanceTo(v: Vector3) {
-          return Math.sqrt(
-            (this.x - v.x) ** 2 + (this.y - v.y) ** 2 + (this.z - v.z) ** 2
-          )
-        }
-        clone() {
-          return new Vector3(this.x, this.y, this.z)
-        }
-      }
-
-      class Box3 {
-        min: Vector3
-        max: Vector3
-        constructor(min?: Vector3, max?: Vector3) {
-          this.min = min ? new Vector3(min.x, min.y, min.z) : new Vector3(Infinity, Infinity, Infinity)
-          this.max = max ? new Vector3(max.x, max.y, max.z) : new Vector3(-Infinity, -Infinity, -Infinity)
-        }
-        expandByPoint(point: Vector3) {
-          this.min.x = Math.min(this.min.x, point.x)
-          this.min.y = Math.min(this.min.y, point.y)
-          this.min.z = Math.min(this.min.z, point.z)
-          this.max.x = Math.max(this.max.x, point.x)
-          this.max.y = Math.max(this.max.y, point.y)
-          this.max.z = Math.max(this.max.z, point.z)
-          return this
-        }
-        getSize(target?: Vector3) {
-          const size = target || new Vector3()
-          size.x = this.max.x - this.min.x
-          size.y = this.max.y - this.min.y
-          size.z = this.max.z - this.min.z
-          return size
-        }
-        getCenter(target?: Vector3) {
-          const center = target || new Vector3()
-          center.x = (this.min.x + this.max.x) / 2
-          center.y = (this.min.y + this.max.y) / 2
-          center.z = (this.min.z + this.max.z) / 2
-          return center
-        }
-      }
-
-      class Sphere {
-        center: Vector3
-        radius: number
-        constructor(center?: Vector3, radius = 0) {
-          this.center = center ? new Vector3(center.x, center.y, center.z) : new Vector3()
-          this.radius = radius
-        }
-      }
-
-      w.THREE = {
-        Vector3,
-        Box3,
-        Sphere,
-        Vector2: class {
-          x: number
-          y: number
-          constructor(x = 0, y = 0) {
-            this.x = x
-            this.y = y
-          }
-        },
-        Euler: class {
-          x: number
-          y: number
-          z: number
-          constructor(x = 0, y = 0, z = 0) {
-            this.x = x
-            this.y = y
-            this.z = z
-          }
-        },
-        Quaternion: class {
-          x: number
-          y: number
-          z: number
-          w: number
-          constructor(x = 0, y = 0, z = 0, w = 1) {
-            this.x = x
-            this.y = y
-            this.z = z
-            this.w = w
-          }
-        },
-        Matrix4: class {
-          elements: number[]
-          constructor() {
-            this.elements = new Array(16).fill(0)
-            this.elements[0] = this.elements[5] = this.elements[10] = this.elements[15] = 1
-          }
-        },
-      }
-    }
-  }
-})()
-
-// Lazy import ForceGraph2D - try multiple import strategies
-let ForceGraphLoadError: Error | null = null
-
-const ForceGraph2D = React.lazy(async () => {
-  try {
-    // Try ESM import first
-    const mod = await import('react-force-graph') as any
-    if (mod.ForceGraph2D) {
-      return { default: mod.ForceGraph2D }
-    }
-    // If ForceGraph2D doesn't exist, try default export
-    if (mod.default) {
-      return { default: mod.default }
-    }
-    throw new Error('ForceGraph2D not found in module exports')
-  } catch (err) {
-    ForceGraphLoadError = err instanceof Error ? err : new Error(String(err))
-    console.error('Failed to load ForceGraph2D:', ForceGraphLoadError.message, err)
-    // Return a fallback component
-    return {
-      default: () => (
-        <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--color-text-secondary)]">
-          <div>Force graph library not available</div>
-          <div className="text-xs text-[var(--color-text-disabled)] whitespace-pre-wrap break-words">
-            {ForceGraphLoadError?.message}
+// Lazy-load the 2D-only force graph wrapper (avoids THREE/AFRAME from 3D/VR/AR variants)
+const ForceGraph2D = React.lazy(() =>
+  import('./ForceGraph2DWrapper')
+    .then(mod => ({ default: mod.default }))
+    .catch((err) => {
+      console.error('Failed to load ForceGraph2D:', err)
+      return {
+        default: () => (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            <div>Force graph library not available</div>
+            <div className="text-xs text-[var(--color-text-disabled)] whitespace-pre-wrap break-words">
+              {err instanceof Error ? err.message : String(err)}
+            </div>
           </div>
-        </div>
-      )
-    }
-  }
-})
+        )
+      }
+    })
+)
 
 
 type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' | 'scripture' | 'tag' | 'scripture-book'
@@ -252,6 +81,11 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<Exclude<GraphNodeType, 'scripture-book'>[]>(DEFAULT_VISIBLE_GRAPH_TYPES)
   const [containerSize, setContainerSize] = useState({ width: 640, height: 480 })
   const containerRef = useRef<HTMLDivElement>(null)
+  const graphRef = useRef<any>(null)
+
+  const handleResetView = useCallback(() => {
+    graphRef.current?.zoomToFit(400, 40)
+  }, [])
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
@@ -275,7 +109,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
   }
 
   useEffect(() => {
-    const loadGraphInitial = async () => {
+    const loadGraph = async () => {
       setLoading(true)
       setError(null)
       try {
@@ -328,88 +162,71 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
           label: book,
           isVirtual: true,
         }))
-
         allNodes.push(...bookNodes)
 
         const nodeIds = new Set(allNodes.map((node) => node.id))
+        const tagById = new Map(bundle.tags.map((t) => [t.name, t.id]))
         const collectedEdges = new Map<string, GraphEdge>()
 
-        // Add edges between scriptures and their books (no fetch needed)
+        // Scripture → book edges
         for (const scripture of bundle.scriptures) {
-          const book = extractScriptureBook(scripture.reference)
-          const bookNodeId = `book:${book}`
-          const key = `${scripture.id}->${bookNodeId}`
-          collectedEdges.set(key, { source: scripture.id, target: bookNodeId })
+          const bookNodeId = `book:${extractScriptureBook(scripture.reference)}`
+          collectedEdges.set(`${scripture.id}->${bookNodeId}`, { source: scripture.id, target: bookNodeId })
         }
 
-        // Add edges between notes and their tags (no fetch needed)
-        for (const note of bundle.topicNotes.concat(bundle.dailyNotes as any)) {
-          const tags = note.tags ?? []
-          for (const tag of tags) {
-            const tagNodeId = bundle.tags.find((t) => t.name === tag)?.id
+        // Tag edges for ALL object types that carry tags
+        const taggedItems: Array<{ id: string; tags?: string[] }> = [
+          ...bundle.topicNotes,
+          ...bundle.dailyNotes,
+          ...bundle.habits,
+          ...bundle.files,
+        ]
+        for (const item of taggedItems) {
+          for (const tag of item.tags ?? []) {
+            const tagNodeId = tagById.get(tag)
             if (tagNodeId && nodeIds.has(tagNodeId)) {
-              const key = `${note.id}->${tagNodeId}`
-              collectedEdges.set(key, { source: note.id, target: tagNodeId })
+              collectedEdges.set(`${item.id}->${tagNodeId}`, { source: item.id, target: tagNodeId })
             }
           }
         }
 
-        setGraphData({
-          nodes: allNodes,
-          links: Array.from(collectedEdges.values()),
-        })
+        // Render the graph immediately with nodes + tag/scripture edges
+        setGraphData({ nodes: allNodes, links: Array.from(collectedEdges.values()) })
         setLoading(false)
+
+        // Defer note-link fetching so the graph is interactive immediately.
+        // Pass allNodes directly to avoid the stale-closure bug.
+        const noteNodes = allNodes.filter((n) => n.type === 'topic-note' || n.type === 'daily-note')
+        if (noteNodes.length === 0) return
+
+        const noteLinkEdges = new Map<string, GraphEdge>()
+        await Promise.all(noteNodes.map(async (node) => {
+          try {
+            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
+            const links = Array.isArray((full as any).links) ? (full as any).links : []
+            for (const link of links) {
+              const targetId = String(link?.id ?? '')
+              if (!targetId || !nodeIds.has(targetId)) continue
+              noteLinkEdges.set(`${node.id}->${targetId}`, { source: node.id, target: targetId })
+            }
+          } catch {
+            // Keep graph usable even if one note fails to load
+          }
+        }))
+
+        if (noteLinkEdges.size > 0) {
+          setGraphData((prev) => ({
+            ...prev,
+            links: [...prev.links, ...Array.from(noteLinkEdges.values())],
+          }))
+        }
       } catch (err) {
         setError(String(err))
         setLoading(false)
       }
     }
 
-    const loadNoteLinksDeferred = async () => {
-      try {
-        const bundle = await listMetaBundle()
-        const noteNodes = graphData.nodes.filter((node) => node.type === 'topic-note' || node.type === 'daily-note')
-
-        if (noteNodes.length === 0) return
-
-        const nodeIds = new Set(graphData.nodes.map((n) => n.id))
-        const noteLinkEdges = new Map<string, GraphEdge>()
-
-        // Fetch links for all notes in parallel
-        await Promise.all(noteNodes.map(async (node) => {
-          try {
-            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
-            const relationSource = full as unknown as { links?: Array<{ id?: string }>; linkedObjectIds?: string[] }
-            const links = Array.isArray(relationSource.links) ? (relationSource.links ?? []) : []
-            for (const link of links) {
-              const targetId = String(link?.id ?? '')
-              if (!targetId || !nodeIds.has(targetId)) continue
-              const key = `${node.id}->${targetId}`
-              noteLinkEdges.set(key, { source: node.id, target: targetId })
-            }
-          } catch {
-            // Keep graph usable even if one object fails to load
-          }
-        }))
-
-        // Merge note-to-note links with existing edges
-        setGraphData((prev) => ({
-          ...prev,
-          links: [...prev.links, ...Array.from(noteLinkEdges.values())],
-        }))
-      } catch {
-        // Silently fail; graph is usable without note-to-note links
-      }
-    }
-
-    void loadGraphInitial()
-
-    // Defer note link loading until after initial render
-    const timer = setTimeout(() => {
-      void loadNoteLinksDeferred()
-    }, 500)
-
-    return () => clearTimeout(timer)
+    void loadGraph()
   }, [])
 
   const filteredData = useMemo(() => {
@@ -531,6 +348,11 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          <FilterChip
+            icon={<Maximize2 className="h-3.5 w-3.5" />}
+            label="Reset view"
+            onClick={handleResetView}
+          />
         </div>
         <div className="relative w-[248px] max-w-full shrink-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
@@ -572,6 +394,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
             }
            >
             {React.createElement(ForceGraph2D as any, {
+              ref: graphRef,
               graphData: filteredData,
               width: containerSize.width,
               height: containerSize.height,
