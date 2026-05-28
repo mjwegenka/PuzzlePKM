@@ -1159,37 +1159,6 @@ export default function LibraryPage({
         )}
       </div>
 
-      <Dialog open={isCreating} onOpenChange={(open) => { if (!open) handleCloseEditor() }}>
-        <DialogContent
-          className={isSmallScreen ? 'h-screen max-w-none rounded-none border-0 p-3' : 'flex h-[min(720px,calc(100vh-64px))] max-h-[calc(100vh-32px)] max-w-5xl flex-col p-4'}
-          aria-labelledby="create-object-dialog-title"
-          aria-label="Create New Note"
-        >
-          <DialogHeader>
-            <DialogTitle id="create-object-dialog-title">Create New Note</DialogTitle>
-            <DialogDescription>
-              Choose a note type and fill out the editor to create a new object.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex min-h-0 flex-1">
-            <CreatePanel
-              createType={createType}
-              initialDate={createInitialDate}
-              createKey={createKey}
-              onTypeChange={(t) => {
-                setCreateType(t)
-                setCreateKey((k) => k + 1)
-              }}
-              onSave={handleSaveNew}
-              onClose={handleCloseEditor}
-              onDirty={setCreateHasUnsavedChanges}
-              onNavigateToObject={handleNavigateToObject}
-              onCreateDateChange={handleCreateDateChange}
-              showHeader={false}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Confirmation Dialog for unsaved changes */}
       <Dialog open={!!confirmCloseTarget} onOpenChange={(open) => { if (!open) { setConfirmCloseTarget(null); setDeferredSelection(null) } }}>
