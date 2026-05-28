@@ -524,6 +524,49 @@ const SCRIPTURE_BOOK_ORDER = [
 ];
 const SCRIPTURE_BOOK_ORDER_INDEX = new Map(SCRIPTURE_BOOK_ORDER.map((book, index) => [book, index]));
 const SCRIPTURE_VOLUME_BOOKS = new Set(['Samuel', 'Kings', 'Chronicles', 'Maccabees', 'Corinthians', 'Thessalonians', 'Timothy', 'Peter', 'John']);
+
+// Canonical max chapter counts for every book in the RSVCE Catholic canon.
+// Books that require a volume prefix (Samuel, Kings, …) are listed under both
+// their numbered names (the canonical forms) and their bare names (the combined
+// maximum across all volumes) so that a loose reference like "Thessalonians 5"
+// is still accepted while "Thessalonians 500" is rejected.
+// DEC-48 / chapter-validator
+const SCRIPTURE_BOOK_MAX_CHAPTERS = new Map([
+  // Pentateuch
+  ['Genesis', 50], ['Exodus', 40], ['Leviticus', 27], ['Numbers', 36], ['Deuteronomy', 34],
+  // Historical books
+  ['Joshua', 24], ['Judges', 21], ['Ruth', 4],
+  ['1 Samuel', 31], ['2 Samuel', 24], ['Samuel', 31],   // bare max = 1 Samuel
+  ['1 Kings', 22], ['2 Kings', 25], ['Kings', 25],
+  ['1 Chronicles', 29], ['2 Chronicles', 36], ['Chronicles', 36],
+  ['Ezra', 10], ['Nehemiah', 13], ['Esther', 16],
+  // Wisdom / Poetry
+  ['Job', 42], ['Psalm', 150], ['Proverbs', 31], ['Ecclesiastes', 12], ['Song of Solomon', 8],
+  // Major prophets
+  ['Isaiah', 66], ['Jeremiah', 52], ['Lamentations', 5], ['Ezekiel', 48], ['Daniel', 14],
+  // Minor prophets
+  ['Hosea', 14], ['Joel', 3], ['Amos', 9], ['Obadiah', 1], ['Jonah', 4], ['Micah', 7],
+  ['Nahum', 3], ['Habakkuk', 3], ['Zephaniah', 3], ['Haggai', 2], ['Zechariah', 14], ['Malachi', 4],
+  // Deuterocanonical
+  ['Tobit', 14], ['Judith', 16], ['Wisdom', 19], ['Sirach', 51],
+  ['1 Maccabees', 16], ['2 Maccabees', 15], ['Maccabees', 16],
+  // Gospels & Acts
+  ['Matthew', 28], ['Mark', 16], ['Luke', 24],
+  ['John', 21],  // Gospel of John; 1/2/3 John handled separately below
+  ['Acts', 28],
+  // Pauline letters
+  ['Romans', 16],
+  ['1 Corinthians', 16], ['2 Corinthians', 13], ['Corinthians', 16],
+  ['Galatians', 6], ['Ephesians', 6], ['Philippians', 4], ['Colossians', 4],
+  ['1 Thessalonians', 5], ['2 Thessalonians', 3], ['Thessalonians', 5],
+  ['1 Timothy', 6], ['2 Timothy', 4], ['Timothy', 6],
+  ['Titus', 3], ['Philemon', 1], ['Hebrews', 13],
+  // General epistles
+  ['James', 5],
+  ['1 Peter', 5], ['2 Peter', 3], ['Peter', 5],
+  ['1 John', 5], ['2 John', 1], ['3 John', 1],
+  ['Jude', 1], ['Revelation', 22],
+]);
 const SCRIPTURE_LINK_HOST_PATTERN = /^https?:\/\/(?:www\.)?biblegateway\.com\/passage\/\?search=/i;
 const SCRIPTURE_VOLUME_NORMALIZATION = new Map([
   ['1', '1'], ['i', '1'], ['1st', '1'], ['first', '1'],
@@ -632,6 +675,16 @@ function parseScriptureMatch(volumeRaw, bookRaw, verseRaw) {
   if (!canonicalBook) return null;
   const verse = normalizeScriptureVersePart(verseRaw);
   if (!verse) return null;
+
+  // DEC-48 chapter validation: reject references whose chapter number exceeds
+  // the real maximum for that book (e.g. "Thessalonians 500" → chapter 500 > 5).
+  const chapterMatch = /^(\d+)/.exec(verse);
+  if (chapterMatch) {
+    const chapter = parseInt(chapterMatch[1], 10);
+    const maxChapter = SCRIPTURE_BOOK_MAX_CHAPTERS.get(canonicalBook);
+    if (maxChapter !== undefined && chapter > maxChapter) return null;
+  }
+
   const reference = `${canonicalBook} ${verse}`;
   const bookOrder = SCRIPTURE_BOOK_ORDER_INDEX.get(canonicalBook) ?? Number.MAX_SAFE_INTEGER;
   return {
@@ -938,6 +991,77 @@ function cleanupOrphanedScriptures(db) {
   return orphans;
 }
 
+// DEC-48: Remove scripture records whose chapter numbers exceed the real
+// maximum for their book (e.g. "Thessalonians 500" created before chapter
+// validation was introduced).  Also scrubs the embedded BibleGateway markdown
+// link from any note_blocks that contain it, reverting to plain text.
+function repairInvalidScriptureChapters(db) {
+  const all = db.prepare('SELECT id, reference, passage_url FROM scriptures').all();
+  if (all.length === 0) return [];
+
+  const removed = [];
+
+  for (const row of all) {
+    const ref = String(row.reference ?? '').trim();
+
+    // Re-validate: parse the reference against the chapter map.
+    // A reference looks like "1 Thessalonians 5" or "Psalm 150:3".
+    const refMatch = /^(?:(1|2|3)\s+)?(.+?)\s+(\d+)(?:[:.]\d+)?/.exec(ref);
+    if (!refMatch) continue; // can't parse → skip cautiously
+
+    const volumeRaw = refMatch[1] ?? '';
+    const bookRaw = refMatch[2] ?? '';
+    const chapter = parseInt(refMatch[3], 10);
+
+    const canonicalBook = buildCanonicalScriptureBook(volumeRaw, bookRaw);
+    if (!canonicalBook) {
+      removed.push({ id: row.id, reference: ref, passage_url: row.passage_url ?? '', reason: 'unresolvable book' });
+    } else {
+      const maxChapter = SCRIPTURE_BOOK_MAX_CHAPTERS.get(canonicalBook);
+      if (maxChapter !== undefined && chapter > maxChapter) {
+        removed.push({ id: row.id, reference: ref, passage_url: row.passage_url ?? '', reason: `chapter ${chapter} > max ${maxChapter}` });
+      }
+    }
+  }
+
+  if (removed.length === 0) return [];
+
+  const deleteLinks = db.prepare('DELETE FROM object_links WHERE target_id = ? AND target_type = ?');
+  const deleteScripture = db.prepare('DELETE FROM scriptures WHERE id = ?');
+  const updateBlock = db.prepare('UPDATE note_blocks SET content_markdown = ?, updated_at = ? WHERE note_id = ? AND block_id = ?');
+  const now = getIsoNow();
+
+  for (const item of removed) {
+    const passageUrl = item.passage_url;
+
+    // Scrub the biblegateway link from any note_blocks that embed it:
+    // Replace [label](passageUrl) → label (drop the link, keep the label text)
+    if (passageUrl) {
+      const affectedBlocks = db.prepare(
+        "SELECT note_id, block_id, content_markdown FROM note_blocks WHERE content_markdown LIKE ?",
+      ).all(`%${passageUrl}%`);
+
+      for (const block of affectedBlocks) {
+        const escapedUrl = passageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const cleaned = block.content_markdown.replace(
+          new RegExp(`\\[([^\\]]+)\\]\\(${escapedUrl}\\)`, 'g'),
+          '$1',
+        );
+        if (cleaned !== block.content_markdown) {
+          updateBlock.run(cleaned, now, block.note_id, block.block_id);
+        }
+      }
+    }
+
+    deleteLinks.run(item.id, SCRIPTURE_TYPE);
+    deleteScripture.run(item.id);
+  }
+
+  console.warn(`[scripture-repair] Removed ${removed.length} invalid scripture record(s): ${removed.map((r) => `"${r.reference}" (${r.reason})`).join(', ')}`);
+
+  return removed;
+}
+
 function openDb() {
   mkdirSync(dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
@@ -945,6 +1069,7 @@ function openDb() {
   backfillMissingSyncPaths(db);
   backfillNoteBlocks(db);
   repairNoteBlocksIntegrity(db);
+  repairInvalidScriptureChapters(db);
   cleanupOrphanedScriptures(db);
   return db;
 }
