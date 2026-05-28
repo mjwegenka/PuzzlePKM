@@ -4,6 +4,7 @@ import {
   Bold,
   Code2,
   Heading2,
+  Highlighter,
   Info,
   Italic,
   Link2,
@@ -88,6 +89,11 @@ const turndown = new TurndownService({
 turndown.addRule('tightLineBreaks', {
   filter: ['br'],
   replacement: () => '  \n',
+})
+
+turndown.addRule('highlightMark', {
+  filter: ['mark'],
+  replacement: (content) => `<mark>${content}</mark>`,
 })
 
 const ADMONITION_MARKER_RE = /^\[!([A-Za-z0-9_-]+)]([+-])?(?:\s+(.*))?$/
@@ -665,17 +671,35 @@ export default function RichMarkdownEditor({
         if (event.key === 'Enter') {
           const activeEditor = editorRef.current
           if (!activeEditor) return false
-          event.preventDefault()
 
-          // Enter inserts a soft line break by default; Shift+Enter forces a paragraph split.
+          // Shift+Enter: insert a hard break (line break within the same block)
           if (event.shiftKey) {
-            return activeEditor.chain().focus().splitBlock().run()
+            event.preventDefault()
+            return activeEditor.chain().focus().setHardBreak().run()
           }
 
-          if (activeEditor.chain().focus().setHardBreak().run()) {
-            return true
+          // Regular Enter in an empty paragraph inside a blockquote: exit the blockquote.
+          // This implements "double Enter exits admonition/quote":
+          //   1st Enter → new empty paragraph inside blockquote
+          //   2nd Enter → lift that empty paragraph out of the blockquote
+          if (
+            activeEditor.isActive('blockquote') &&
+            !activeEditor.isActive('listItem') &&
+            !activeEditor.isActive('taskItem')
+          ) {
+            const { selection } = activeEditor.state
+            const { $from, empty } = selection
+            if (empty && $from.node().textContent === '') {
+              event.preventDefault()
+              return activeEditor.chain().focus().liftEmptyBlock().run()
+            }
           }
-          return activeEditor.chain().focus().splitBlock().run()
+
+          // For all other cases let TipTap's built-in keymap handle Enter naturally:
+          // • In a list → creates a new list item (or exits on empty item)
+          // • In a heading → creates a new paragraph
+          // • In a paragraph → creates a new paragraph
+          return false
         }
         return false
       },
@@ -835,6 +859,110 @@ export default function RichMarkdownEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run()
   }
 
+  const handleMarkdownKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey) return
+    const textarea = markdownTextareaRef.current
+    if (!textarea) return
+
+    const { selectionStart, selectionEnd, value } = textarea
+    if (selectionStart !== selectionEnd) return // Range selection: let browser handle
+
+    const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1
+    const lineEnd = value.indexOf('\n', selectionStart)
+    const currentLine = value.slice(lineStart, lineEnd === -1 ? value.length : lineEnd)
+
+    // Headings are never continued (always become plain text after)
+    if (/^#{1,6}\s/.test(currentLine)) return
+
+    const endIdx = lineEnd === -1 ? value.length : lineEnd
+
+    // Empty list item / quote line → exit formatting (double-Enter equivalent)
+    const isEmptyBullet = /^[ \t]*([-*+])\s*$/.test(currentLine)
+    const isEmptyOrdered = /^[ \t]*\d+\.\s*$/.test(currentLine)
+    const isEmptyTask = /^[ \t]*([-*+])\s\[([ xX])\]\s*$/.test(currentLine)
+    const isEmptyQuote = /^>+\s*$/.test(currentLine)
+
+    if (isEmptyBullet || isEmptyOrdered || isEmptyTask || isEmptyQuote) {
+      event.preventDefault()
+      // Replace the empty marker line with a plain empty line
+      const newValue = value.slice(0, lineStart) + value.slice(endIdx)
+      const newCursorPos = lineStart
+      commitMarkdownChange(newValue)
+      setTimeout(() => {
+        if (markdownTextareaRef.current) {
+          markdownTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      }, 0)
+      return
+    }
+
+    // Task list continuation: - [ ] or - [x]
+    const taskMatch = currentLine.match(/^([ \t]*)([-*+])\s\[([ xX])\]\s/)
+    if (taskMatch) {
+      event.preventDefault()
+      const prefix = `${taskMatch[1]}${taskMatch[2]} [ ] `
+      const newValue = value.slice(0, selectionStart) + '\n' + prefix + value.slice(selectionEnd)
+      const newCursorPos = selectionStart + 1 + prefix.length
+      commitMarkdownChange(newValue)
+      setTimeout(() => {
+        if (markdownTextareaRef.current) {
+          markdownTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      }, 0)
+      return
+    }
+
+    // Bullet list continuation
+    const bulletMatch = currentLine.match(/^([ \t]*)([-*+])\s/)
+    if (bulletMatch) {
+      event.preventDefault()
+      const prefix = `${bulletMatch[1]}${bulletMatch[2]} `
+      const newValue = value.slice(0, selectionStart) + '\n' + prefix + value.slice(selectionEnd)
+      const newCursorPos = selectionStart + 1 + prefix.length
+      commitMarkdownChange(newValue)
+      setTimeout(() => {
+        if (markdownTextareaRef.current) {
+          markdownTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      }, 0)
+      return
+    }
+
+    // Ordered list continuation
+    const orderedMatch = currentLine.match(/^([ \t]*)(\d+)\.\s/)
+    if (orderedMatch) {
+      event.preventDefault()
+      const nextNum = parseInt(orderedMatch[2], 10) + 1
+      const prefix = `${orderedMatch[1]}${nextNum}. `
+      const newValue = value.slice(0, selectionStart) + '\n' + prefix + value.slice(selectionEnd)
+      const newCursorPos = selectionStart + 1 + prefix.length
+      commitMarkdownChange(newValue)
+      setTimeout(() => {
+        if (markdownTextareaRef.current) {
+          markdownTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      }, 0)
+      return
+    }
+
+    // Blockquote continuation
+    const quoteMatch = currentLine.match(/^(>+)\s?/)
+    if (quoteMatch) {
+      event.preventDefault()
+      const prefix = `${quoteMatch[1]} `
+      const newValue = value.slice(0, selectionStart) + '\n' + prefix + value.slice(selectionEnd)
+      const newCursorPos = selectionStart + 1 + prefix.length
+      commitMarkdownChange(newValue)
+      setTimeout(() => {
+        if (markdownTextareaRef.current) {
+          markdownTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos)
+        }
+      }, 0)
+      return
+    }
+    // All other lines: let browser handle normally
+  }, [commitMarkdownChange])
+
   const currentCount = maxLength && editor
     ? editor.storage.characterCount?.characters?.()
     : undefined
@@ -894,6 +1022,9 @@ export default function RichMarkdownEditor({
             </ToolbarButton>
             <ToolbarButton title="Strike" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}>
               <Strikethrough className="h-4 w-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Highlight" active={editor?.isActive('highlight')} onClick={() => editor?.chain().focus().toggleHighlight().run()}>
+              <Highlighter className="h-4 w-4" />
             </ToolbarButton>
             <ToolbarButton title="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}>
               <List className="h-4 w-4" />
@@ -992,6 +1123,7 @@ export default function RichMarkdownEditor({
               onChange={(event) => {
                 commitMarkdownChange(event.target.value)
               }}
+              onKeyDown={handleMarkdownKeyDown}
               spellCheck={false}
               style={{ fontSize: '17px', lineHeight: 1.55 }}
               className="puzzlepkm-rich-editor-markdown h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[var(--color-text-primary)] shadow-none outline-none placeholder:text-[var(--color-text-disabled)] focus-visible:ring-0"
