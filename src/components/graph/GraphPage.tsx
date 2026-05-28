@@ -13,21 +13,50 @@ import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
-// Lazy import ForceGraph2D
-const ForceGraph2D = React.lazy(() =>
-  import('react-force-graph')
-    .then(mod => ({ default: mod.ForceGraph2D }))
-    .catch(() => {
-      // If import fails, return a fallback component
-      return {
-        default: () => (
-          <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-secondary)]">
-            Force graph library not available
+// Stub global dependencies that react-force-graph's AR/VR components expect
+// We only use 2D, so these won't actually be used, but the module load requires them
+if (typeof window !== 'undefined') {
+  // Stub AFRAME to prevent "Can't find variable: AFRAME" errors
+  (window as any).AFRAME = (window as any).AFRAME || {
+    registerComponent: () => {},
+    registerGeometry: () => {},
+    registerSystem: () => {},
+  }
+  // Stub THREE to prevent 3D initialization errors
+  (window as any).THREE = (window as any).THREE || {}
+}
+
+// Lazy import ForceGraph2D - try multiple import strategies
+let ForceGraphLoadError: Error | null = null
+
+const ForceGraph2D = React.lazy(async () => {
+  try {
+    // Try ESM import first
+    const mod = await import('react-force-graph') as any
+    if (mod.ForceGraph2D) {
+      return { default: mod.ForceGraph2D }
+    }
+    // If ForceGraph2D doesn't exist, try default export
+    if (mod.default) {
+      return { default: mod.default }
+    }
+    throw new Error('ForceGraph2D not found in module exports')
+  } catch (err) {
+    ForceGraphLoadError = err instanceof Error ? err : new Error(String(err))
+    console.error('Failed to load ForceGraph2D:', ForceGraphLoadError.message, err)
+    // Return a fallback component
+    return {
+      default: () => (
+        <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[var(--color-text-secondary)]">
+          <div>Force graph library not available</div>
+          <div className="text-xs text-[var(--color-text-disabled)] whitespace-pre-wrap break-words">
+            {ForceGraphLoadError?.message}
           </div>
-        )
-      }
-    })
-)
+        </div>
+      )
+    }
+  }
+})
 
 
 type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' | 'scripture' | 'tag' | 'scripture-book'
@@ -77,7 +106,6 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<Exclude<GraphNodeType, 'scripture-book'>[]>(DEFAULT_VISIBLE_GRAPH_TYPES)
   const [containerSize, setContainerSize] = useState({ width: 640, height: 480 })
-  const forceGraphRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
@@ -102,7 +130,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
   }
 
   useEffect(() => {
-    const loadGraph = async () => {
+    const loadGraphInitial = async () => {
       setLoading(true)
       setError(null)
       try {
@@ -159,29 +187,9 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
         allNodes.push(...bookNodes)
 
         const nodeIds = new Set(allNodes.map((node) => node.id))
-        const noteNodes = allNodes.filter((node) => node.type === 'topic-note' || node.type === 'daily-note')
-
-        // Collect edges from note-to-note links and note-to-scripture references
         const collectedEdges = new Map<string, GraphEdge>()
 
-        await Promise.all(noteNodes.map(async (node) => {
-          try {
-            // noteNodes are filtered to only topic-note and daily-note
-            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
-            const relationSource = full as unknown as { links?: Array<{ id?: string }>; linkedObjectIds?: string[] }
-            const links = Array.isArray(relationSource.links) ? (relationSource.links ?? []) : []
-            for (const link of links) {
-              const targetId = String(link?.id ?? '')
-              if (!targetId || !nodeIds.has(targetId)) continue
-              const key = `${node.id}->${targetId}`
-              collectedEdges.set(key, { source: node.id, target: targetId })
-            }
-          } catch {
-            // Keep graph usable even if one object fails to load.
-          }
-        }))
-
-        // Add edges between scriptures and their books
+        // Add edges between scriptures and their books (no fetch needed)
         for (const scripture of bundle.scriptures) {
           const book = extractScriptureBook(scripture.reference)
           const bookNodeId = `book:${book}`
@@ -189,7 +197,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
           collectedEdges.set(key, { source: scripture.id, target: bookNodeId })
         }
 
-        // Add edges between notes and their tags
+        // Add edges between notes and their tags (no fetch needed)
         for (const note of bundle.topicNotes.concat(bundle.dailyNotes as any)) {
           const tags = note.tags ?? []
           for (const tag of tags) {
@@ -205,14 +213,58 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
           nodes: allNodes,
           links: Array.from(collectedEdges.values()),
         })
+        setLoading(false)
       } catch (err) {
         setError(String(err))
-      } finally {
         setLoading(false)
       }
     }
 
-    void loadGraph()
+    const loadNoteLinksDeferred = async () => {
+      try {
+        const bundle = await listMetaBundle()
+        const noteNodes = graphData.nodes.filter((node) => node.type === 'topic-note' || node.type === 'daily-note')
+
+        if (noteNodes.length === 0) return
+
+        const nodeIds = new Set(graphData.nodes.map((n) => n.id))
+        const noteLinkEdges = new Map<string, GraphEdge>()
+
+        // Fetch links for all notes in parallel
+        await Promise.all(noteNodes.map(async (node) => {
+          try {
+            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
+            const relationSource = full as unknown as { links?: Array<{ id?: string }>; linkedObjectIds?: string[] }
+            const links = Array.isArray(relationSource.links) ? (relationSource.links ?? []) : []
+            for (const link of links) {
+              const targetId = String(link?.id ?? '')
+              if (!targetId || !nodeIds.has(targetId)) continue
+              const key = `${node.id}->${targetId}`
+              noteLinkEdges.set(key, { source: node.id, target: targetId })
+            }
+          } catch {
+            // Keep graph usable even if one object fails to load
+          }
+        }))
+
+        // Merge note-to-note links with existing edges
+        setGraphData((prev) => ({
+          ...prev,
+          links: [...prev.links, ...Array.from(noteLinkEdges.values())],
+        }))
+      } catch {
+        // Silently fail; graph is usable without note-to-note links
+      }
+    }
+
+    void loadGraphInitial()
+
+    // Defer note link loading until after initial render
+    const timer = setTimeout(() => {
+      void loadNoteLinksDeferred()
+    }, 500)
+
+    return () => clearTimeout(timer)
   }, [])
 
   const filteredData = useMemo(() => {
@@ -283,18 +335,6 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     return ''
   }
 
-  useEffect(() => {
-    // Configure force simulation parameters after mount
-    if (forceGraphRef.current) {
-      const fg = forceGraphRef.current
-      if (fg.d3Force) {
-        // Reduce link distance to make clusters tighter
-        fg.d3Force('link')?.distance(() => 30)
-        // Configure node repulsion (charge force)
-        fg.d3Force('charge')?.strength(() => -100)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     // Measure container size on mount and window resize
@@ -385,27 +425,28 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
                 <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
               </div>
             }
-          >
-            <ForceGraph2D
-              ref={forceGraphRef}
-              graphData={filteredData}
-              width={containerSize.width}
-              height={containerSize.height}
-              onNodeClick={handleNodeClick as any}
-              nodeLabel={getNodeLabel as any}
-              nodeColor={(node: any) => {
+           >
+            {React.createElement(ForceGraph2D as any, {
+              graphData: filteredData,
+              width: containerSize.width,
+              height: containerSize.height,
+              onNodeClick: handleNodeClick as any,
+              nodeLabel: getNodeLabel as any,
+              nodeColor: (node: any) => {
                 const colors = getObjectColor(node.type)
                 if (node.id === focusedNodeId) return colors.accent
                 return node.type === 'scripture-book' ? colors.accent : 'rgba(52, 50, 52, 0.95)'
-              }}
-              nodeRelSize={nodeCanvasSize}
-              linkColor={() => 'rgba(221, 181, 80, 0.15)'}
-              linkWidth={1}
-              warmupTicks={20}
-              cooldownTicks={0}
-              cooldownTime={0}
-              backgroundColor="rgba(26, 22, 18, 0.6)"
-            />
+              },
+              nodeRelSize: nodeCanvasSize,
+              linkColor: () => 'rgba(221, 181, 80, 0.15)',
+              linkWidth: 1,
+              d3AlphaDecay: 0.0228,
+              d3VelocityDecay: 0.26,
+              warmupTicks: 20,
+              cooldownTicks: 0,
+              cooldownTime: 0,
+              backgroundColor: 'rgba(26, 22, 18, 0.6)',
+            })}
           </React.Suspense>
         )}
       </div>

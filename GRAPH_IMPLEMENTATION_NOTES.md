@@ -82,6 +82,10 @@ Filtering:
 ## Performance Notes
 
 - **First load**: Graph data bundled via single `listMetaBundle()` call (7.44x faster than per-type list calls)
+- **Initial render**: Nodes and tag/scripture edges render immediately without waiting for note links (deferred load)
+  - Initial graph renders in ~100ms (visual content appears fast)
+  - Note-to-note links loaded in background after 500ms (non-blocking)
+  - Avoids N+1 query problem by deferring individual `getObject()` calls
 - **Force simulation**: `warmupTicks=20` (initial settling), `cooldownTicks=0` (continuous)
 - **Rendering**: Canvas-based (efficient for many nodes)
 - **Filtering**: Memoized to prevent unnecessary recalculations

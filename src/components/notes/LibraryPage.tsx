@@ -42,7 +42,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select'
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import {
   getObject,
@@ -223,7 +222,6 @@ interface CreatePanelProps {
   createType: NoteType
   initialDate?: string
   createKey: number
-  onTypeChange: (t: NoteType) => void
   onSave: (saved: Record<string, unknown>) => void
   onClose: () => void
   onDirty?: (isDirty: boolean) => void
@@ -236,7 +234,6 @@ function CreatePanel({
   createType,
   initialDate,
   createKey,
-  onTypeChange,
   onSave,
   onClose,
   onDirty,
@@ -258,7 +255,7 @@ function CreatePanel({
       {showHeader ? (
         <div className="flex shrink-0 items-center justify-between px-2.5 pb-1.5 pt-2">
           <p className="text-xs font-bold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-            New Note
+            {createType === 'topic-note' ? 'New Topic Note' : createType === 'daily-note' ? 'New Daily Note' : 'New Habit'}
           </p>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
             <X className="h-4 w-4" />
@@ -266,27 +263,6 @@ function CreatePanel({
         </div>
       ) : null}
 
-      {/* Type selector */}
-      <div className={`shrink-0 px-2 pb-1.5 ${showHeader ? 'pt-0' : 'pt-2'}`}>
-        <Tabs value={createType} onValueChange={(value) => onTypeChange(value as NoteType)}>
-          <TabsList className="grid h-10 w-full grid-cols-3 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] p-1 text-[var(--color-text-disabled)]">
-            <TabsTrigger value="topic-note" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <NotebookPen className="h-3.5 w-3.5" />
-              Topic
-            </TabsTrigger>
-            <TabsTrigger value="daily-note" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <CalendarDays className="h-3.5 w-3.5" />
-              Daily
-            </TabsTrigger>
-            <TabsTrigger value="habit" className="gap-1.5 rounded-full px-2 text-sm font-medium data-[state=active]:bg-[var(--color-selected-fill-soft)] data-[state=active]:text-[var(--color-text-primary)]">
-              <Repeat2 className="h-3.5 w-3.5" />
-              Habit
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-      <div className="h-px shrink-0 bg-[var(--color-border-subtle)]" />
 
       {/* Blank editor fills remaining space */}
       <div className="flex min-h-0 flex-1 p-0">
@@ -1115,10 +1091,6 @@ export default function LibraryPage({
                     createType={createType}
                     initialDate={createInitialDate}
                     createKey={createKey}
-                    onTypeChange={(t) => {
-                      setCreateType(t)
-                      setCreateKey((k) => k + 1)
-                    }}
                     onSave={handleSaveNew}
                     onClose={handleCloseEditor}
                     onDirty={setCreateHasUnsavedChanges}
