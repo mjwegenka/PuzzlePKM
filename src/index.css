@@ -273,6 +273,10 @@ textarea {
   padding: 0.1rem 0;
 }
 
+.ProseMirror * {
+  font-size: inherit !important;
+}
+
 .graph-node-label {
   font-size: var(--font-size-caps);
   user-select: none;
@@ -286,7 +290,7 @@ textarea {
 
 .puzzlepkm-rich-editor-markdown {
   font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace !important;
-  font-size: 17px !important;
+  font-size: 15px !important;
   line-height: 1.55 !important;
   letter-spacing: 0.01em;
 }

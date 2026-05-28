@@ -501,11 +501,11 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
             <TooltipContent side="right">{syncTooltip}</TooltipContent>
           </Tooltip>
           <div className="min-w-0 flex-1">
-            <span
-               className="block truncate whitespace-nowrap text-xs font-medium leading-[1.35]"
-               style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
-            >
-              {syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last sync ${formatSyncStatusCompact(lastSyncedAt)}`}
+             <span
+                className="block truncate whitespace-nowrap text-xs font-medium leading-[1.35]"
+                style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
+             >
+               {syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last Sync ${formatSyncStatusCompact(lastSyncedAt)}`}
             </span>
           </div>
           </div>

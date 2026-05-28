@@ -993,6 +993,7 @@ export default function RichMarkdownEditor({
                 commitMarkdownChange(event.target.value)
               }}
               spellCheck={false}
+              style={{ fontSize: '17px', lineHeight: 1.55 }}
               className="puzzlepkm-rich-editor-markdown h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[var(--color-text-primary)] shadow-none outline-none placeholder:text-[var(--color-text-disabled)] focus-visible:ring-0"
             />
           ) : (

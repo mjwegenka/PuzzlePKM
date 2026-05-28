@@ -16,8 +16,9 @@ import {
 import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, type ResolvedObjectRef } from '../../lib/cliService'
-import { getTodayDate } from '../../lib/dateUtils'
+import { formatDatePretty, getTodayDate } from '../../lib/dateUtils'
 import { useSyncStatus } from '../../lib/syncContext'
+import { cn } from '../../lib/utils'
 import type { NoteBlock } from '../../shared/types'
 
 interface ObjectEditorProps {
@@ -551,8 +552,36 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     const rawName = String(relation.name ?? '').trim();
     const rawText = String(relation.text ?? '').trim();
     const rawDate = String(relation.date ?? '').trim();
+    const rawReference = String(relation.reference ?? '').trim();
+    const rawTags = Array.isArray(relation.tags) ? (relation.tags as string[]) : [];
     const relationType = String(relation.type ?? '').trim();
-    if (relationType === 'daily-note' && rawDate) return rawDate;
+
+    if (relationType === 'daily-note') {
+      return rawDate ? formatDatePretty(rawDate) : '(no date)';
+    }
+    if (relationType === 'habit') {
+      const primaryTag = rawTags.map((t) => String(t ?? '').trim()).find(Boolean);
+      const friendlyDate = rawDate ? formatDatePretty(rawDate) : '';
+      if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`;
+      if (primaryTag) return primaryTag;
+      if (friendlyDate) return friendlyDate;
+      return rawText || '(no text)';
+    }
+    if (relationType === 'topic-note') {
+      if (rawTitle) return rawTitle;
+      if (rawDate) return formatDatePretty(rawDate);
+      return 'Topic Note';
+    }
+    if (relationType === 'project') {
+      return rawTitle || 'Project';
+    }
+    if (relationType === 'ref-material') {
+      return rawTitle || 'Reference Material';
+    }
+    if (relationType === 'scripture') {
+      return rawTitle || rawReference || 'Scripture';
+    }
+    // Fallback: tag or unknown
     if (rawTitle) return rawTitle;
     if (rawName) return rawName;
     if (rawText) return rawText;
@@ -644,7 +673,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className={cn('inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60', String(relation.type ?? '').trim() === 'tag' ? 'ui-tag-text' : undefined)}
               >
                 {relationLabel(relation)}
               </button>
@@ -668,7 +697,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 type="button"
                 disabled={Boolean(!relationToTarget(relation) || !onNavigateToObject)}
                 onClick={(event) => { void handleRelationClick(relation, event); }}
-                className="inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                className={cn('inline-flex min-h-[28px] items-center rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-3 py-1 text-sm text-[var(--color-text-secondary)] transition-colors enabled:hover:border-[var(--color-border-strong)] enabled:hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-60', String(relation.type ?? '').trim() === 'tag' ? 'ui-tag-text' : undefined)}
               >
                 {relationLabel(relation)}
               </button>

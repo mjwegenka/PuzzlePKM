@@ -212,7 +212,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
   const visibleTags = card.hideTags || card.type === 'tag' ? [] : tags
   const typeLabel = TYPE_LABELS[card.type] ?? card.type
   const isTagCard = card.type === 'tag'
-  const suppressMetadataDot = card.type === 'project' || card.type === 'topic-note'
+  const suppressMetadataDot = card.type === 'project' || card.type === 'topic-note' || card.type === 'ref-material'
   const typeColor = card.type === 'tag' ? undefined : getObjectColor(card.type).accent
   const contentToneClass = 'text-[var(--color-text-primary)]'
   const metaToneClass = isSelected ? 'text-[var(--color-accent-metadata)]' : 'text-[var(--color-text-disabled)]'
