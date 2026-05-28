@@ -15,16 +15,161 @@ import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters
 
 // Stub global dependencies that react-force-graph's AR/VR components expect
 // We only use 2D, so these won't actually be used, but the module load requires them
-if (typeof window !== 'undefined') {
-  // Stub AFRAME to prevent "Can't find variable: AFRAME" errors
-  (window as any).AFRAME = (window as any).AFRAME || {
-    registerComponent: () => {},
-    registerGeometry: () => {},
-    registerSystem: () => {},
+(() => {
+  if (typeof window !== 'undefined') {
+    const w = window as any
+
+    // Stub AFRAME to prevent "Can't find variable: AFRAME" errors
+    w.AFRAME = w.AFRAME || {
+      registerComponent: () => {},
+      registerGeometry: () => {},
+      registerSystem: () => {},
+    }
+
+    // Create minimal THREE stub with basic vector/math classes
+    // These are needed for force-graph's physics calculations
+    if (!w.THREE) {
+      class Vector3 {
+        x: number
+        y: number
+        z: number
+        constructor(x = 0, y = 0, z = 0) {
+          this.x = x
+          this.y = y
+          this.z = z
+        }
+        copy(v: Vector3) {
+          this.x = v.x
+          this.y = v.y
+          this.z = v.z
+          return this
+        }
+        add(v: Vector3) {
+          this.x += v.x
+          this.y += v.y
+          this.z += v.z
+          return this
+        }
+        sub(v: Vector3) {
+          this.x -= v.x
+          this.y -= v.y
+          this.z -= v.z
+          return this
+        }
+        multiplyScalar(s: number) {
+          this.x *= s
+          this.y *= s
+          this.z *= s
+          return this
+        }
+        length() {
+          return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z)
+        }
+        normalize() {
+          const len = this.length()
+          if (len > 0) {
+            this.x /= len
+            this.y /= len
+            this.z /= len
+          }
+          return this
+        }
+        distanceTo(v: Vector3) {
+          return Math.sqrt(
+            (this.x - v.x) ** 2 + (this.y - v.y) ** 2 + (this.z - v.z) ** 2
+          )
+        }
+        clone() {
+          return new Vector3(this.x, this.y, this.z)
+        }
+      }
+
+      class Box3 {
+        min: Vector3
+        max: Vector3
+        constructor(min?: Vector3, max?: Vector3) {
+          this.min = min ? new Vector3(min.x, min.y, min.z) : new Vector3(Infinity, Infinity, Infinity)
+          this.max = max ? new Vector3(max.x, max.y, max.z) : new Vector3(-Infinity, -Infinity, -Infinity)
+        }
+        expandByPoint(point: Vector3) {
+          this.min.x = Math.min(this.min.x, point.x)
+          this.min.y = Math.min(this.min.y, point.y)
+          this.min.z = Math.min(this.min.z, point.z)
+          this.max.x = Math.max(this.max.x, point.x)
+          this.max.y = Math.max(this.max.y, point.y)
+          this.max.z = Math.max(this.max.z, point.z)
+          return this
+        }
+        getSize(target?: Vector3) {
+          const size = target || new Vector3()
+          size.x = this.max.x - this.min.x
+          size.y = this.max.y - this.min.y
+          size.z = this.max.z - this.min.z
+          return size
+        }
+        getCenter(target?: Vector3) {
+          const center = target || new Vector3()
+          center.x = (this.min.x + this.max.x) / 2
+          center.y = (this.min.y + this.max.y) / 2
+          center.z = (this.min.z + this.max.z) / 2
+          return center
+        }
+      }
+
+      class Sphere {
+        center: Vector3
+        radius: number
+        constructor(center?: Vector3, radius = 0) {
+          this.center = center ? new Vector3(center.x, center.y, center.z) : new Vector3()
+          this.radius = radius
+        }
+      }
+
+      w.THREE = {
+        Vector3,
+        Box3,
+        Sphere,
+        Vector2: class {
+          x: number
+          y: number
+          constructor(x = 0, y = 0) {
+            this.x = x
+            this.y = y
+          }
+        },
+        Euler: class {
+          x: number
+          y: number
+          z: number
+          constructor(x = 0, y = 0, z = 0) {
+            this.x = x
+            this.y = y
+            this.z = z
+          }
+        },
+        Quaternion: class {
+          x: number
+          y: number
+          z: number
+          w: number
+          constructor(x = 0, y = 0, z = 0, w = 1) {
+            this.x = x
+            this.y = y
+            this.z = z
+            this.w = w
+          }
+        },
+        Matrix4: class {
+          elements: number[]
+          constructor() {
+            this.elements = new Array(16).fill(0)
+            this.elements[0] = this.elements[5] = this.elements[10] = this.elements[15] = 1
+          }
+        },
+      }
+    }
   }
-  // Stub THREE to prevent 3D initialization errors
-  (window as any).THREE = (window as any).THREE || {}
-}
+})()
 
 // Lazy import ForceGraph2D - try multiple import strategies
 let ForceGraphLoadError: Error | null = null
