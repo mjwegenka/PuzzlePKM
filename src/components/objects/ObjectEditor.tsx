@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ObjectDirectoryBrowser from './ObjectDirectoryBrowser';
@@ -26,6 +26,8 @@ interface ObjectEditorProps {
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
   flatTop?: boolean;
   onSave?: (saved: Record<string, unknown>) => void;
+  onSaveAndOpenPrevious?: () => void | Promise<void>;
+  onSaveAndOpenNext?: () => void | Promise<void>;
   onCancel?: () => void;
   onDirty?: (isDirty: boolean) => void;
   onNavigateToObject?: (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => void | Promise<void>;
@@ -117,7 +119,7 @@ function joinBlockMarkdown(blocks: NoteBlock[]): string {
     .join('\n\n');
 }
 
-export default function ObjectEditor({ object, type, flatTop = false, onSave, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
+export default function ObjectEditor({ object, type, flatTop = false, onSave, onSaveAndOpenPrevious, onSaveAndOpenNext, onCancel, onDirty, onNavigateToObject, onDateChange }: ObjectEditorProps) {
   const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
     type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
@@ -418,6 +420,17 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       onSave?.(saved);
     } catch {
       // Error already set in state by persistCurrentObject
+    }
+  };
+
+  const handleSaveAndOpenSibling = async (openSibling?: () => void | Promise<void>) => {
+    if (!openSibling) return;
+    try {
+      const saved = await persistCurrentObject();
+      onSave?.(saved);
+      await openSibling();
+    } catch {
+      // Error already set in state by persistCurrentObject/openSibling.
     }
   };
 
@@ -817,6 +830,26 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenPrevious); }}
+                  disabled={saving || deleting || !onSaveAndOpenPrevious}
+                  size="sm"
+                  title="Save and open previous object"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenNext); }}
+                  disabled={saving || deleting || !onSaveAndOpenNext}
+                  size="sm"
+                  title="Save and open next object"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </div>
@@ -951,6 +984,26 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenPrevious); }}
+                  disabled={saving || deleting || !onSaveAndOpenPrevious}
+                  size="sm"
+                  title="Save and open previous object"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenNext); }}
+                  disabled={saving || deleting || !onSaveAndOpenNext}
+                  size="sm"
+                  title="Save and open next object"
+                >
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
             </div>
