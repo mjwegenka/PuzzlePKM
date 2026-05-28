@@ -116,7 +116,7 @@ export default function App() {
             />
           </div>
 
-          {sidebarSection === 'calendar' ? (
+          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'calendar' ? 'flex' : 'hidden')}>
             <CalendarPage
               tagFilters={tagFilters}
               onOpenObjectTab={async (target) => {
@@ -126,16 +126,16 @@ export default function App() {
                 openLibraryCreate(target)
               }}
             />
-          ) : null}
+          </div>
 
-          {sidebarSection === 'graph' ? (
+          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'graph' ? 'flex' : 'hidden')}>
             <GraphPage
               tagFilters={tagFilters}
               onOpenNode={async (target) => {
                 openLibrarySelection({ id: target.id, type: target.type })
               }}
             />
-          ) : null}
+          </div>
         </div>
       </div>
     </>
