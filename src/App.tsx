@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, type ReactNode } from 'react'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
 import TitleBarHandler from './components/app-shell/TitleBarHandler'
 import CalendarPage from './components/calendar/CalendarPage'
-import NotesPage from './components/notes/NotesPage'
+import LibraryPage from './components/notes/LibraryPage'
 import GraphPage from './components/graph/GraphPage'
 import SettingsPage from './components/app-shell/SettingsPage'
 import { cn } from './lib/utils'
@@ -148,17 +148,17 @@ export default function App() {
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--color-surface-app)]">
-          {mountedSections.library ? (
-            <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
-              <NotesPage
-                pendingSelection={libraryPendingSelection}
-                onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
-                pendingCreate={libraryPendingCreate}
-                onPendingCreateHandled={handleLibraryPendingCreateHandled}
-                tagFilters={tagFilters}
-              />
-            </div>
-          ) : null}
+           {mountedSections.library ? (
+             <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
+               <LibraryPage
+                 pendingSelection={libraryPendingSelection}
+                 onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
+                 pendingCreate={libraryPendingCreate}
+                 onPendingCreateHandled={handleLibraryPendingCreateHandled}
+                 tagFilters={tagFilters}
+               />
+             </div>
+           ) : null}
 
           {mountedSections.calendar ? (
             <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'calendar' ? 'flex' : 'hidden')}>
