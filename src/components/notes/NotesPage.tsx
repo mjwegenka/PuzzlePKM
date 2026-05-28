@@ -67,6 +67,7 @@ function normalizePathForLookup(path?: string): string {
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
 type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'tag'
+type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'tag'>
 
 interface NotesPageProps {
   onSaved?: () => void
@@ -829,6 +830,34 @@ export default function NotesPage({
   const activeNoteId = activeObject?.objectId ?? null
   const isGalleryMode = !activeObject
   const resultsLabel = allCards.length === 1 ? '1 item' : `${allCards.length} items`
+  const editorNavigationCards = useMemo(() => (
+    allCards.filter((card): card is BoardCard & { type: EditableObjectType } => (
+      card.type === 'topic-note'
+      || card.type === 'daily-note'
+      || card.type === 'habit'
+      || card.type === 'project'
+      || card.type === 'ref-material'
+    ))
+  ), [allCards])
+  const activeEditorNavigationIndex = useMemo(() => {
+    if (!activeObject) return -1
+    if (activeObject.type === 'scripture' || activeObject.type === 'tag') return -1
+    return editorNavigationCards.findIndex((card) => card.id === activeObject.objectId && card.type === activeObject.type)
+  }, [activeObject, editorNavigationCards])
+  const previousEditorNavigationTarget = activeEditorNavigationIndex > 0
+    ? editorNavigationCards[activeEditorNavigationIndex - 1]
+    : null
+  const nextEditorNavigationTarget = activeEditorNavigationIndex >= 0 && activeEditorNavigationIndex < editorNavigationCards.length - 1
+    ? editorNavigationCards[activeEditorNavigationIndex + 1]
+    : null
+  const handleSaveAndOpenPrevious = useCallback(async () => {
+    if (!previousEditorNavigationTarget) return
+    await openObjectInPanel(previousEditorNavigationTarget.id, previousEditorNavigationTarget.type, { skipDirtyCheck: true })
+  }, [openObjectInPanel, previousEditorNavigationTarget])
+  const handleSaveAndOpenNext = useCallback(async () => {
+    if (!nextEditorNavigationTarget) return
+    await openObjectInPanel(nextEditorNavigationTarget.id, nextEditorNavigationTarget.type, { skipDirtyCheck: true })
+  }, [nextEditorNavigationTarget, openObjectInPanel])
   const getObjectPanelLabel = (item: ActiveLibraryObject) => {
     if (item.type === 'daily-note') {
       const value = item.object.date as string | undefined
@@ -1103,6 +1132,8 @@ export default function NotesPage({
                         type={activeObject.type}
                         flatTop
                         onSave={handleSaveEdit}
+                        onSaveAndOpenPrevious={previousEditorNavigationTarget ? handleSaveAndOpenPrevious : undefined}
+                        onSaveAndOpenNext={nextEditorNavigationTarget ? handleSaveAndOpenNext : undefined}
                         onCancel={handleCloseEditor}
                         onDirty={(isDirty) => {
                           setActiveObject((prev) => (prev ? { ...prev, isDirty } : prev))
