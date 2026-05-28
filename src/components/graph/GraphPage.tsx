@@ -8,7 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
-import { getObject, listMetaBundle } from '../../lib/cliService'
+import { listMetaBundle } from '../../lib/cliService'
 import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
@@ -190,38 +190,17 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
           }
         }
 
-        // Render the graph immediately with nodes + tag/scripture edges
-        setGraphData({ nodes: allNodes, links: Array.from(collectedEdges.values()) })
-        setLoading(false)
-
-        // Defer note-link fetching so the graph is interactive immediately.
-        // Pass allNodes directly to avoid the stale-closure bug.
-        const noteNodes = allNodes.filter((n) => n.type === 'topic-note' || n.type === 'daily-note')
-        if (noteNodes.length === 0) return
-
-        const noteLinkEdges = new Map<string, GraphEdge>()
-        await Promise.all(noteNodes.map(async (node) => {
-          try {
-            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
-            const links = Array.isArray((full as any).links) ? (full as any).links : []
-            for (const link of links) {
-              const targetId = String(link?.id ?? '')
-              if (!targetId || !nodeIds.has(targetId)) continue
-              noteLinkEdges.set(`${node.id}->${targetId}`, { source: node.id, target: targetId })
-            }
-          } catch {
-            // Keep graph usable even if one note fails to load
+        // Note-to-note and object link edges — from the bulk objectLinks query (no per-note fetches)
+        for (const link of bundle.objectLinks) {
+          if (nodeIds.has(link.sourceId) && nodeIds.has(link.targetId)) {
+            collectedEdges.set(`${link.sourceId}->${link.targetId}`, { source: link.sourceId, target: link.targetId })
           }
-        }))
-
-        if (noteLinkEdges.size > 0) {
-          setGraphData((prev) => ({
-            ...prev,
-            links: [...prev.links, ...Array.from(noteLinkEdges.values())],
-          }))
         }
+
+        setGraphData({ nodes: allNodes, links: Array.from(collectedEdges.values()) })
       } catch (err) {
         setError(String(err))
+      } finally {
         setLoading(false)
       }
     }

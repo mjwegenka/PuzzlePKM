@@ -89,6 +89,7 @@ export interface MetaBundle {
   files: FileMeta[];
   scriptures: ScriptureMeta[];
   tags: TagSummary[];
+  objectLinks: Array<{ sourceId: string; targetId: string }>;
 }
 
 let metaBundleInFlight: Promise<MetaBundle> | null = null;
@@ -490,6 +491,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       files?: Array<Record<string, unknown>>;
       scriptures?: Array<Record<string, unknown>>;
       tags?: Array<Record<string, unknown>>;
+      objectLinks?: Array<Record<string, unknown>>;
     };
 
     const syncRootFolder = typeof raw.syncRootFolder === 'string' ? raw.syncRootFolder : null;
@@ -594,7 +596,14 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       .filter((row) => row.id)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
 
-    return { topicNotes, dailyNotes, habits, files, scriptures, tags };
+    const objectLinks: Array<{ sourceId: string; targetId: string }> = (Array.isArray(raw.objectLinks) ? raw.objectLinks : [])
+      .map((row) => ({
+        sourceId: String(row.sourceId ?? ''),
+        targetId: String(row.targetId ?? ''),
+      }))
+      .filter((row) => row.sourceId && row.targetId);
+
+    return { topicNotes, dailyNotes, habits, files, scriptures, tags, objectLinks };
   })();
 
   try {

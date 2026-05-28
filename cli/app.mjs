@@ -2321,6 +2321,11 @@ function listMetaBundle() {
   return withDb((db) => {
     const projects = listProjects(db).map((row) => ({ ...row, type: 'project' }));
     const refMaterials = listRefMats(db).map((row) => ({ ...row, type: 'ref-material' }));
+    // Bulk fetch all object-link edges in a single query to avoid N+1 per-note gets
+    const objectLinks = db
+      .prepare('SELECT source_id, target_id FROM object_links')
+      .all()
+      .map((row) => ({ sourceId: row.source_id, targetId: row.target_id }));
     return {
       syncRootFolder: getSyncRootFolder(),
       topicNotes: listTopicNotes(db),
@@ -2329,6 +2334,7 @@ function listMetaBundle() {
       files: [...projects, ...refMaterials],
       scriptures: listScriptures(db),
       tags: listTags(db),
+      objectLinks,
     };
   });
 }
