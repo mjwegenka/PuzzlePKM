@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DailyNote, Habit, NoteBlock, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
+import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
+import { normalizeNoteBlocks } from './noteBlocks';
 
 export interface CliRunResult {
   exitCode: number;
@@ -98,6 +99,8 @@ export interface ResolvedObjectRef {
   id: string;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
   syncPath: string;
+  /** Block fragment extracted from a `objectId#blockId` link, if present. */
+  blockId?: string;
 }
 
 export interface TagSummary {
@@ -231,13 +234,19 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
 
 /**
  * Resolve a markdown link href (UUID, absolute sync path, or relative path) to a local object.
+ * Fragment (`#blockId`) is extracted and returned as `blockId` on the resolved ref.
  */
 export async function resolveObjectFromLinkPath(
   href: string,
   currentObjectSyncPath?: string,
 ): Promise<ResolvedObjectRef | null> {
   const hrefPath = toPathLikeHref(decodeHref(href));
-  const cleanedHref = hrefPath.trim().replace(/[?#].*$/, '');
+  const hrefWithoutQuery = hrefPath.trim().replace(/\?.*$/, '');
+  const hashIndex = hrefWithoutQuery.indexOf('#');
+  const cleanedHref = (hashIndex >= 0 ? hrefWithoutQuery.slice(0, hashIndex) : hrefWithoutQuery).trim();
+  const fragment = (hashIndex >= 0 ? hrefWithoutQuery.slice(hashIndex + 1) : '').trim();
+  const blockId = /^blk-[a-f0-9]{12}$/.test(fragment) ? fragment : undefined;
+
   if (!cleanedHref) return null;
 
   const index = await listObjectPathIndex();
@@ -245,7 +254,7 @@ export async function resolveObjectFromLinkPath(
   // Legacy fallback: some older links store just the object id in href.
   const idLikeHref = cleanedHref.replace(/^#/, '').trim();
   const directIdMatch = index.find((item) => item.id === idLikeHref);
-  if (directIdMatch) return directIdMatch;
+  if (directIdMatch) return blockId ? { ...directIdMatch, blockId } : directIdMatch;
 
   const hrefLooksLikeRootRelative = /^puzzlepkm\//i.test(cleanedHref);
   const normalizedRootRelativeHref = hrefLooksLikeRootRelative ? `/${cleanedHref}` : cleanedHref;
@@ -260,7 +269,7 @@ export async function resolveObjectFromLinkPath(
 
   const normalizedTargetPath = normalizePathForLookup(targetPath);
   const exactMatch = index.find((item) => normalizePathForLookup(item.syncPath) === normalizedTargetPath);
-  if (exactMatch) return exactMatch;
+  if (exactMatch) return blockId ? { ...exactMatch, blockId } : exactMatch;
 
   // Fallback: when links are stored without a stable base path, compare relative/suffix paths.
   const targetRelative = normalizeRelativeSegments(normalizedRootRelativeHref);
@@ -271,13 +280,14 @@ export async function resolveObjectFromLinkPath(
     const candidate = normalizePathForLookup(item.syncPath);
     return candidate.endsWith(`/${targetRelative}`) || candidate.endsWith(targetRelative);
   });
-  if (suffixMatch) return suffixMatch;
+  if (suffixMatch) return blockId ? { ...suffixMatch, blockId } : suffixMatch;
 
   if (!targetBaseName) return null;
-  return index.find((item) => {
+  const baseNameMatch = index.find((item) => {
     const candidateParts = splitPath(normalizePathForLookup(item.syncPath));
     return candidateParts.at(-1) === targetBaseName;
   }) ?? null;
+  return baseNameMatch && blockId ? { ...baseNameMatch, blockId } : baseNameMatch;
 }
 
 export async function runPuzzlePKMCli(args: string[]): Promise<CliRunResult> {
@@ -309,51 +319,9 @@ export async function listObjects(type: string): Promise<string> {
   return result.stdout;
 }
 
-function fallbackBlockId(index: number): string {
-  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID().replace(/-/g, '')
-    : `${Date.now().toString(16)}${index.toString(16).padStart(2, '0')}`;
-  return `blk-${random.slice(0, 12).padEnd(12, '0')}`;
-}
-
-function parseLegacyBlocksFromMarkdown(contentMarkdown: string): NoteBlock[] {
-  const raw = String(contentMarkdown ?? '').replace(/\r\n/g, '\n').trimEnd();
-  if (!raw) return [];
-  const paragraphs = raw.split('\n\n').map((p) => p.trimEnd());
-  return paragraphs.map((paragraph, index) => {
-    const match = /\s*<!--\s*(blk-[a-f0-9]{12})\s*-->\s*$/.exec(paragraph);
-    return {
-      blockId: match?.[1] ?? fallbackBlockId(index),
-      position: index,
-      contentMarkdown: match ? paragraph.slice(0, match.index).trimEnd() : paragraph,
-    };
-  });
-}
-
-function normalizeBlocks(rawBlocks: unknown, contentMarkdown: string): NoteBlock[] {
-  if (Array.isArray(rawBlocks)) {
-    const parsed = rawBlocks
-      .map((rawBlock, index) => {
-        if (!rawBlock || typeof rawBlock !== 'object') return null;
-        const block = rawBlock as Record<string, unknown>;
-        const blockId = typeof block.blockId === 'string' && block.blockId
-          ? block.blockId
-          : fallbackBlockId(index);
-        const position = typeof block.position === 'number' ? block.position : index;
-        const blockContent = typeof block.contentMarkdown === 'string' ? block.contentMarkdown : '';
-        return { blockId, position, contentMarkdown: blockContent };
-      })
-      .filter((block): block is NoteBlock => Boolean(block));
-    if (parsed.length > 0) {
-      return parsed.map((block, index) => ({ ...block, position: index }));
-    }
-  }
-  return parseLegacyBlocksFromMarkdown(contentMarkdown);
-}
-
 function normalizeNotePayload<T extends TopicNote | DailyNote>(value: T): T {
   const contentMarkdown = typeof value.contentMarkdown === 'string' ? value.contentMarkdown : '';
-  const blocks = normalizeBlocks((value as { blocks?: unknown }).blocks, contentMarkdown);
+  const blocks = normalizeNoteBlocks((value as { blocks?: unknown }).blocks, contentMarkdown);
   return { ...value, contentMarkdown, blocks };
 }
 
