@@ -8,66 +8,85 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTopicNoteMeta } from '../../lib/cliService'
+import { getObject, listMetaBundle } from '../../lib/cliService'
 import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions'
 import { getObjectColor } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 
-type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material'
+// Lazy import ForceGraph2D
+const ForceGraph2D = React.lazy(() =>
+  import('react-force-graph')
+    .then(mod => ({ default: mod.ForceGraph2D }))
+    .catch(() => {
+      // If import fails, return a fallback component
+      return {
+        default: () => (
+          <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-secondary)]">
+            Force graph library not available
+          </div>
+        )
+      }
+    })
+)
+
+
+type GraphNodeType = 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' | 'scripture' | 'tag' | 'scripture-book'
 
 interface GraphNode {
   id: string
   type: GraphNodeType
   label: string
-  x: number
-  y: number
-  tags: string[]
+  tags?: string[]
+  scriptureBook?: string
+  isVirtual?: boolean
 }
 
 interface GraphEdge {
-  sourceId: string
-  targetId: string
+  source: string
+  target: string
+}
+
+interface GraphData {
+  nodes: GraphNode[]
+  links: GraphEdge[]
 }
 
 interface GraphPageProps {
-  onOpenNode?: (target: { id: string; type: GraphNodeType }) => void | Promise<void>
+  onOpenNode?: (target: { id: string; type: 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' | 'scripture' }) => void | Promise<void>
   tagFilters?: TagFilterState
 }
 
-const GRAPH_OBJECT_TYPE_OPTIONS: Array<{ value: GraphNodeType; label: string; checkedByDefault: boolean }> = [
+const GRAPH_OBJECT_TYPE_OPTIONS: Array<{ value: Exclude<GraphNodeType, 'scripture-book'>; label: string; checkedByDefault: boolean }> = [
   { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
   { value: 'daily-note', label: 'Daily Notes', checkedByDefault: true },
   { value: 'habit', label: 'Habits', checkedByDefault: true },
   { value: 'project', label: 'Projects', checkedByDefault: true },
   { value: 'ref-material', label: 'Reference Materials', checkedByDefault: true },
+  { value: 'scripture', label: 'Scriptures', checkedByDefault: true },
+  { value: 'tag', label: 'Tags', checkedByDefault: false },
 ]
 const DEFAULT_VISIBLE_GRAPH_TYPES = GRAPH_OBJECT_TYPE_OPTIONS
   .filter((option) => option.checkedByDefault)
   .map((option) => option.value)
 
 export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProps) {
-  const [nodes, setNodes] = useState<GraphNode[]>([])
-  const [edges, setEdges] = useState<GraphEdge[]>([])
+  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
-  const [visibleObjectTypes, setVisibleObjectTypes] = useState<GraphNodeType[]>(DEFAULT_VISIBLE_GRAPH_TYPES)
-  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 })
-  const [isPanning, setIsPanning] = useState(false)
-  const panStateRef = useRef<null | {
-    pointerId: number
-    startX: number
-    startY: number
-    originX: number
-    originY: number
-  }>(null)
+  const [visibleObjectTypes, setVisibleObjectTypes] = useState<Exclude<GraphNodeType, 'scripture-book'>[]>(DEFAULT_VISIBLE_GRAPH_TYPES)
+  const [containerSize, setContainerSize] = useState({ width: 640, height: 480 })
+  const forceGraphRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
     () => GRAPH_OBJECT_TYPE_OPTIONS.some((option) => visibleObjectTypeSet.has(option.value) !== option.checkedByDefault),
     [visibleObjectTypeSet],
   )
-  const toggleObjectTypeVisibility = (type: GraphNodeType) => {
+
+  const toggleObjectTypeVisibility = (type: Exclude<GraphNodeType, 'scripture-book'>) => {
     setVisibleObjectTypes((prev) => {
       const next = new Set(prev)
       if (next.has(type)) next.delete(type)
@@ -76,82 +95,116 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     })
   }
 
+  // Extract book name from scripture reference (e.g., "Romans 3:16" -> "Romans")
+  const extractScriptureBook = (reference: string): string => {
+    const match = reference.match(/^([A-Za-z0-9\s]+?)\s+\d+/)
+    return match?.[1]?.trim() || 'Other'
+  }
+
   useEffect(() => {
     const loadGraph = async () => {
       setLoading(true)
       setError(null)
       try {
-        const [topics, dailies, habits, files] = await Promise.all([
-          listTopicNoteMeta(),
-          listDailyNoteMeta(),
-          listHabitMeta(),
-          listFileMeta(),
-        ])
+        const bundle = await listMetaBundle()
 
-        const all = [
-          ...topics.map((item) => ({
+        // Build primary nodes from all objects
+        const allNodes: GraphNode[] = [
+          ...bundle.topicNotes.map((item) => ({
             id: item.id,
             type: 'topic-note' as const,
             label: getObjectDisplayTitle('topic-note', item),
             tags: item.tags ?? [],
           })),
-          ...dailies.map((item) => ({
+          ...bundle.dailyNotes.map((item) => ({
             id: item.id,
             type: 'daily-note' as const,
             label: getObjectDisplayTitle('daily-note', item),
             tags: item.tags ?? [],
           })),
-          ...habits.map((item) => ({
+          ...bundle.habits.map((item) => ({
             id: item.id,
             type: 'habit' as const,
             label: getObjectDisplayTitle('habit', item),
             tags: item.tags ?? [],
           })),
-          ...files.map((item) => ({
+          ...bundle.files.map((item) => ({
             id: item.id,
             type: item.type,
             label: getObjectDisplayTitle(item.type, item),
             tags: item.tags ?? [],
           })),
+          ...bundle.scriptures.map((item) => ({
+            id: item.id,
+            type: 'scripture' as const,
+            label: getObjectDisplayTitle('scripture', item),
+            scriptureBook: extractScriptureBook(item.reference),
+          })),
+          ...bundle.tags.map((item) => ({
+            id: item.id,
+            type: 'tag' as const,
+            label: item.displayName,
+          })),
         ]
 
-        const radius = 210
-        const centerX = 320
-        const centerY = 240
-        const positioned: GraphNode[] = all.map((item, index) => {
-          const angle = (index / Math.max(all.length, 1)) * Math.PI * 2
-          const ringOffset = 40 * ((index % 3) - 1)
-          return {
-            ...item,
-            x: centerX + Math.cos(angle) * (radius + ringOffset),
-            y: centerY + Math.sin(angle) * (radius + ringOffset),
-          }
-        })
+        // Create virtual scripture-book grouping nodes
+        const books = new Set(bundle.scriptures.map((s) => extractScriptureBook(s.reference)))
+        const bookNodes: GraphNode[] = Array.from(books).map((book) => ({
+          id: `book:${book}`,
+          type: 'scripture-book' as const,
+          label: book,
+          isVirtual: true,
+        }))
 
-        const nodeIds = new Set(positioned.map((node) => node.id))
-        const noteNodes = positioned.filter((node) => node.type === 'topic-note' || node.type === 'daily-note')
+        allNodes.push(...bookNodes)
+
+        const nodeIds = new Set(allNodes.map((node) => node.id))
+        const noteNodes = allNodes.filter((node) => node.type === 'topic-note' || node.type === 'daily-note')
+
+        // Collect edges from note-to-note links and note-to-scripture references
         const collectedEdges = new Map<string, GraphEdge>()
 
         await Promise.all(noteNodes.map(async (node) => {
           try {
-            const full = await getObject(node.type, node.id)
-            const relationSource = full as unknown as { links?: Array<{ id?: string }> }
-            const links = Array.isArray(relationSource.links)
-              ? (relationSource.links ?? [])
-              : []
+            // noteNodes are filtered to only topic-note and daily-note
+            const full = await getObject(node.type as 'topic-note' | 'daily-note', node.id)
+            const relationSource = full as unknown as { links?: Array<{ id?: string }>; linkedObjectIds?: string[] }
+            const links = Array.isArray(relationSource.links) ? (relationSource.links ?? []) : []
             for (const link of links) {
               const targetId = String(link?.id ?? '')
               if (!targetId || !nodeIds.has(targetId)) continue
               const key = `${node.id}->${targetId}`
-              collectedEdges.set(key, { sourceId: node.id, targetId })
+              collectedEdges.set(key, { source: node.id, target: targetId })
             }
           } catch {
             // Keep graph usable even if one object fails to load.
           }
         }))
 
-        setNodes(positioned)
-        setEdges(Array.from(collectedEdges.values()))
+        // Add edges between scriptures and their books
+        for (const scripture of bundle.scriptures) {
+          const book = extractScriptureBook(scripture.reference)
+          const bookNodeId = `book:${book}`
+          const key = `${scripture.id}->${bookNodeId}`
+          collectedEdges.set(key, { source: scripture.id, target: bookNodeId })
+        }
+
+        // Add edges between notes and their tags
+        for (const note of bundle.topicNotes.concat(bundle.dailyNotes as any)) {
+          const tags = note.tags ?? []
+          for (const tag of tags) {
+            const tagNodeId = bundle.tags.find((t) => t.name === tag)?.id
+            if (tagNodeId && nodeIds.has(tagNodeId)) {
+              const key = `${note.id}->${tagNodeId}`
+              collectedEdges.set(key, { source: note.id, target: tagNodeId })
+            }
+          }
+        }
+
+        setGraphData({
+          nodes: allNodes,
+          links: Array.from(collectedEdges.values()),
+        })
       } catch (err) {
         setError(String(err))
       } finally {
@@ -162,78 +215,101 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     void loadGraph()
   }, [])
 
-  const filteredNodes = useMemo(() => {
+  const filteredData = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return nodes.filter((node) => {
-      if (!visibleObjectTypeSet.has(node.type)) return false
-      if (!itemMatchesTagFilters(node.tags, tagFilters)) return false
-      if (!q) return true
-      return node.label.toLowerCase().includes(q)
+    const nodeIds = new Set<string>()
+    const visibleBookNodes = new Set<string>()
+
+    // Gather visible primary nodes
+    for (const node of graphData.nodes) {
+      if (node.type === 'scripture-book') continue
+      if (!visibleObjectTypeSet.has(node.type)) continue
+      if (node.tags && !itemMatchesTagFilters(node.tags, tagFilters)) continue
+      if (q && !node.label.toLowerCase().includes(q)) continue
+      nodeIds.add(node.id)
+
+      // Track which books have visible scriptures
+      if (node.type === 'scripture' && node.scriptureBook) {
+        visibleBookNodes.add(`book:${node.scriptureBook}`)
+      }
+    }
+
+    // Include book nodes if they have visible scriptures
+    const visibleNodes: GraphNode[] = graphData.nodes.filter((node) => {
+      if (node.type === 'scripture-book') return visibleBookNodes.has(node.id)
+      return nodeIds.has(node.id)
     })
-  }, [nodes, search, tagFilters, visibleObjectTypeSet])
 
-  const nodeIndex = useMemo(() => {
-    const map = new Map<string, GraphNode>()
-    for (const node of nodes) map.set(node.id, node)
-    return map
-  }, [nodes])
+    // Keep edges that connect visible nodes
+    const visibleNodeSet = new Set(visibleNodes.map((n) => n.id))
+    const visibleLinks: GraphEdge[] = graphData.links.filter(
+      (link) => visibleNodeSet.has(String(link.source)) && visibleNodeSet.has(String(link.target)),
+    )
 
-  const visibleNodeIds = useMemo(() => new Set(filteredNodes.map((node) => node.id)), [filteredNodes])
-  const visibleEdges = useMemo(
-    () => edges.filter((edge) => visibleNodeIds.has(edge.sourceId) && visibleNodeIds.has(edge.targetId)),
-    [edges, visibleNodeIds],
-  )
+    return { nodes: visibleNodes, links: visibleLinks }
+  }, [graphData, search, tagFilters, visibleObjectTypeSet])
 
   const focusedNode = useMemo(
-    () => nodes.find((node) => node.id === focusedNodeId) ?? null,
-    [focusedNodeId, nodes],
+    () => graphData.nodes.find((node) => node.id === focusedNodeId) ?? null,
+    [focusedNodeId, graphData.nodes],
   )
 
-  const handleNodeClick = async (node: GraphNode) => {
+  const handleNodeClick = async (node: any) => {
+    // Defensive: ensure we have a valid node with an id
+    if (!node || typeof node.id === 'undefined') {
+      return
+    }
+
+    const nodeType = node.type as GraphNodeType
+    if (nodeType === 'scripture-book' || nodeType === 'tag' || node.isVirtual) {
+      return
+    }
     if (focusedNodeId !== node.id) {
       setFocusedNodeId(node.id)
       return
     }
-    if (onOpenNode) await onOpenNode({ id: node.id, type: node.type })
-  }
-
-  const clampScale = (value: number) => Math.max(0.45, Math.min(2.5, value))
-
-  const handleGraphPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    const element = event.currentTarget
-    element.setPointerCapture(event.pointerId)
-    panStateRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: viewport.x,
-      originY: viewport.y,
+    // node.type is guaranteed to be one of the openable types at this point
+    if (onOpenNode) {
+      await onOpenNode({ id: node.id, type: nodeType as 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material' | 'scripture' })
     }
-    setIsPanning(true)
   }
 
-  const handleGraphPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const pan = panStateRef.current
-    if (!pan || pan.pointerId !== event.pointerId) return
-    const deltaX = event.clientX - pan.startX
-    const deltaY = event.clientY - pan.startY
-    setViewport((prev) => ({ ...prev, x: pan.originX + deltaX, y: pan.originY + deltaY }))
+  const nodeCanvasSize = 5
+
+  const getNodeLabel = (node: GraphNode) => {
+    if (node.type === 'scripture-book' || node.id === focusedNodeId) {
+      return node.label
+    }
+    return ''
   }
 
-  const stopGraphPan = (event: React.PointerEvent<HTMLDivElement>) => {
-    const pan = panStateRef.current
-    if (!pan || pan.pointerId !== event.pointerId) return
-    panStateRef.current = null
-    setIsPanning(false)
-    event.currentTarget.releasePointerCapture(event.pointerId)
-  }
+  useEffect(() => {
+    // Configure force simulation parameters after mount
+    if (forceGraphRef.current) {
+      const fg = forceGraphRef.current
+      if (fg.d3Force) {
+        // Reduce link distance to make clusters tighter
+        fg.d3Force('link')?.distance(() => 30)
+        // Configure node repulsion (charge force)
+        fg.d3Force('charge')?.strength(() => -100)
+      }
+    }
+  }, [])
 
-  const handleGraphWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const scaleFactor = event.deltaY < 0 ? 1.1 : 0.9
-    setViewport((prev) => ({ ...prev, scale: clampScale(prev.scale * scaleFactor) }))
-  }
+  useEffect(() => {
+    // Measure container size on mount and window resize
+    const updateSize = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.clientWidth || 640,
+          height: containerRef.current.clientHeight || 480,
+        })
+      }
+    }
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
 
   return (
     <div className="ui-shell-panel flex min-h-0 flex-1 flex-col bg-[var(--color-surface-elevated)]">
@@ -244,7 +320,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
             Graph
           </div>
           <div className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            {loading ? 'Loading graph' : `${filteredNodes.length} of ${nodes.length} nodes`}
+            {loading ? 'Loading graph' : `${filteredData.nodes.length} of ${graphData.nodes.filter((n) => n.type !== 'scripture-book').length} nodes`}
           </div>
         </div>
         <div className="ui-scroller flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-hidden py-1">
@@ -288,60 +364,49 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
         </div>
       )}
 
-      <div
-        onPointerDown={handleGraphPointerDown}
-        onPointerMove={handleGraphPointerMove}
-        onPointerUp={stopGraphPan}
-        onPointerCancel={stopGraphPan}
-        onWheel={handleGraphWheel}
-        className="relative mx-3 min-h-0 flex-1 overflow-hidden rounded-[18px] border"
-        style={{
-          borderColor: isPanning ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
-          backgroundColor: 'rgba(26, 22, 18, 0.6)',
-          cursor: isPanning ? 'grabbing' : 'grab',
-        }}
-      >
+      <div className="relative mx-3 min-h-0 flex-1 overflow-hidden rounded-[18px] border" style={{ borderColor: 'var(--color-border-subtle)' }} ref={containerRef}>
         {loading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
           </div>
+        ) : error ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2">
+            <div className="text-sm text-[var(--color-destructive)]">Error loading graph</div>
+            <div className="text-xs text-[var(--color-text-secondary)]">{error}</div>
+          </div>
+        ) : filteredData.nodes.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-[var(--color-text-secondary)]">
+            <span>No nodes to display</span>
+          </div>
         ) : (
-          <svg width="100%" height="100%" viewBox="0 0 640 480" preserveAspectRatio="xMidYMid meet">
-            <g transform={`translate(${viewport.x} ${viewport.y}) translate(320 240) scale(${viewport.scale}) translate(-320 -240)`}>
-            {visibleEdges.map((edge) => {
-              const source = nodeIndex.get(edge.sourceId)
-              const target = nodeIndex.get(edge.targetId)
-              if (!source || !target) return null
-              return (
-                <line
-                  key={`${edge.sourceId}:${edge.targetId}`}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                  stroke="rgba(221, 181, 80, 0.18)"
-                  strokeWidth={1}
-                />
-              )
-            })}
-            {filteredNodes.map((node) => {
-              const focused = node.id === focusedNodeId
-              const colors = getObjectColor(node.type)
-              return (
-                <g key={node.id} data-node="true" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void handleNodeClick(node) }}>
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={focused ? 9 : 7}
-                    fill={focused ? colors.bg : 'rgba(52, 50, 52, 0.95)'}
-                    stroke={focused ? colors.accent : colors.border}
-                    strokeWidth={focused ? 2 : 1.5}
-                  />
-                </g>
-              )
-            })}
-            </g>
-          </svg>
+          <React.Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+              </div>
+            }
+          >
+            <ForceGraph2D
+              ref={forceGraphRef}
+              graphData={filteredData}
+              width={containerSize.width}
+              height={containerSize.height}
+              onNodeClick={handleNodeClick as any}
+              nodeLabel={getNodeLabel as any}
+              nodeColor={(node: any) => {
+                const colors = getObjectColor(node.type)
+                if (node.id === focusedNodeId) return colors.accent
+                return node.type === 'scripture-book' ? colors.accent : 'rgba(52, 50, 52, 0.95)'
+              }}
+              nodeRelSize={nodeCanvasSize}
+              linkColor={() => 'rgba(221, 181, 80, 0.15)'}
+              linkWidth={1}
+              warmupTicks={20}
+              cooldownTicks={0}
+              cooldownTime={0}
+              backgroundColor="rgba(26, 22, 18, 0.6)"
+            />
+          </React.Suspense>
         )}
       </div>
 
@@ -358,16 +423,17 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
               </span>
             </div>
             <div className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
-              {focusedNode.type.replace('-', ' ')} · {focusedNode.tags.length} tags
+              {focusedNode.type.replace('-', ' ')}
+              {focusedNode.type !== 'scripture-book' && focusedNode.type !== 'tag' && focusedNode.tags && ` · ${focusedNode.tags.length} tags`}
             </div>
           </div>
         ) : (
-          <span>Click a node to show its full label and details here.</span>
+          <span>Click a node to focus it and show details here. Double-click to open.</span>
         )}
       </div>
 
       <p className="px-4 py-2 text-sm text-[var(--color-text-disabled)]">
-        Tip: drag to pan, use trackpad/pointer wheel to zoom, click a node once to focus it and again to open.
+        Tip: Drag to pan, scroll to zoom, click a node to focus it, double-click to open.
       </p>
     </div>
   )

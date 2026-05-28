@@ -6,6 +6,12 @@ export async function handleObjectsCommand(action, args, ctx) {
     return true;
   }
 
+  // Batched metadata payload for UI list views.
+  if (action === 'list-meta') {
+    console.log(ctx.formatCompact(ctx.listMetaBundle()));
+    return true;
+  }
+
   // DEC-18: Non-interactive write command for desktop UI integration.
   // Usage: puzzlepkm write <type> <json-string>
   // Creates or updates the object based on presence of a matching id/date.

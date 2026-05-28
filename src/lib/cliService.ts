@@ -31,6 +31,68 @@ export interface MentionSearchResult {
   syncPath?: string;
 }
 
+export interface TopicNoteMeta {
+  id: string;
+  title: string;
+  updatedAt: string;
+  date?: string;
+  preview: string;
+  tags: string[];
+  displayTitle: string;
+  type: 'topic-note';
+}
+
+export interface DailyNoteMeta {
+  id: string;
+  date: string;
+  preview: string;
+  tags: string[];
+  displayTitle: string;
+  type: 'daily-note';
+}
+
+export interface HabitMeta {
+  id: string;
+  date: string;
+  status: 'planned' | 'accomplished';
+  text: string;
+  syncPath: string;
+  tags: string[];
+  displayTitle: string;
+  type: 'habit';
+}
+
+export interface FileMeta {
+  id: string;
+  name: string;
+  author?: string;
+  syncPath: string;
+  startDate?: string;
+  tags: string[];
+  displayTitle: string;
+  type: 'project' | 'ref-material';
+}
+
+export interface ScriptureMeta {
+  id: string;
+  reference: string;
+  passageUrl: string;
+  noteCount: number;
+  displayTitle: string;
+  type: 'scripture';
+}
+
+export interface MetaBundle {
+  topicNotes: TopicNoteMeta[];
+  dailyNotes: DailyNoteMeta[];
+  habits: HabitMeta[];
+  files: FileMeta[];
+  scriptures: ScriptureMeta[];
+  tags: TagSummary[];
+}
+
+let metaBundleInFlight: Promise<MetaBundle> | null = null;
+
 export interface ResolvedObjectRef {
   id: string;
   type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
@@ -411,11 +473,142 @@ export async function searchObjects(
   return results.slice(0, limit)
 }
 
+export async function listMetaBundle(options: { force?: boolean } = {}): Promise<MetaBundle> {
+  if (!options.force && metaBundleInFlight) {
+    return metaBundleInFlight;
+  }
+
+  metaBundleInFlight = (async () => {
+    const result = await runPuzzlePKMCli(['list-meta']);
+    if (result.exitCode !== 0) throw new Error(result.stderr || 'list-meta failed');
+
+    const raw = JSON.parse(result.stdout) as {
+      syncRootFolder?: string;
+      topicNotes?: Array<Record<string, unknown>>;
+      dailyNotes?: Array<Record<string, unknown>>;
+      habits?: Array<Record<string, unknown>>;
+      files?: Array<Record<string, unknown>>;
+      scriptures?: Array<Record<string, unknown>>;
+      tags?: Array<Record<string, unknown>>;
+    };
+
+    const syncRootFolder = typeof raw.syncRootFolder === 'string' ? raw.syncRootFolder : null;
+
+    const topicNotes: TopicNoteMeta[] = (Array.isArray(raw.topicNotes) ? raw.topicNotes : [])
+      .map((row) => {
+        const title = String(row.title ?? '');
+        const date = String(row.date ?? '').trim() || undefined;
+        const preview = String(row.preview ?? '');
+        const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
+        return {
+          id: String(row.id ?? ''),
+          title,
+          updatedAt: String(row.updatedAt ?? ''),
+          date,
+          preview,
+          tags,
+          displayTitle: getObjectDisplayTitle('topic-note', { title, date, preview }),
+          type: 'topic-note' as const,
+        };
+      })
+      .filter((row) => row.id);
+
+    const dailyNotes: DailyNoteMeta[] = (Array.isArray(raw.dailyNotes) ? raw.dailyNotes : [])
+      .map((row) => {
+        const date = String(row.date ?? '');
+        const preview = String(row.preview ?? '');
+        const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
+        return {
+          id: String(row.id ?? ''),
+          date,
+          preview,
+          tags,
+          displayTitle: getObjectDisplayTitle('daily-note', { date }),
+          type: 'daily-note' as const,
+        };
+      })
+      .filter((row) => row.id);
+
+    const habits: HabitMeta[] = (Array.isArray(raw.habits) ? raw.habits : [])
+      .map((row): HabitMeta => {
+        const date = String(row.date ?? '');
+        const text = String(row.text ?? '');
+        const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
+        const status: HabitMeta['status'] = row.status === 'accomplished' ? 'accomplished' : 'planned';
+        return {
+          id: String(row.id ?? ''),
+          date,
+          status,
+          text,
+          syncPath: String(row.syncPath ?? ''),
+          tags,
+          displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),
+          type: 'habit' as const,
+        };
+      })
+      .filter((row) => row.id);
+
+    const files: FileMeta[] = (Array.isArray(raw.files) ? raw.files : [])
+      .map((row): FileMeta => {
+        const type: FileMeta['type'] = row.type === 'ref-material' ? 'ref-material' : 'project';
+        const name = String(row.name ?? '');
+        const rawSyncPath = String(row.syncPath ?? '');
+        return {
+          id: String(row.id ?? ''),
+          name,
+          author: type === 'ref-material' ? String(row.author ?? '') : undefined,
+          syncPath: resolveDisplaySyncPath(rawSyncPath, syncRootFolder),
+          startDate: type === 'project' ? String(row.startDate ?? '') : undefined,
+          tags: Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [],
+          displayTitle: getObjectDisplayTitle(type, { name }),
+          type,
+        };
+      })
+      .filter((row) => row.id);
+
+    const scriptures: ScriptureMeta[] = (Array.isArray(raw.scriptures) ? raw.scriptures : [])
+      .map((row) => {
+        const reference = String(row.reference ?? '');
+        return {
+          id: String(row.id ?? ''),
+          reference,
+          passageUrl: String(row.passageUrl ?? ''),
+          noteCount: Number.parseInt(String(row.noteCount ?? '0'), 10) || 0,
+          displayTitle: getObjectDisplayTitle('scripture', { reference }),
+          type: 'scripture' as const,
+        };
+      })
+      .filter((row) => row.id);
+
+    const tags: TagSummary[] = (Array.isArray(raw.tags) ? raw.tags : [])
+      .map((row) => {
+        const id = String(row.id ?? '');
+        const displayName = String(row.displayName ?? row.name ?? id);
+        return {
+          id,
+          name: String(row.name ?? displayName),
+          displayName,
+          objectCount: Number.parseInt(String(row.objectCount ?? '0'), 10) || 0,
+        };
+      })
+      .filter((row) => row.id)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
+
+    return { topicNotes, dailyNotes, habits, files, scriptures, tags };
+  })();
+
+  try {
+    return await metaBundleInFlight;
+  } finally {
+    metaBundleInFlight = null;
+  }
+}
+
 /**
  * List daily notes for calendar/list views (returns parsed metadata, not full content).
  */
 export async function listDailyNoteMeta(): Promise<
-  Array<{ id: string; date: string; preview: string; tags: string[]; displayTitle: string; type: 'daily-note' }>
+  DailyNoteMeta[]
 > {
   try {
     const stdout = await listObjects('daily-note');
@@ -448,7 +641,7 @@ export async function listDailyNoteMeta(): Promise<
  * List topic notes for list views (metadata only).
  */
 export async function listTopicNoteMeta(): Promise<
-  Array<{ id: string; title: string; updatedAt: string; date?: string; preview: string; tags: string[]; displayTitle: string; type: 'topic-note' }>
+  TopicNoteMeta[]
 > {
   try {
     const stdout = await listObjects('topic-note');
@@ -487,7 +680,7 @@ export async function listTopicNoteMeta(): Promise<
  * CLI format: id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
  */
 export async function listHabitMeta(): Promise<
-  Array<{ id: string; date: string; status: 'planned' | 'accomplished'; text: string; syncPath: string; tags: string[]; displayTitle: string; type: 'habit' }>
+  HabitMeta[]
 > {
   try {
     const stdout = await listObjects('habit');
@@ -526,7 +719,7 @@ export async function listHabitMeta(): Promise<
  * Project CLI format: id \t name \t syncPath \t startDate
  */
 export async function listFileMeta(): Promise<
-  Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; displayTitle: string; type: 'project' | 'ref-material' }>
+  FileMeta[]
 > {
   const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; displayTitle: string; type: 'project' | 'ref-material' }> = [];
   let syncRootFolder: string | null = null;
@@ -601,7 +794,7 @@ function resolveDisplaySyncPath(path: string, rootFolder: string | null): string
 }
 
 export async function listScriptureMeta(): Promise<
-  Array<{ id: string; reference: string; passageUrl: string; noteCount: number; displayTitle: string; type: 'scripture' }>
+  ScriptureMeta[]
 > {
   try {
     const stdout = await listObjects('scripture');

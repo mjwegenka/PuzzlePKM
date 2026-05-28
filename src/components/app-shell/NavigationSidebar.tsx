@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { cn } from '../../lib/utils';
 import { useSyncStatus } from '../../lib/syncContext';
 import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions';
-import { getObject, listDailyNoteMeta, listFileMeta, listHabitMeta, listTags, listTopicNoteMeta, writeObject, type TagSummary } from '../../lib/cliService';
+import { getObject, listMetaBundle, writeObject, type TagSummary } from '../../lib/cliService';
 import { normalizeTagFilterValue, type TagFilterState } from '../../lib/tagFilters';
 
 interface NavigationItem {
@@ -198,13 +198,13 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
   const loadPinnedItems = useCallback(async () => {
     setLoadingPinned(true);
+    setLoadingTags(true);
     try {
-      const [topicNotes, dailyNotes, habits, files] = await Promise.all([
-        listTopicNoteMeta(),
-        listDailyNoteMeta(),
-        listHabitMeta(),
-        listFileMeta(),
-      ]);
+      const bundle = await listMetaBundle();
+      const topicNotes = bundle.topicNotes;
+      const dailyNotes = bundle.dailyNotes;
+      const habits = bundle.habits;
+      const files = bundle.files;
       const combined: PinnedNavItem[] = [
         ...topicNotes.map((item) => ({
           id: item.id,
@@ -233,33 +233,24 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
       ];
       const pinned = combined.filter((item) => item.tags.some((tag) => isPinnedTag(tag)));
       setPinnedItems(orderPinnedItems(pinned));
+      setTags(bundle.tags);
     } finally {
       setLoadingPinned(false);
+      setLoadingTags(false);
     }
   }, [orderPinnedItems]);
 
-  const loadTags = useCallback(async () => {
-    setLoadingTags(true);
-    try {
-      setTags(await listTags());
-    } finally {
-      setLoadingTags(false);
-    }
-  }, []);
-
   useEffect(() => {
     void loadPinnedItems();
-    void loadTags();
-  }, [loadPinnedItems, loadTags]);
+  }, [loadPinnedItems]);
 
   useEffect(() => {
     const handleObjectsUpdated = () => {
       void loadPinnedItems();
-      void loadTags();
     };
     window.addEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
     return () => window.removeEventListener('puzzlepkm:objects-updated', handleObjectsUpdated);
-  }, [loadPinnedItems, loadTags]);
+  }, [loadPinnedItems]);
 
   const movePinned = useCallback((sourceIdx: number, targetIdx: number) => {
     setPinnedItems((prev) => {

@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 import { Input } from '../ui/input'
-import { listDailyNoteMeta, listTopicNoteMeta, listHabitMeta, listFileMeta, getObject } from '../../lib/cliService'
+import { listHabitMeta, listMetaBundle, getObject } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
@@ -134,38 +134,25 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [])
 
   const loadEvents = useCallback(async () => {
-    const [dailyRes, topicRes, habitRes, projectRes] = await Promise.allSettled([
-      listDailyNoteMeta(),
-      listTopicNoteMeta(),
-      listHabitMeta(),
-      listFileMeta(),
-    ])
+    const bundle = await listMetaBundle()
     const evts: CalEvent[] = []
-    if (dailyRes.status === 'fulfilled') {
-      for (const n of dailyRes.value) {
-        if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
-      }
+    for (const n of bundle.dailyNotes) {
+      if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
     }
-    if (topicRes.status === 'fulfilled') {
-      for (const n of topicRes.value) {
-        const d = (n as Record<string, unknown>).date as string | undefined
-        if (d) evts.push({ id: n.id, date: d, label: n.title || d, type: 'topic-note', tags: n.tags ?? [] })
-      }
+    for (const n of bundle.topicNotes) {
+      const d = n.date
+      if (d) evts.push({ id: n.id, date: d, label: n.displayTitle || d, type: 'topic-note', tags: n.tags ?? [] })
     }
-    if (habitRes.status === 'fulfilled') {
-      for (const h of habitRes.value) {
-        if (h.date) evts.push({ id: h.id, date: h.date, label: h.text || 'Habit', type: 'habit', tags: h.tags ?? [] })
-      }
+    for (const h of bundle.habits) {
+      if (h.date) evts.push({ id: h.id, date: h.date, label: h.displayTitle || 'Habit', type: 'habit', tags: h.tags ?? [] })
     }
-    if (projectRes.status === 'fulfilled') {
-      for (const p of projectRes.value) {
-        if (p.type === 'project' && p.startDate) {
-          evts.push({ id: p.id, date: p.startDate, label: p.name, type: 'project', tags: p.tags ?? [] })
-        }
-        if (p.type === 'ref-material') {
-          const datedRef = (p as { startDate?: string }).startDate
-          if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.name, type: 'ref-material', tags: p.tags ?? [] })
-        }
+    for (const p of bundle.files) {
+      if (p.type === 'project' && p.startDate) {
+        evts.push({ id: p.id, date: p.startDate, label: p.displayTitle, type: 'project', tags: p.tags ?? [] })
+      }
+      if (p.type === 'ref-material') {
+        const datedRef = p.startDate
+        if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.displayTitle, type: 'ref-material', tags: p.tags ?? [] })
       }
     }
     setEvents(evts)

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState, type ReactNode } from 'react'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
 import TitleBarHandler from './components/app-shell/TitleBarHandler'
 import CalendarPage from './components/calendar/CalendarPage'
@@ -7,6 +7,35 @@ import GraphPage from './components/graph/GraphPage'
 import SettingsPage from './components/app-shell/SettingsPage'
 import { cn } from './lib/utils'
 import { cycleTagFilterState, type TagFilterState } from './lib/tagFilters'
+
+// Simple error boundary for graph to prevent white screen
+class GraphErrorBoundary extends React.Component<{ children: ReactNode }, { hasError: boolean; error?: Error }> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-[var(--color-surface-elevated)]">
+          <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-center">
+            <p className="text-sm font-semibold text-red-600">Graph view unavailable</p>
+            <p className="mt-2 text-xs text-red-500">
+              {this.state.error?.message || 'An error occurred while loading the graph.'}
+            </p>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
 
 type Section = 'calendar' | 'library' | 'graph'
 type FileObjType = 'project' | 'ref-material'
@@ -43,9 +72,22 @@ function resolveSectionAlias(section: string): Section {
 export default function App() {
   const isSettingsWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('settings') === 'true'
   const [sidebarSection, setSidebarSection] = useState<Section>('library')
+  const [mountedSections, setMountedSections] = useState<Record<Section, boolean>>({
+    library: true,
+    calendar: false,
+    graph: false,
+  })
   const [libraryPendingSelection, setLibraryPendingSelection] = useState<LibraryPendingSelection | null>(null)
   const [libraryPendingCreate, setLibraryPendingCreate] = useState<LibraryPendingCreate | null>(null)
   const [tagFilters, setTagFilters] = useState<TagFilterState>({})
+
+  useEffect(() => {
+    setMountedSections((prev) => (
+      prev[sidebarSection]
+        ? prev
+        : { ...prev, [sidebarSection]: true }
+    ))
+  }, [sidebarSection])
 
   const openLibrarySelection = useCallback((target: { id: string; type: LibraryObjectType }) => {
     setSidebarSection('library')
@@ -106,36 +148,44 @@ export default function App() {
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--color-surface-app)]">
-          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
-            <NotesPage
-              pendingSelection={libraryPendingSelection}
-              onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
-              pendingCreate={libraryPendingCreate}
-              onPendingCreateHandled={handleLibraryPendingCreateHandled}
-              tagFilters={tagFilters}
-            />
-          </div>
+          {mountedSections.library ? (
+            <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'library' ? 'flex' : 'hidden')}>
+              <NotesPage
+                pendingSelection={libraryPendingSelection}
+                onPendingSelectionHandled={handleLibraryPendingSelectionHandled}
+                pendingCreate={libraryPendingCreate}
+                onPendingCreateHandled={handleLibraryPendingCreateHandled}
+                tagFilters={tagFilters}
+              />
+            </div>
+          ) : null}
 
-          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'calendar' ? 'flex' : 'hidden')}>
-            <CalendarPage
-              tagFilters={tagFilters}
-              onOpenObjectTab={async (target) => {
-                openLibrarySelection({ id: target.id, type: target.type })
-              }}
-              onStartCreateObject={async (target) => {
-                openLibraryCreate(target)
-              }}
-            />
-          </div>
+          {mountedSections.calendar ? (
+            <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'calendar' ? 'flex' : 'hidden')}>
+              <CalendarPage
+                tagFilters={tagFilters}
+                onOpenObjectTab={async (target) => {
+                  openLibrarySelection({ id: target.id, type: target.type })
+                }}
+                onStartCreateObject={async (target) => {
+                  openLibraryCreate(target)
+                }}
+              />
+            </div>
+          ) : null}
 
-          <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'graph' ? 'flex' : 'hidden')}>
-            <GraphPage
-              tagFilters={tagFilters}
-              onOpenNode={async (target) => {
-                openLibrarySelection({ id: target.id, type: target.type })
-              }}
-            />
-          </div>
+           {mountedSections.graph ? (
+             <div className={cn('min-h-0 min-w-0 flex-1', sidebarSection === 'graph' ? 'flex' : 'hidden')}>
+               <GraphErrorBoundary>
+                 <GraphPage
+                   tagFilters={tagFilters}
+                   onOpenNode={async (target) => {
+                     openLibrarySelection({ id: target.id, type: target.type })
+                   }}
+                 />
+               </GraphErrorBoundary>
+             </div>
+           ) : null}
         </div>
       </div>
     </>

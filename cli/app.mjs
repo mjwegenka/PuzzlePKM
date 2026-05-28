@@ -2317,6 +2317,22 @@ function listObjects(type) {
   });
 }
 
+function listMetaBundle() {
+  return withDb((db) => {
+    const projects = listProjects(db).map((row) => ({ ...row, type: 'project' }));
+    const refMaterials = listRefMats(db).map((row) => ({ ...row, type: 'ref-material' }));
+    return {
+      syncRootFolder: getSyncRootFolder(),
+      topicNotes: listTopicNotes(db),
+      dailyNotes: listDailyNotes(db),
+      habits: listHabits(db),
+      files: [...projects, ...refMaterials],
+      scriptures: listScriptures(db),
+      tags: listTags(db),
+    };
+  });
+}
+
 function getObject(type, reference) {
   return withDb((db) => {
     switch (type) {
@@ -4209,6 +4225,7 @@ function createCommandContext(rl) {
     deleteTagRecord,
     deleteLinkRecord,
     listObjects,
+    listMetaBundle,
     printRecords,
     formatCompact,
     getObject,

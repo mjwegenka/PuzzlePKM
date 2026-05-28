@@ -45,11 +45,8 @@ import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import {
   getObject,
-  listDailyNoteMeta,
-  listFileMeta,
   listHabitMeta,
-  listScriptureMeta,
-  listTopicNoteMeta,
+  listMetaBundle,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
@@ -70,7 +67,7 @@ type NoteType = 'topic-note' | 'daily-note' | 'habit'
 type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'tag'
 type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'tag'>
 
-interface NotesPageProps {
+interface LibraryPageProps {
   onSaved?: () => void
   pendingSelection?: { id: string; type: EditorObjectType; nonce: number } | null
   onPendingSelectionHandled?: (nonce: number) => void
@@ -309,14 +306,14 @@ function CreatePanel({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function NotesPage({
+export default function LibraryPage({
   onSaved,
   pendingSelection,
   onPendingSelectionHandled,
   pendingCreate,
   onPendingCreateHandled,
   tagFilters = {},
-}: NotesPageProps) {
+}: LibraryPageProps) {
   const listRowRef = useRef<HTMLDivElement | null>(null)
   const listScrollerRef = useRef<HTMLDivElement | null>(null)
   const pendingScrollRestoreRef = useRef<number | null>(null)
@@ -446,23 +443,12 @@ export default function NotesPage({
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [topicsRes, dailiesRes, habitsRes, filesRes, scriptureRes] = await Promise.allSettled([
-        listTopicNoteMeta(),
-        listDailyNoteMeta(),
-        listHabitMeta(),
-        listFileMeta(),
-        listScriptureMeta(),
-      ])
-      if (topicsRes.status === 'fulfilled')
-        setTopicNotes(topicsRes.value as TopicItem[])
-      if (dailiesRes.status === 'fulfilled')
-        setDailyNotes(dailiesRes.value as DailyItem[])
-      if (habitsRes.status === 'fulfilled')
-        setHabits(habitsRes.value as HabitItem[])
-      if (filesRes.status === 'fulfilled')
-        setFiles(filesRes.value as FileItem[])
-      if (scriptureRes.status === 'fulfilled')
-        setScriptures(scriptureRes.value as ScriptureItem[])
+      const bundle = await listMetaBundle()
+      setTopicNotes(bundle.topicNotes as TopicItem[])
+      setDailyNotes(bundle.dailyNotes as DailyItem[])
+      setHabits(bundle.habits as HabitItem[])
+      setFiles(bundle.files as FileItem[])
+      setScriptures(bundle.scriptures as ScriptureItem[])
     } finally {
       setLoading(false)
     }
