@@ -13,6 +13,7 @@ export function createDailyNoteService(deps) {
     promptList,
     promptMultiline,
     randomUUID,
+    syncObjectTags,
     updateDailyNoteRecord,
     withTransaction,
   } = deps;
@@ -46,7 +47,7 @@ export function createDailyNoteService(deps) {
   }
 
   function forceDeleteDailyNoteRecord(db, dailyNoteId) {
-    db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(dailyNoteId);
+    syncObjectTags(db, dailyNoteId, 'daily-note', []);
     db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(dailyNoteId, dailyNoteId);
     db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(dailyNoteId);
     deps.clearSyncState(db, 'daily-note', dailyNoteId);

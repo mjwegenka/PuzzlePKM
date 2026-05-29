@@ -83,7 +83,7 @@ export function createRefMaterialRepository(deps) {
 
   function deleteRefMatRecord(db, id) {
     return withTransaction(db, () => {
-      db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
+      syncObjectTags(db, id, 'ref-material', []);
       db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
       deps.clearSyncState(db, 'ref-material', id);
       const result = db.prepare('DELETE FROM ref_materials WHERE id = ?').run(id);

@@ -1561,15 +1561,32 @@ function ensureTagIds(db, displayNames) {
   return ids;
 }
 
+function cleanupOrphanedTags(db, tagIds) {
+  const candidates = Array.from(new Set((Array.isArray(tagIds) ? tagIds : []).filter(Boolean)));
+  if (candidates.length === 0) return;
+  const placeholders = candidates.map(() => '?').join(', ');
+  db.prepare(`
+    DELETE FROM tags
+    WHERE id IN (${placeholders})
+      AND id NOT IN (
+        SELECT DISTINCT tag_id FROM object_tags
+      )
+  `).run(...candidates);
+}
+
 function syncObjectTags(db, objectId, objectType, tagNames) {
   assertPinnedTagAllowedForObjectType(objectType, tagNames);
+  const priorTagIds = db.prepare('SELECT tag_id FROM object_tags WHERE object_id = ?').all(objectId).map((row) => row.tag_id);
   db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(objectId);
-  if (!tagNames) return;
-  const tagIds = ensureTagIds(db, tagNames);
-  const insert = db.prepare('INSERT OR IGNORE INTO object_tags (object_id, object_type, tag_id) VALUES (?, ?, ?)');
-  for (const tagId of tagIds) {
-    insert.run(objectId, objectType, tagId);
+  let nextTagIds = [];
+  if (tagNames) {
+    nextTagIds = ensureTagIds(db, tagNames);
+    const insert = db.prepare('INSERT OR IGNORE INTO object_tags (object_id, object_type, tag_id) VALUES (?, ?, ?)');
+    for (const tagId of nextTagIds) {
+      insert.run(objectId, objectType, tagId);
+    }
   }
+  cleanupOrphanedTags(db, [...priorTagIds, ...nextTagIds]);
 }
 
 function listLinkableObjectRefs(db) {
@@ -2104,6 +2121,7 @@ dailyNoteService = createDailyNoteService({
   promptMultiline,
   randomUUID,
   SCRIPTURE_TYPE,
+  syncObjectTags,
   updateDailyNoteRecord: dailyNoteRepository.updateDailyNoteRecord,
   withTransaction,
 });

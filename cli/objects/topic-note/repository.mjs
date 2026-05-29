@@ -194,7 +194,7 @@ export function createTopicNoteRepository(deps) {
         .prepare('SELECT target_id FROM object_links WHERE source_id = ? AND target_type = ?')
         .all(id, deps.SCRIPTURE_TYPE)
         .map((row) => row.target_id);
-      db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
+      syncObjectTags(db, id, 'topic-note', []);
       db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
       db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(id);
       deps.clearSyncState(db, 'topic-note', id);

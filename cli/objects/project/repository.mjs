@@ -90,7 +90,7 @@ export function createProjectRepository(deps) {
         .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
         .all(id)
         .map((row) => row.target_id);
-      db.prepare('DELETE FROM object_tags WHERE object_id = ?').run(id);
+      syncObjectTags(db, id, 'project', []);
       db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
       deps.clearSyncState(db, 'project', id);
       const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
