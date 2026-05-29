@@ -111,105 +111,111 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     return match?.[1]?.trim() || 'Other'
   }
 
-  useEffect(() => {
-    const loadGraph = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const bundle = await listMetaBundle()
+  const loadGraph = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const bundle = await listMetaBundle()
 
-        // Build primary nodes from all objects
-        const allNodes: GraphNode[] = [
-          ...bundle.topicNotes.map((item) => ({
-            id: item.id,
-            type: 'topic-note' as const,
-            label: getObjectDisplayTitle('topic-note', item),
-            tags: item.tags ?? [],
-          })),
-          ...bundle.dailyNotes.map((item) => ({
-            id: item.id,
-            type: 'daily-note' as const,
-            label: getObjectDisplayTitle('daily-note', item),
-            tags: item.tags ?? [],
-          })),
-          ...bundle.habits.map((item) => ({
-            id: item.id,
-            type: 'habit' as const,
-            label: getObjectDisplayTitle('habit', item),
-            tags: item.tags ?? [],
-          })),
-          ...bundle.files.map((item) => ({
-            id: item.id,
-            type: item.type,
-            label: getObjectDisplayTitle(item.type, item),
-            tags: item.tags ?? [],
-          })),
-          ...bundle.scriptures.map((item) => ({
-            id: item.id,
-            type: 'scripture' as const,
-            label: getObjectDisplayTitle('scripture', item),
-            scriptureBook: extractScriptureBook(item.reference),
-          })),
-          ...bundle.tags.map((item) => ({
-            id: item.id,
-            type: 'tag' as const,
-            label: item.displayName,
-          })),
-        ]
+      // Build primary nodes from all objects
+      const allNodes: GraphNode[] = [
+        ...bundle.topicNotes.map((item) => ({
+          id: item.id,
+          type: 'topic-note' as const,
+          label: getObjectDisplayTitle('topic-note', item),
+          tags: item.tags ?? [],
+        })),
+        ...bundle.dailyNotes.map((item) => ({
+          id: item.id,
+          type: 'daily-note' as const,
+          label: getObjectDisplayTitle('daily-note', item),
+          tags: item.tags ?? [],
+        })),
+        ...bundle.habits.map((item) => ({
+          id: item.id,
+          type: 'habit' as const,
+          label: getObjectDisplayTitle('habit', item),
+          tags: item.tags ?? [],
+        })),
+        ...bundle.files.map((item) => ({
+          id: item.id,
+          type: item.type,
+          label: getObjectDisplayTitle(item.type, item),
+          tags: item.tags ?? [],
+        })),
+        ...bundle.scriptures.map((item) => ({
+          id: item.id,
+          type: 'scripture' as const,
+          label: getObjectDisplayTitle('scripture', item),
+          scriptureBook: extractScriptureBook(item.reference),
+        })),
+        ...bundle.tags.map((item) => ({
+          id: item.id,
+          type: 'tag' as const,
+          label: item.displayName,
+        })),
+      ]
 
-        // Create virtual scripture-book grouping nodes
-        const books = new Set(bundle.scriptures.map((s) => extractScriptureBook(s.reference)))
-        const bookNodes: GraphNode[] = Array.from(books).map((book) => ({
-          id: `book:${book}`,
-          type: 'scripture-book' as const,
-          label: book,
-          isVirtual: true,
-        }))
-        allNodes.push(...bookNodes)
+      // Create virtual scripture-book grouping nodes
+      const books = new Set(bundle.scriptures.map((s) => extractScriptureBook(s.reference)))
+      const bookNodes: GraphNode[] = Array.from(books).map((book) => ({
+        id: `book:${book}`,
+        type: 'scripture-book' as const,
+        label: book,
+        isVirtual: true,
+      }))
+      allNodes.push(...bookNodes)
 
-        const nodeIds = new Set(allNodes.map((node) => node.id))
-        const tagById = new Map(bundle.tags.map((t) => [t.name, t.id]))
-        const collectedEdges = new Map<string, GraphEdge>()
+      const nodeIds = new Set(allNodes.map((node) => node.id))
+      const tagById = new Map(bundle.tags.map((t) => [t.name, t.id]))
+      const collectedEdges = new Map<string, GraphEdge>()
 
-        // Scripture → book edges
-        for (const scripture of bundle.scriptures) {
-          const bookNodeId = `book:${extractScriptureBook(scripture.reference)}`
-          collectedEdges.set(`${scripture.id}->${bookNodeId}`, { source: scripture.id, target: bookNodeId })
-        }
-
-        // Tag edges for ALL object types that carry tags
-        const taggedItems: Array<{ id: string; tags?: string[] }> = [
-          ...bundle.topicNotes,
-          ...bundle.dailyNotes,
-          ...bundle.habits,
-          ...bundle.files,
-        ]
-        for (const item of taggedItems) {
-          for (const tag of item.tags ?? []) {
-            const tagNodeId = tagById.get(tag)
-            if (tagNodeId && nodeIds.has(tagNodeId)) {
-              collectedEdges.set(`${item.id}->${tagNodeId}`, { source: item.id, target: tagNodeId })
-            }
-          }
-        }
-
-        // Note-to-note and object link edges — from the bulk objectLinks query (no per-note fetches)
-        for (const link of bundle.objectLinks) {
-          if (nodeIds.has(link.sourceId) && nodeIds.has(link.targetId)) {
-            collectedEdges.set(`${link.sourceId}->${link.targetId}`, { source: link.sourceId, target: link.targetId })
-          }
-        }
-
-        setGraphData({ nodes: allNodes, links: Array.from(collectedEdges.values()) })
-      } catch (err) {
-        setError(String(err))
-      } finally {
-        setLoading(false)
+      // Scripture → book edges
+      for (const scripture of bundle.scriptures) {
+        const bookNodeId = `book:${extractScriptureBook(scripture.reference)}`
+        collectedEdges.set(`${scripture.id}->${bookNodeId}`, { source: scripture.id, target: bookNodeId })
       }
-    }
 
-    void loadGraph()
+      // Tag edges for ALL object types that carry tags
+      const taggedItems: Array<{ id: string; tags?: string[] }> = [
+        ...bundle.topicNotes,
+        ...bundle.dailyNotes,
+        ...bundle.habits,
+        ...bundle.files,
+      ]
+      for (const item of taggedItems) {
+        for (const tag of item.tags ?? []) {
+          const tagNodeId = tagById.get(tag)
+          if (tagNodeId && nodeIds.has(tagNodeId)) {
+            collectedEdges.set(`${item.id}->${tagNodeId}`, { source: item.id, target: tagNodeId })
+          }
+        }
+      }
+
+      // Note-to-note and object link edges — from the bulk objectLinks query (no per-note fetches)
+      for (const link of bundle.objectLinks) {
+        if (nodeIds.has(link.sourceId) && nodeIds.has(link.targetId)) {
+          collectedEdges.set(`${link.sourceId}->${link.targetId}`, { source: link.sourceId, target: link.targetId })
+        }
+      }
+
+      setGraphData({ nodes: allNodes, links: Array.from(collectedEdges.values()) })
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    void loadGraph()
+  }, [loadGraph])
+
+  useEffect(() => {
+    const handler = () => void loadGraph();
+    window.addEventListener('puzzlepkm:objects-updated', handler);
+    return () => window.removeEventListener('puzzlepkm:objects-updated', handler);
+  }, [loadGraph])
 
   const filteredData = useMemo(() => {
     const q = search.trim().toLowerCase()

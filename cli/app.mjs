@@ -3535,11 +3535,15 @@ async function reconcileProjectsDb(db, token, rootFolder) {
           try {
             const newSlug = slugify(item.name);
             const remoteSlug = remoteItem.slug;
+            const newSyncPath = projectDirectoryPath(rootFolder, newSlug);
             if (newSlug !== remoteSlug) {
               // Name changed; rename directory by moving to new slug
-              await moveSyncFolder(projectDirectoryPath(rootFolder, remoteSlug), projectDirectoryPath(rootFolder, newSlug));
+              await moveSyncFolder(projectDirectoryPath(rootFolder, remoteSlug), newSyncPath);
             }
-            await syncUploadText(projectMetaPath(rootFolder, newSlug), projectToMetaYaml(item));
+            await syncUploadText(projectMetaPath(rootFolder, newSlug), projectToMetaYaml({ ...item, syncPath: newSyncPath }));
+            if (item.syncPath !== newSyncPath) {
+              updateProjectRecord(db, item.id, { syncPath: newSyncPath, updatedAt: item.updatedAt });
+            }
             result.uploaded++;
           } catch (e) {
             result.errors.push(`project upload ${item.id}: ${String(e)}`);
@@ -3661,11 +3665,15 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           try {
             const newSlug = slugify(item.name);
             const remoteSlug = remoteItem.slug;
+            const newSyncPath = refMaterialDirectoryPath(rootFolder, newSlug);
             if (newSlug !== remoteSlug) {
               // Name changed; rename directory by moving to new slug
-              await moveSyncFolder(refMaterialDirectoryPath(rootFolder, remoteSlug), refMaterialDirectoryPath(rootFolder, newSlug));
+              await moveSyncFolder(refMaterialDirectoryPath(rootFolder, remoteSlug), newSyncPath);
             }
-            await syncUploadText(refMaterialMetaPath(rootFolder, newSlug), refMaterialToMetaYaml(item));
+            await syncUploadText(refMaterialMetaPath(rootFolder, newSlug), refMaterialToMetaYaml({ ...item, syncPath: newSyncPath }));
+            if (item.syncPath !== newSyncPath) {
+              updateRefMatRecord(db, item.id, { syncPath: newSyncPath, updatedAt: item.updatedAt });
+            }
             result.uploaded++;
           } catch (e) {
             result.errors.push(`ref-material upload ${item.id}: ${String(e)}`);

@@ -40,6 +40,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     try {
       await runSync();
       setLastSyncedAt(new Date());
+      window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
     } catch (err) {
       setSyncError(String(err));
     } finally {

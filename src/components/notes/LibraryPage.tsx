@@ -458,6 +458,12 @@ export default function LibraryPage({
     loadAll()
   }, [loadAll])
 
+  useEffect(() => {
+    const handler = () => void loadAll();
+    window.addEventListener('puzzlepkm:objects-updated', handler);
+    return () => window.removeEventListener('puzzlepkm:objects-updated', handler);
+  }, [loadAll])
+
   const openObjectInPanel = useCallback(async (
     objectId: string,
     type: EditorObjectType,

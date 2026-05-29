@@ -162,6 +162,12 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     loadEvents()
   }, [loadEvents])
 
+  useEffect(() => {
+    const handler = () => void loadEvents();
+    window.addEventListener('puzzlepkm:objects-updated', handler);
+    return () => window.removeEventListener('puzzlepkm:objects-updated', handler);
+  }, [loadEvents])
+
   const filteredEvents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return events.filter((event) => {
