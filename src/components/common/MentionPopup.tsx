@@ -90,19 +90,24 @@ export default function MentionPopup({
                 className="mb-1 flex w-full items-center gap-2 rounded-[8px] px-2 py-2 text-left transition-colors last:mb-0 hover:bg-[rgba(227,179,65,0.14)]"
                 style={{ backgroundColor: idx === selectedIndex ? 'var(--color-selected-fill-soft)' : undefined }}
               >
-                <span
-                  className="shrink-0 rounded-[6px] border px-2 py-1 text-xs font-bold uppercase tracking-[0.04em]"
-                  style={{
-                    backgroundColor: withAlpha(color, 0.14),
-                    color,
-                    borderColor: withAlpha(color, 0.34),
-                  }}
-                >
-                  {label}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">
-                  {option.title || '(untitled)'}
-                </span>
+               <span
+                   className="shrink-0 rounded-[6px] border px-2 py-1 text-xs font-bold uppercase tracking-[0.04em]"
+                   style={{
+                     backgroundColor: withAlpha(color, 0.14),
+                     color,
+                     borderColor: withAlpha(color, 0.34),
+                   }}
+                 >
+                   {label}
+                 </span>
+                 <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">
+                   {option.title || '(untitled)'}
+                 </span>
+                 {option.date && ['daily-note', 'habit', 'project'].includes(option.type) && (
+                   <span className="ml-1 shrink-0 text-xs text-[var(--color-text-secondary)]">
+                     {option.date}
+                   </span>
+                 )}
               </button>
             )
           })}

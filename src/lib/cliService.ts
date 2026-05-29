@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
 import { normalizeNoteBlocks } from './noteBlocks';
+import { formatDatePretty } from './dateUtils';
 
 export interface CliRunResult {
   exitCode: number;
@@ -418,7 +419,8 @@ export async function searchObjects(
   if (topicsRes.status === 'fulfilled') {
     for (const item of topicsRes.value) {
       const title = item.displayTitle
-      if (!q || title.toLowerCase().includes(q) || (item.date ?? '').includes(q)) {
+      const prettyDate = item.date ? formatDatePretty(item.date).toLowerCase() : '';
+      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || (item.date ?? '').includes(q)) {
         results.push({
           id: item.id,
           type: 'topic-note',
@@ -432,7 +434,8 @@ export async function searchObjects(
   if (dailiesRes.status === 'fulfilled') {
     for (const item of dailiesRes.value) {
       const title = item.displayTitle
-      if (!q || title.toLowerCase().includes(q) || item.preview.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+      const prettyDate = formatDatePretty(item.date).toLowerCase();
+      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || item.preview.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
         results.push({
           id: item.id,
           type: 'daily-note',
@@ -446,7 +449,8 @@ export async function searchObjects(
   if (habitsRes.status === 'fulfilled') {
     for (const item of habitsRes.value) {
       const title = item.displayTitle
-      if (!q || title.toLowerCase().includes(q) || item.text.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+      const prettyDate = formatDatePretty(item.date).toLowerCase();
+      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || item.text.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
         results.push({
           id: item.id,
           type: 'habit',
@@ -460,7 +464,8 @@ export async function searchObjects(
   if (filesRes.status === 'fulfilled') {
     for (const item of filesRes.value) {
       const title = item.displayTitle
-      if (!q || title.toLowerCase().includes(q) || (item.author ?? '').toLowerCase().includes(q) || (item.startDate ?? '').includes(q)) {
+      const prettyDate = item.startDate ? formatDatePretty(item.startDate).toLowerCase() : '';
+      if (!q || title.toLowerCase().includes(q) || (item.author ?? '').toLowerCase().includes(q) || prettyDate.includes(q) || (item.startDate ?? '').includes(q)) {
         results.push({
           id: item.id,
           type: item.type,
