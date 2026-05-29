@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PuzzlePKM",
+  "version": "1.0.0",
+  "identifier": "com.puzzlepkm.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "PuzzlePKM",
+        "width": 1280,
+        "height": 840,
+        "minHeight": 640,
+        "decorations": true,
+        "titleBarStyle": "Transparent",
+        "resizable": true,
+        "backgroundColor": "#1c1c1e"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "../cli.mjs",
+      "../cli"
+    ],
+    "icon": [
+      "../public/icons/icon-32.png",
+      "../public/icons/icon-128.png",
+      "../public/icons/icon-256.png",
+      "../public/icons/icon.icns",
+      "../public/icons/icon.ico"
+    ]
+  }
+}
