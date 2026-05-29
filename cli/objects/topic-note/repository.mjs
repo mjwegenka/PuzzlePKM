@@ -59,6 +59,7 @@ export function createTopicNoteRepository(deps) {
         date: row.date || '',
         syncPath: row.sync_path || '',
         preview: contentMarkdown.slice(0, 80),
+        contentSearch: contentMarkdown,
         tags: tagNamesByObjectId.get(row.id) ?? [],
         createdAt: row.created_at,
         updatedAt: row.updated_at,

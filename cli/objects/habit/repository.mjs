@@ -24,6 +24,7 @@ export function createHabitRepository(deps) {
     return rows.map((row) => ({
       id: row.id,
       text: row.text,
+      contentSearch: row.text,
       date: row.date,
       status: normalizeHabitStatus(row.status, deps.HABIT_STATUS_PLANNED),
       syncPath: row.sync_path || '',

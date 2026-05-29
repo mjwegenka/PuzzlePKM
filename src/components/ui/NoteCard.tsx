@@ -229,7 +229,7 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
       onClick={onClick}
       title={title}
       className={cn(
-        'w-full break-inside-avoid rounded-[14px] border text-left transition-[background-color,border-color,box-shadow] overflow-hidden',
+        'w-full break-inside-avoid rounded-[14px] border text-left transition-[background-color,border-color,box-shadow] overflow-hidden select-none',
         onClick ? 'cursor-pointer hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-control)]' : 'cursor-default',
       )}
       style={{

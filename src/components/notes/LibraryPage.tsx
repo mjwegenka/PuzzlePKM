@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
+import { Textarea } from '../ui/textarea'
 
 import {
   DropdownMenu,
@@ -44,9 +45,11 @@ import {
 } from '../ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import {
+  deleteObject,
   getObject,
   listHabitMeta,
   listMetaBundle,
+  writeObject,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
@@ -225,6 +228,29 @@ function toSortTimestamp(...values: Array<string | undefined>): number {
   return 0
 }
 
+function isEditableBulkCardType(type: BoardCard['type']): type is Extract<BoardCard['type'], 'topic-note' | 'daily-note' | 'habit' | 'project' | 'ref-material'> {
+  return type === 'topic-note' || type === 'daily-note' || type === 'habit' || type === 'project' || type === 'ref-material'
+}
+
+function isBulkDeletableCardType(type: BoardCard['type']): type is Extract<BoardCard['type'], 'topic-note' | 'daily-note' | 'habit'> {
+  return type === 'topic-note' || type === 'daily-note' || type === 'habit'
+}
+
+function parseBulkTags(rawValue: string): string[] {
+  return String(rawValue)
+    .split(/[\n,]/g)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .map((tag) => tag.replace(/^#/, '').toLowerCase())
+    .filter((tag, index, all) => all.indexOf(tag) === index)
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tagName = target.tagName.toLowerCase()
+  return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select'
+}
+
 // ── Create panel (type selector + blank editor) ───────────────────────────────
 
 interface CreatePanelProps {
@@ -290,6 +316,7 @@ function CreatePanel({
       </div>
     </div>
   )
+
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -339,6 +366,14 @@ export default function LibraryPage({
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
   const [isResizingFileList, setIsResizingFileList] = useState(false)
   const [renderedCards, setRenderedCards] = useState<RenderedBoardCard[]>([])
+  const [selectedCardKeys, setSelectedCardKeys] = useState<string[]>([])
+  const selectionAnchorKeyRef = useRef<string | null>(null)
+  const [showBulkTagDialog, setShowBulkTagDialog] = useState(false)
+  const [bulkTagInput, setBulkTagInput] = useState('')
+  const [bulkTagError, setBulkTagError] = useState<string | null>(null)
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
+  const [bulkActionError, setBulkActionError] = useState<string | null>(null)
+  const [isBulkSaving, setIsBulkSaving] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -541,6 +576,7 @@ export default function LibraryPage({
   const handleSelectItem = useCallback(async (id: string, type: EditorObjectType) => {
     await openObjectInPanel(id, type)
   }, [openObjectInPanel])
+
 
   useEffect(() => {
     if (!pendingSelection) return
@@ -884,6 +920,184 @@ export default function LibraryPage({
     }
   }, [])
 
+  const renderedCardKeys = useMemo(() => renderedCards.map(({ key }) => key), [renderedCards])
+  const renderedCardKeySet = useMemo(() => new Set(renderedCardKeys), [renderedCardKeys])
+  const selectedCardKeySet = useMemo(() => new Set(selectedCardKeys), [selectedCardKeys])
+  const selectedRenderedCards = useMemo(
+    () => renderedCards.filter(({ key }) => selectedCardKeySet.has(key)).map(({ card }) => card),
+    [renderedCards, selectedCardKeySet],
+  )
+  const selectedEditableCards = useMemo(
+    () => selectedRenderedCards.filter((card) => isEditableBulkCardType(card.type)),
+    [selectedRenderedCards],
+  )
+  const selectedDeletableCards = useMemo(
+    () => selectedRenderedCards.filter((card) => isBulkDeletableCardType(card.type)),
+    [selectedRenderedCards],
+  )
+  const selectedCardCount = selectedCardKeys.length
+  const selectedCardLabel = selectedCardCount === 1 ? '1 card selected' : `${selectedCardCount} cards selected`
+  const canBulkEditTags = selectedEditableCards.length > 0
+  const canBulkDelete = selectedCardCount > 0 && selectedDeletableCards.length === selectedCardCount
+
+  useEffect(() => {
+    if (selectedCardKeys.length === 0) return
+    const nextSelected = selectedCardKeys.filter((key) => renderedCardKeySet.has(key))
+    if (nextSelected.length === selectedCardKeys.length) return
+    setSelectedCardKeys(nextSelected)
+    if (nextSelected.length === 0) {
+      selectionAnchorKeyRef.current = null
+    } else if (selectionAnchorKeyRef.current && !renderedCardKeySet.has(selectionAnchorKeyRef.current)) {
+      selectionAnchorKeyRef.current = nextSelected[0] ?? null
+    }
+  }, [renderedCardKeySet, selectedCardKeys])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+        if (renderedCardKeys.length === 0) return
+        event.preventDefault()
+        setSelectedCardKeys(renderedCardKeys)
+        selectionAnchorKeyRef.current = renderedCardKeys[0] ?? null
+        return
+      }
+
+      if (event.key === 'Escape' && selectedCardKeys.length > 0) {
+        event.preventDefault()
+        setSelectedCardKeys([])
+        selectionAnchorKeyRef.current = null
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [renderedCardKeys, selectedCardKeys.length])
+
+  const clearCardSelection = useCallback(() => {
+    setSelectedCardKeys([])
+    selectionAnchorKeyRef.current = null
+  }, [])
+
+  const openBulkTagEditor = useCallback(() => {
+    setBulkActionError(null)
+    setBulkTagError(null)
+    const normalizedCommonTags = selectedEditableCards.length > 0
+      ? selectedEditableCards.reduce<string[]>((commonTags, card, index) => {
+          const currentTags = parseBulkTags(card.tags?.join(', ') ?? '')
+          if (index === 0) return currentTags
+          return commonTags.filter((tag) => currentTags.includes(tag))
+        }, [])
+      : []
+    setBulkTagInput(normalizedCommonTags.join(', '))
+    setShowBulkTagDialog(true)
+  }, [selectedEditableCards])
+
+  const openBulkDeleteDialog = useCallback(() => {
+    setBulkActionError(null)
+    setShowBulkDeleteDialog(true)
+  }, [])
+
+  const handleCardSelectionGesture = useCallback((card: BoardCard, event: React.MouseEvent<HTMLElement>) => {
+    const key = getBoardCardKey(card)
+    const isModifierSelect = event.shiftKey || event.metaKey || event.ctrlKey
+    if (!isModifierSelect) return false
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    setSelectedCardKeys((currentSelected) => {
+
+      const nextSelection = currentSelected.includes(key)
+        ? currentSelected.filter((existingKey) => existingKey !== key)
+        : [...currentSelected, key]
+      selectionAnchorKeyRef.current = key
+      return nextSelection
+    })
+
+    return true
+  }, [])
+
+  const handleCardClick = useCallback(async (card: BoardCard, event: React.MouseEvent<HTMLElement>) => {
+    if (handleCardSelectionGesture(card, event)) return
+
+    if (selectedCardKeys.length > 0) {
+      clearCardSelection()
+    }
+
+    await handleSelectItem(card.id, card.type as EditorObjectType)
+  }, [clearCardSelection, handleCardSelectionGesture, handleSelectItem, selectedCardKeys.length])
+
+  const handleApplyBulkTags = useCallback(async () => {
+    const nextTags = parseBulkTags(bulkTagInput)
+    const selectedCards = selectedEditableCards
+    if (selectedCards.length === 0) {
+      setBulkTagError('Select at least one card that supports tags.')
+      return
+    }
+    if (selectedCards.some((card) => card.type === 'habit') && nextTags.length > 1) {
+      setBulkTagError('Habits can only keep one tag. Reduce the list to one tag or fewer.')
+      return
+    }
+
+    setBulkTagError(null)
+    setBulkActionError(null)
+    setIsBulkSaving(true)
+
+    try {
+      for (const card of selectedCards) {
+        const existing = await getObject(card.type, card.id)
+        const saved = await writeObject(card.type, {
+          ...existing,
+          tags: card.type === 'habit' ? nextTags.slice(0, 1) : nextTags,
+        })
+
+        if (activeObject?.objectId === card.id && activeObject.type === card.type && !activeObject.isDirty) {
+          setActiveObject((prev) => (prev ? { ...prev, object: { ...saved, type: card.type }, isDirty: false } : prev))
+        }
+      }
+
+      await loadAll()
+      clearCardSelection()
+      setShowBulkTagDialog(false)
+      onSaved?.()
+    } catch (error) {
+      setBulkTagError(error instanceof Error ? error.message : 'Failed to update tags for the selected cards.')
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }, [activeObject?.isDirty, activeObject?.objectId, activeObject?.type, bulkTagInput, clearCardSelection, loadAll, onSaved, selectedEditableCards])
+
+  const handleConfirmBulkDelete = useCallback(async () => {
+    const selectedCards = selectedDeletableCards
+    if (selectedCards.length === 0) {
+      setBulkActionError('Select daily notes, topic notes, or habits to delete them in bulk.')
+      return
+    }
+
+    setBulkActionError(null)
+    setIsBulkSaving(true)
+
+    try {
+      for (const card of selectedCards) {
+        await deleteObject(card.type, card.id)
+        if (activeObject?.objectId === card.id && activeObject.type === card.type) {
+          setActiveObject(null)
+        }
+      }
+
+      await loadAll()
+      clearCardSelection()
+      setShowBulkDeleteDialog(false)
+      onSaved?.()
+    } catch (error) {
+      setBulkActionError(error instanceof Error ? error.message : 'Failed to delete the selected cards.')
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }, [activeObject?.objectId, activeObject?.type, clearCardSelection, loadAll, onSaved, selectedDeletableCards])
+
   const activeNoteType = activeObject?.type ?? null
   const activeNoteId = activeObject?.objectId ?? null
   const isGalleryMode = !activeObject
@@ -918,6 +1132,39 @@ export default function LibraryPage({
   }, [nextEditorNavigationTarget, openObjectInPanel])
   const getObjectPanelLabel = (item: ActiveLibraryObject) => {
     return getObjectDisplayTitle(item.type, item.object)
+  }
+
+  const isCardOpenable = (cardType: BoardCard['type']): cardType is EditorObjectType => (
+    cardType === 'topic-note'
+    || cardType === 'daily-note'
+    || cardType === 'habit'
+    || cardType === 'project'
+    || cardType === 'ref-material'
+    || cardType === 'scripture'
+    || cardType === 'tag'
+  )
+
+  const renderBoardCard = (entry: RenderedBoardCard, options?: { gallery?: boolean }) => {
+    const { card, key, phase } = entry
+    const gallery = Boolean(options?.gallery)
+    const isOpenable = isCardOpenable(card.type)
+    const isSelectedCard = selectedCardKeySet.has(key) || (activeNoteId === card.id && activeNoteType === card.type)
+
+    return (
+      <div
+        key={key}
+        data-motion-phase={phase}
+        className={gallery ? 'library-card-motion w-full break-inside-avoid inline-block' : 'library-card-motion'}
+        style={gallery ? { marginBottom: '14px' } : undefined}
+      >
+        <NoteCard
+          card={card}
+          isSelected={isSelectedCard}
+          onClick={isOpenable ? (event) => { void handleCardClick(card, event) } : undefined}
+          title={isOpenable ? 'Click to open. Shift-click or Cmd/Ctrl-click to select.' : undefined}
+        />
+      </div>
+    )
   }
 
   return (
@@ -1037,6 +1284,42 @@ export default function LibraryPage({
         </div>
       </div>
 
+      {selectedCardCount > 0 ? (
+        <div className="mb-2 flex flex-wrap items-center gap-2 px-4 pb-1 text-xs text-[var(--color-text-secondary)]">
+          <span className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[var(--color-text-primary)]">
+            {selectedCardLabel}
+          </span>
+          <Button variant="ghost" size="sm" className="h-8 rounded-[10px] px-3" onClick={clearCardSelection}>
+            Clear selection
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-[10px] px-3"
+            onClick={openBulkTagEditor}
+            disabled={!canBulkEditTags || isBulkSaving}
+            title={canBulkEditTags ? 'Bulk edit tags for the selected cards' : 'Select at least one card that supports tags'}
+          >
+            Edit tags
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-8 rounded-[10px] px-3"
+            onClick={openBulkDeleteDialog}
+            disabled={!canBulkDelete || isBulkSaving}
+            title={canBulkDelete ? 'Delete the selected daily notes, topic notes, or habits' : 'Delete is only available for daily notes, topic notes, and habits'}
+          >
+            Delete selected
+          </Button>
+          {!canBulkDelete ? (
+            <span className="text-[11px] text-[var(--color-text-disabled)]">
+              Deletion is limited to daily notes, topic notes, and habits.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         ref={listRowRef}
         className={`flex min-h-0 w-full min-w-0 gap-1.5 ${(activeObject || isCreating) && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
@@ -1079,40 +1362,11 @@ export default function LibraryPage({
                     maxWidth: '100%',
                   }}
                 >
-                  {renderedCards.map(({ card, key, phase }) => {
-                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
-                    return (
-                      <div
-                        key={key}
-                        data-motion-phase={phase}
-                        className="library-card-motion w-full break-inside-avoid inline-block"
-                        style={{ marginBottom: '14px' }}
-                      >
-                        <NoteCard
-                          card={card}
-                          isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                          onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
-                          title={isOpenable ? 'Click to open in the detail pane' : undefined}
-                        />
-                      </div>
-                    )
-                  })}
+                  {renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))}
                 </div>
               ) : (
                 <div className="mx-auto flex w-full max-w-[960px] flex-col" style={{ gap: '14px' }}>
-                  {renderedCards.map(({ card, key, phase }) => {
-                    const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
-                    return (
-                      <div key={key} data-motion-phase={phase} className="library-card-motion">
-                        <NoteCard
-                          card={card}
-                          isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                          onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
-                          title={isOpenable ? 'Click to open in the detail pane' : undefined}
-                        />
-                      </div>
-                    )
-                  })}
+                  {renderedCards.map((entry) => renderBoardCard(entry))}
                 </div>
               )}
             </div>
@@ -1210,6 +1464,86 @@ export default function LibraryPage({
         )}
       </div>
 
+
+      <Dialog open={showBulkTagDialog} onOpenChange={(open) => {
+        setShowBulkTagDialog(open)
+        if (!open) {
+          setBulkTagError(null)
+          setBulkActionError(null)
+        }
+      }}>
+        <DialogContent className="max-w-lg" aria-label="Bulk edit tags">
+          <DialogHeader>
+            <DialogTitle>Edit tags for selected cards</DialogTitle>
+            <DialogDescription>
+              Tags entered here will replace the tags on the selected items.
+              {selectedEditableCards.some((card) => card.type === 'habit') ? ' Habits can only keep one tag.' : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="text-xs text-[var(--color-text-secondary)]">
+              {selectedEditableCards.length} selected item{selectedEditableCards.length === 1 ? '' : 's'} support tags.
+            </div>
+            <Textarea
+              value={bulkTagInput}
+              onChange={(e) => setBulkTagInput(e.target.value)}
+              placeholder="tag-one, tag-two"
+              className="min-h-[120px] rounded-[12px] border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-sm"
+            />
+            <div className="text-xs text-[var(--color-text-disabled)]">
+              Separate tags with commas or new lines. Leaving this empty clears tags.
+            </div>
+            {bulkTagError ? (
+              <div className="rounded-[12px] border border-[rgba(220,38,38,0.25)] bg-[rgba(220,38,38,0.08)] px-3 py-2 text-sm text-[var(--color-state-error)]">
+                {bulkTagError}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowBulkTagDialog(false)} disabled={isBulkSaving}>
+              Cancel
+            </Button>
+            <Button variant="default" onClick={() => { void handleApplyBulkTags() }} disabled={isBulkSaving}>
+              {isBulkSaving ? 'Saving…' : 'Apply tags'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkDeleteDialog} onOpenChange={(open) => {
+        setShowBulkDeleteDialog(open)
+        if (!open) {
+          setBulkActionError(null)
+        }
+      }}>
+        <DialogContent className="max-w-lg" aria-label="Delete selected cards">
+          <DialogHeader>
+            <DialogTitle>Delete selected cards?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the selected daily notes, topic notes, or habits.
+              Cards that are not deletable will be ignored.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="text-sm text-[var(--color-text-secondary)]">
+              {selectedDeletableCards.length} of {selectedCardCount} selected item{selectedCardCount === 1 ? '' : 's'} can be deleted.
+            </div>
+            {bulkActionError ? (
+              <div className="rounded-[12px] border border-[rgba(220,38,38,0.25)] bg-[rgba(220,38,38,0.08)] px-3 py-2 text-sm text-[var(--color-state-error)]">
+                {bulkActionError}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowBulkDeleteDialog(false)} disabled={isBulkSaving}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => { void handleConfirmBulkDelete() }} disabled={isBulkSaving}>
+              {isBulkSaving ? 'Deleting…' : 'Delete selected'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Dialog for unsaved changes */}
       <Dialog open={!!confirmCloseTarget} onOpenChange={(open) => { if (!open) { setConfirmCloseTarget(null); setDeferredSelection(null) } }}>
