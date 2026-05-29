@@ -177,8 +177,6 @@ const LIBRARY_LIST_MIN_WIDTH = 320
 const LIBRARY_LIST_DEFAULT_WIDTH = 372
 const LIBRARY_DETAIL_MIN_WIDTH = 420
 const LIBRARY_COLUMN_GAP_PX = 12
-const LIBRARY_CARD_MOTION_MS = 180
-
 function getBoardCardKey(card: Pick<BoardCard, 'id' | 'type'>): string {
   return `${card.type}:${card.id}`
 }
@@ -261,26 +259,28 @@ function CreatePanel({
   ), [createType, initialDate])
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
-      {/* Panel header */}
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Panel header — matches open-item header chrome */}
       {showHeader ? (
-        <div className="flex shrink-0 items-center justify-between px-2.5 pb-1.5 pt-2">
-          <p className="text-xs font-bold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-            {createType === 'topic-note' ? 'New Topic Note' : createType === 'daily-note' ? 'New Daily Note' : 'New Habit'}
-          </p>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 rounded-full text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
+        <div className="flex min-h-[72px] shrink-0 items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
+          <div className="min-w-0 flex-1 px-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+              {createType === 'topic-note' ? 'New Topic Note' : createType === 'daily-note' ? 'New Daily Note' : 'New Habit'}
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
             <X className="h-4 w-4" />
           </Button>
         </div>
       ) : null}
 
-
       {/* Blank editor fills remaining space */}
-      <div className="flex min-h-0 flex-1 p-0">
+      <div className="flex min-h-0 flex-1 overflow-hidden p-0">
         <ObjectEditor
           key={createKey}
           object={blankObject}
           type={createType}
+          flatTop
           onSave={onSave}
           onCancel={onClose}
           onDirty={onDirty}
@@ -288,7 +288,7 @@ function CreatePanel({
           onDateChange={createType === 'daily-note' ? onCreateDateChange : undefined}
         />
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -307,7 +307,6 @@ export default function LibraryPage({
   const pendingScrollRestoreRef = useRef<number | null>(null)
   const latestLoadRequestRef = useRef(0)
   const cardMotionTimeoutsRef = useRef<number[]>([])
-  const cardMotionFrameRef = useRef<number | null>(null)
   const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 900 : false))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
@@ -843,9 +842,7 @@ export default function LibraryPage({
         return isInboxEligibleCardType(card.type) && hasInboxTag(card.tags ?? [])
       }
 
-      if (!itemMatchesTagFilters(card.tags, tagFilters)) return false
-
-      return true
+      return itemMatchesTagFilters(card.tags, tagFilters)
     })
 
     const compareByTitle = (a: BoardCard, b: BoardCard) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
@@ -856,80 +853,33 @@ export default function LibraryPage({
   }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
 
   useEffect(() => {
-    if (cardMotionFrameRef.current !== null) {
-      window.cancelAnimationFrame(cardMotionFrameRef.current)
-      cardMotionFrameRef.current = null
-    }
     cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     cardMotionTimeoutsRef.current = []
 
-    const enteringKeys: string[] = []
-    const exitingKeys: string[] = []
-
     setRenderedCards((previous) => {
       const previousByKey = new Map(previous.map((item) => [item.key, item]))
+      const shouldAnimateEntries = previous.length > 0
       const nextCards: RenderedBoardCard[] = allCards.map((card) => {
         const key = getBoardCardKey(card)
         const existing = previousByKey.get(key)
         if (!existing) {
-          enteringKeys.push(key)
-          return { key, card, phase: 'entering' as const }
+          return { key, card, phase: shouldAnimateEntries ? 'entering' : 'present' }
         }
         return {
           key,
           card,
-          phase: existing.phase === 'exiting' ? 'present' as const : existing.phase,
+          phase: 'present' as const,
         }
       })
 
-      const nextKeySet = new Set(nextCards.map((item) => item.key))
-      const exitingCards = previous
-        .map((item, index) => ({ item, index }))
-        .filter(({ item }) => !nextKeySet.has(item.key))
-
-      if (exitingCards.length === 0) {
-        return nextCards
-      }
-
-      const combined: RenderedBoardCard[] = [...nextCards]
-      exitingCards.forEach(({ item, index }) => {
-        exitingKeys.push(item.key)
-        combined.splice(Math.min(index, combined.length), 0, {
-          ...item,
-          phase: 'exiting' as const,
-        })
-      })
-
-      return combined
+      // In masonry/list filtering flows, keep the layout compact by dropping
+      // removed cards immediately instead of reserving their previous slot.
+      return nextCards
     })
-
-    if (enteringKeys.length > 0) {
-      const enteringKeySet = new Set(enteringKeys)
-      cardMotionFrameRef.current = window.requestAnimationFrame(() => {
-        cardMotionFrameRef.current = null
-        setRenderedCards((previous) => previous.map((item) => (
-          enteringKeySet.has(item.key) && item.phase === 'entering'
-            ? { ...item, phase: 'present' }
-            : item
-        )))
-      })
-    }
-
-    if (exitingKeys.length > 0) {
-      const exitingKeySet = new Set(exitingKeys)
-      const timeoutId = window.setTimeout(() => {
-        setRenderedCards((previous) => previous.filter((item) => !(exitingKeySet.has(item.key) && item.phase === 'exiting')))
-        cardMotionTimeoutsRef.current = cardMotionTimeoutsRef.current.filter((value) => value !== timeoutId)
-      }, LIBRARY_CARD_MOTION_MS)
-      cardMotionTimeoutsRef.current.push(timeoutId)
-    }
   }, [allCards])
 
   useEffect(() => {
     return () => {
-      if (cardMotionFrameRef.current !== null) {
-        window.cancelAnimationFrame(cardMotionFrameRef.current)
-      }
       cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     }
   }, [])
@@ -1193,10 +1143,7 @@ export default function LibraryPage({
           <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
             <>
               {/* Panel header */}
-              {isCreating ? (
-                /* Create panel has its own header inside CreatePanel */
-                null
-              ) : activeObject ? (
+              {!isCreating && activeObject ? (
                 <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
                   <div className="min-w-0 flex-1 px-2">
                     <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
