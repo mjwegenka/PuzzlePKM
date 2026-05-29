@@ -3,22 +3,31 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { DayPicker, type DayPickerProps } from 'react-day-picker'
 import 'react-day-picker/style.css'
 
-import { cn } from '../../lib/utils'
+import { cn } from '@/lib/utils'
 
 export type CalendarProps = DayPickerProps
 
 export function Calendar({ className, classNames, showOutsideDays = true, ...props }: CalendarProps) {
+  const isDropdownCaption = props.captionLayout === 'dropdown'
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
+      hideNavigation={isDropdownCaption}
       className={cn('p-3', className)}
       classNames={{
         root: 'rdp-root',
         months: 'flex flex-col sm:flex-row gap-4',
         month: 'space-y-4',
-        month_caption: 'relative flex h-9 items-center justify-center px-9 pt-1',
-        caption_label: 'text-sm font-medium text-[var(--color-text-primary)]',
-        nav: 'pointer-events-none absolute inset-x-1 top-1 flex items-center justify-between',
+        month_caption: isDropdownCaption
+          ? 'relative flex h-9 items-center justify-start px-3 pt-1'
+          : 'relative flex h-9 items-center justify-center px-9 pt-1',
+        caption_label: isDropdownCaption
+          ? 'sr-only'
+          : 'text-sm font-medium text-[var(--color-text-primary)]',
+        nav: isDropdownCaption
+          ? 'hidden'
+          : 'pointer-events-none absolute inset-x-1 top-1 flex items-center justify-between',
         button_previous: 'pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
         button_next: 'pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
         month_grid: 'w-full border-collapse space-y-1',
@@ -35,6 +44,18 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
         disabled: 'text-[var(--color-text-disabled)] opacity-40',
         range_middle: 'aria-selected:bg-[var(--color-surface-hover)] aria-selected:text-[var(--color-text-primary)]',
         hidden: 'invisible',
+        // Dropdown caption layout
+        dropdowns: 'flex items-center gap-1.5',
+        dropdown_root: 'relative',
+        dropdown: [
+          'h-7 appearance-none rounded-[8px] border border-[var(--color-border-subtle)]',
+          'bg-[var(--color-surface-control)] px-2 py-0.5 pr-6 text-sm font-medium',
+          'text-[var(--color-text-primary)] cursor-pointer',
+          'focus:outline-none focus:ring-2 focus:ring-[var(--color-action-focus)]',
+          'hover:bg-[var(--color-surface-hover)]',
+        ].join(' '),
+        months_dropdown: '',
+        years_dropdown: '',
         ...classNames,
       }}
       components={{
@@ -49,6 +70,4 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
     />
   )
 }
-
-export default Calendar
 

@@ -1561,9 +1561,31 @@ function ensureTagIds(db, displayNames) {
   return ids;
 }
 
-function cleanupOrphanedTags(db, tagIds) {
+function cleanupOrphanedTags(db, tagIds, options = {}) {
+  const fullSweep = options.fullSweep === true;
+  // Remove object_tags rows that reference objects that no longer exist.
+  db.prepare(`
+    DELETE FROM object_tags
+    WHERE
+      (object_type = 'topic-note' AND NOT EXISTS (SELECT 1 FROM topic_notes WHERE topic_notes.id = object_tags.object_id))
+      OR (object_type = 'daily-note' AND NOT EXISTS (SELECT 1 FROM daily_notes WHERE daily_notes.id = object_tags.object_id))
+      OR (object_type = 'project' AND NOT EXISTS (SELECT 1 FROM projects WHERE projects.id = object_tags.object_id))
+      OR (object_type = 'ref-material' AND NOT EXISTS (SELECT 1 FROM ref_materials WHERE ref_materials.id = object_tags.object_id))
+      OR (object_type = 'habit' AND NOT EXISTS (SELECT 1 FROM habits WHERE habits.id = object_tags.object_id))
+      OR (object_type = 'scripture' AND NOT EXISTS (SELECT 1 FROM scriptures WHERE scriptures.id = object_tags.object_id))
+  `).run();
+
   const candidates = Array.from(new Set((Array.isArray(tagIds) ? tagIds : []).filter(Boolean)));
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    if (!fullSweep) return;
+    db.prepare(`
+      DELETE FROM tags
+      WHERE id NOT IN (
+        SELECT DISTINCT tag_id FROM object_tags
+      )
+    `).run();
+    return;
+  }
   const placeholders = candidates.map(() => '?').join(', ');
   db.prepare(`
     DELETE FROM tags
@@ -2382,6 +2404,7 @@ function listObjects(type) {
 
 function listMetaBundle() {
   return withDb((db) => {
+    cleanupOrphanedTags(db, undefined, { fullSweep: true });
     const projects = listProjects(db).map((row) => ({ ...row, type: 'project' }));
     const refMaterials = listRefMats(db).map((row) => ({ ...row, type: 'ref-material' }));
     // Bulk fetch all object-link edges in a single query to avoid N+1 per-note gets
@@ -4032,6 +4055,23 @@ async function reconcileMobileInboxHabits(db, rootFolder) {
   return result;
 }
 
+const DAILY_NOTE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let lastDailyNoteCleanupAt = 0;
+
+async function maybeCleanupStaleDailyNotes(db) {
+  const now = Date.now();
+  if (now - lastDailyNoteCleanupAt < DAILY_NOTE_CLEANUP_INTERVAL_MS) return 0;
+  lastDailyNoteCleanupAt = now;
+
+  const eligibleDailyNoteIds = listDailyNotes(db)
+    .filter((note) => isDailyNoteDeleteEligible(db, note.id))
+    .map((note) => note.id);
+
+  if (eligibleDailyNoteIds.length === 0) return 0;
+  cleanupDailyNotesIfEligible(db, eligibleDailyNoteIds);
+  return eligibleDailyNoteIds.length;
+}
+
 async function runSync() {
   const token = null;
   const rootFolder = getSyncRootFolder();
@@ -4049,11 +4089,12 @@ async function runSync() {
       reconcileMobileInboxHabits(db, rootFolder),
     ]);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
+    const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
     return {
       imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + mobileNoteResult.imported + mobileHabitResult.imported,
       updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + mobileNoteResult.appended,
       uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
-      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted,
+      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + staleDailyNoteCleanupResult,
       warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
       errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...mobileNoteResult.errors, ...mobileHabitResult.errors, ...metadataCleanupResult.errors],
     };

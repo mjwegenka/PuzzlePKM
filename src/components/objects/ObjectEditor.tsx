@@ -105,6 +105,27 @@ async function resolvePendingDateHrefs(
   return { blocks: resolvedBlocks, content: resolvedContent };
 }
 
+async function resolveOrCreateDailyNoteHref(date: string): Promise<string> {
+  const normalizedDate = String(date ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) return '';
+
+  try {
+    const existing = await getObject('daily-note', normalizedDate);
+    const existingId = String((existing as { id?: unknown }).id ?? '').trim();
+    if (existingId) return existingId;
+  } catch {
+    // Not found — fall through to create.
+  }
+
+  const created = await writeObject('daily-note', {
+    date: normalizedDate,
+    contentMarkdown: '',
+    blocks: [],
+    tags: [],
+  });
+  return String(created.id ?? '').trim();
+}
+
 function normalizeSyncPath(path?: string): string | undefined {  const value = (path ?? '').trim();
   return value && value !== '(no path)' ? value.replace(/\\/g, '/') : undefined;
 }
@@ -303,9 +324,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       const baseHref = option.id.trim();
       if (!baseHref) return '';
 
-      // Synthetic date option — keep the date: placeholder href.
-      // It will be resolved to a real daily note UUID at save time.
-      if (baseHref.startsWith(DATE_MENTION_HREF_PREFIX)) return baseHref;
+      // Synthetic date option — create or reuse the Daily Note immediately so the
+      // mention stores a stable UUID href instead of a placeholder.
+      if (baseHref.startsWith(DATE_MENTION_HREF_PREFIX)) {
+        const date = baseHref.slice(DATE_MENTION_HREF_PREFIX.length);
+        return await resolveOrCreateDailyNoteHref(date) || baseHref;
+      }
 
       const isNoteTarget =
         option.type === 'topic-note' || option.type === 'daily-note';
@@ -763,6 +787,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const showTitle = type !== 'daily-note' && type !== 'habit';
   const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
   const isOptionalDate = type === 'topic-note' || type === 'project';
+  // Daily note dates are immutable once created; only allow editing on new (unsaved) daily notes
+  const isDateReadOnly = type === 'daily-note' && !!object?.id;
   const showContent = type !== 'project' && type !== 'ref-material';
   const isHabit = type === 'habit';
   const tagsEditor = (
@@ -894,8 +920,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                       labelClassName="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]"
                       value={date}
                       onChange={setDate}
-                      helperText={!date && isOptionalDate ? 'No date set' : undefined}
+                      helperText={isDateReadOnly ? 'Date cannot be changed after creation' : (!date && isOptionalDate ? 'No date set' : undefined)}
                       allowClear={isOptionalDate}
+                      readOnly={isDateReadOnly}
                     />
                   </div>
                 )}
@@ -1041,8 +1068,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                         labelClassName="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]"
                         value={date}
                         onChange={setDate}
-                        helperText={!date && isOptionalDate ? 'No date set' : undefined}
+                        helperText={isDateReadOnly ? 'Date cannot be changed after creation' : (!date && isOptionalDate ? 'No date set' : undefined)}
                         allowClear={isOptionalDate}
+                        readOnly={isDateReadOnly}
                       />
                   </div>
                 )}

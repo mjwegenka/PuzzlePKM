@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { addDays, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from 'date-fns'
-import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
+import { addDays, format, isSameDay, isSameMonth, isValid, parseISO, startOfMonth, startOfWeek } from 'date-fns'
+import * as Popover from '@radix-ui/react-popover'
+import { CalendarIcon, ChevronLeft, ChevronRight, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import { Button } from '../ui/button'
 import FilterChip from '../ui/FilterChip'
+import { Calendar } from '../ui/calendar'
 import {
   Dialog,
   DialogContent,
@@ -106,6 +108,7 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<CalObjectType[]>(DEFAULT_VISIBLE_CAL_TYPES)
+  const [jumpDateOpen, setJumpDateOpen] = useState(false)
 
   const today = useMemo(() => new Date(), [])
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
@@ -291,6 +294,19 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     setSelectedDate(formatDateKey(next))
   }, [])
 
+  const selectedJumpDate = useMemo(() => {
+    if (!selectedDate) return undefined
+    const parsed = parseISO(selectedDate)
+    return isValid(parsed) ? parsed : undefined
+  }, [selectedDate])
+
+  const handleJumpDateSelect = useCallback((date?: Date) => {
+    if (!date) return
+    setSelectedDate(formatDateKey(date))
+    setCurrentMonth(date)
+    setJumpDateOpen(false)
+  }, [])
+
   const handlePrevMonth = useCallback(() => {
     setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
   }, [])
@@ -402,6 +418,38 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
               className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
             />
           </div>
+
+          <Popover.Root open={jumpDateOpen} onOpenChange={setJumpDateOpen}>
+            <Popover.Trigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground"
+                aria-label="Jump to date"
+                title={selectedDate ? `Jump date: ${selectedDate}` : 'Jump to date'}
+              >
+                <CalendarIcon className="h-4 w-4" />
+              </Button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                sideOffset={8}
+                align="start"
+                className="z-50 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-0 text-[var(--color-text-primary)] shadow-xl outline-none"
+              >
+                <Calendar
+                  mode="single"
+                  selected={selectedJumpDate}
+                  defaultMonth={selectedJumpDate ?? currentMonth}
+                  onSelect={handleJumpDateSelect}
+                  captionLayout="dropdown"
+                  startMonth={new Date(2000, 0)}
+                  endMonth={new Date(2040, 11)}
+                />
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
 
           <div className="ml-auto inline-flex shrink-0 items-center rounded-full border border-current bg-[var(--color-surface-control)]/88 p-1 text-[var(--color-text-disabled)] hover:bg-[var(--color-surface-hover)]">
             <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handlePrevMonth}>
