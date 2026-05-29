@@ -41,11 +41,53 @@ struct BackgroundSyncStartResult {
     status: BackgroundSyncStatus,
 }
 
+enum BackgroundSyncCompletion {
+    Success,
+    Failure(String),
+}
+
 fn unix_timestamp_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn mark_background_sync_started(status: &mut BackgroundSyncStatus, started_at: u64) -> BackgroundSyncStartResult {
+    if status.syncing {
+        return BackgroundSyncStartResult {
+            started: false,
+            status: status.clone(),
+        };
+    }
+
+    status.syncing = true;
+    status.last_started_at = Some(started_at);
+    status.last_error = None;
+
+    BackgroundSyncStartResult {
+        started: true,
+        status: status.clone(),
+    }
+}
+
+fn mark_background_sync_finished(
+    status: &mut BackgroundSyncStatus,
+    finished_at: u64,
+    completion: BackgroundSyncCompletion,
+) {
+    status.syncing = false;
+    status.last_finished_at = Some(finished_at);
+
+    match completion {
+        BackgroundSyncCompletion::Success => {
+            status.last_succeeded_at = Some(finished_at);
+            status.last_error = None;
+        }
+        BackgroundSyncCompletion::Failure(error) => {
+            status.last_error = Some(error);
+        }
+    }
 }
 
 fn resolve_cli_path(app: &tauri::AppHandle) -> PathBuf {
@@ -177,50 +219,35 @@ async fn start_background_sync(app: tauri::AppHandle) -> Result<BackgroundSyncSt
     let state = app.state::<BackgroundSyncState>();
     let snapshot = {
         let mut status = state.0.lock().await;
-        if status.syncing {
-            return Ok(BackgroundSyncStartResult {
-                started: false,
-                status: status.clone(),
-            });
-        }
-
-        status.syncing = true;
-        status.last_started_at = Some(unix_timestamp_ms());
-        status.last_error = None;
-        status.clone()
+        mark_background_sync_started(&mut status, unix_timestamp_ms())
     };
+
+    if !snapshot.started {
+        return Ok(snapshot);
+    }
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let result = execute_cli_command(app_handle.clone(), vec!["sync".to_string()], false).await;
         let state = app_handle.state::<BackgroundSyncState>();
         let mut status = state.0.lock().await;
-        status.syncing = false;
-        status.last_finished_at = Some(unix_timestamp_ms());
-
-        match result {
-            Ok(run) if run.exit_code == 0 => {
-                status.last_succeeded_at = status.last_finished_at;
-                status.last_error = None;
-            }
+        let completion = match result {
+            Ok(run) if run.exit_code == 0 => BackgroundSyncCompletion::Success,
             Ok(run) => {
                 let stderr = run.stderr.trim();
-                status.last_error = Some(if stderr.is_empty() {
+                let message = if stderr.is_empty() {
                     format!("sync failed with exit code {}", run.exit_code)
                 } else {
                     stderr.to_string()
-                });
+                };
+                BackgroundSyncCompletion::Failure(message)
             }
-            Err(error) => {
-                status.last_error = Some(error);
-            }
-        }
+            Err(error) => BackgroundSyncCompletion::Failure(error),
+        };
+        mark_background_sync_finished(&mut status, unix_timestamp_ms(), completion);
     });
 
-    Ok(BackgroundSyncStartResult {
-        started: true,
-        status: snapshot,
-    })
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -332,5 +359,92 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        mark_background_sync_finished,
+        mark_background_sync_started,
+        BackgroundSyncCompletion,
+        BackgroundSyncStatus,
+    };
+
+    #[test]
+    fn background_sync_start_sets_in_flight_state_and_clears_error() {
+        let mut status = BackgroundSyncStatus {
+            syncing: false,
+            last_started_at: None,
+            last_finished_at: Some(50),
+            last_succeeded_at: Some(40),
+            last_error: Some("old failure".to_string()),
+        };
+
+        let result = mark_background_sync_started(&mut status, 100);
+        assert!(result.started);
+        assert!(status.syncing);
+        assert_eq!(status.last_started_at, Some(100));
+        assert_eq!(status.last_error, None);
+        assert_eq!(result.status.last_started_at, Some(100));
+    }
+
+    #[test]
+    fn background_sync_start_is_idempotent_while_already_syncing() {
+        let mut status = BackgroundSyncStatus {
+            syncing: true,
+            last_started_at: Some(70),
+            last_finished_at: Some(60),
+            last_succeeded_at: Some(60),
+            last_error: None,
+        };
+
+        let result = mark_background_sync_started(&mut status, 120);
+        assert!(!result.started);
+        assert!(status.syncing);
+        assert_eq!(status.last_started_at, Some(70));
+        assert_eq!(result.status.last_started_at, Some(70));
+    }
+
+    #[test]
+    fn background_sync_finish_success_sets_finish_and_success_timestamps() {
+        let mut status = BackgroundSyncStatus {
+            syncing: true,
+            last_started_at: Some(100),
+            last_finished_at: None,
+            last_succeeded_at: Some(80),
+            last_error: Some("old failure".to_string()),
+        };
+
+        mark_background_sync_finished(&mut status, 140, BackgroundSyncCompletion::Success);
+        assert!(!status.syncing);
+        assert_eq!(status.last_finished_at, Some(140));
+        assert_eq!(status.last_succeeded_at, Some(140));
+        assert_eq!(status.last_error, None);
+    }
+
+    #[test]
+    fn background_sync_finish_failure_sets_error_without_touching_last_success() {
+        let mut status = BackgroundSyncStatus {
+            syncing: true,
+            last_started_at: Some(100),
+            last_finished_at: None,
+            last_succeeded_at: Some(90),
+            last_error: None,
+        };
+
+        mark_background_sync_finished(
+            &mut status,
+            160,
+            BackgroundSyncCompletion::Failure("sync failed with exit code 1".to_string()),
+        );
+
+        assert!(!status.syncing);
+        assert_eq!(status.last_finished_at, Some(160));
+        assert_eq!(status.last_succeeded_at, Some(90));
+        assert_eq!(
+            status.last_error,
+            Some("sync failed with exit code 1".to_string())
+        );
+    }
 }
 

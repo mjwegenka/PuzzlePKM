@@ -831,6 +831,14 @@ export default function RichMarkdownEditor({
     return () => window.cancelAnimationFrame(frame)
   }, [showMarkdownView, isFullscreen])
 
+  // Auto-resize the raw markdown textarea to its content height in non-fullscreen mode.
+  useEffect(() => {
+    if (isFullscreen || !showMarkdownView || !markdownTextareaRef.current) return
+    const el = markdownTextareaRef.current
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, 240)}px`
+  }, [showMarkdownView, markdownPreview, isFullscreen])
+
   useEffect(() => {
     if (!isFullscreen || typeof document === 'undefined') return
     const previousOverflow = document.body.style.overflow
@@ -1018,7 +1026,7 @@ export default function RichMarkdownEditor({
 
   const shell = (
     <div className={cn(
-      'relative flex h-full min-h-0 flex-1 flex-col overflow-hidden',
+      'relative flex flex-col',
       isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen bg-[var(--color-surface-app)] p-4' : '',
     )}>
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -1033,8 +1041,8 @@ export default function RichMarkdownEditor({
       </div>
 
       <div className={cn(
-        'flex min-h-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]',
-        isFullscreen && 'rounded-[18px]',
+        'flex flex-col overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]',
+        isFullscreen ? 'min-h-0 flex-1 rounded-[18px]' : '',
       )}>
         <TooltipProvider>
           <div className={cn(
@@ -1138,8 +1146,12 @@ export default function RichMarkdownEditor({
 
         <div
           className={cn(
-            'relative flex-1 overflow-auto bg-[var(--color-surface-elevated)] px-5 py-4',
-            showMarkdownView && 'overflow-hidden p-0',
+            'relative bg-[var(--color-surface-elevated)]',
+            isFullscreen
+              ? 'flex-1 overflow-auto px-5 py-4'
+              : 'min-h-[240px] px-5 py-4',
+            showMarkdownView && 'p-0',
+            showMarkdownView && isFullscreen && 'overflow-hidden',
           )}
           onMouseDownCapture={(event) => {
             handleModifiedLinkClick(event)
@@ -1159,7 +1171,10 @@ export default function RichMarkdownEditor({
               onKeyDown={handleMarkdownKeyDown}
               spellCheck={false}
               style={{ fontSize: '17px', lineHeight: 1.55 }}
-              className="puzzlepkm-rich-editor-markdown h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[var(--color-text-primary)] shadow-none outline-none placeholder:text-[var(--color-text-disabled)] focus-visible:ring-0"
+              className={cn(
+                'puzzlepkm-rich-editor-markdown w-full resize-none rounded-none border-0 bg-transparent px-5 py-4 text-[var(--color-text-primary)] shadow-none outline-none placeholder:text-[var(--color-text-disabled)] focus-visible:ring-0',
+                isFullscreen ? 'h-full min-h-0' : 'min-h-[240px]',
+              )}
             />
           ) : (
             <EditorContent editor={editor} />

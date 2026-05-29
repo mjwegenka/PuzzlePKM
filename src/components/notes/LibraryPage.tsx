@@ -142,6 +142,12 @@ interface BoardCard extends NoteCardData {
   sortTimestamp: number
 }
 
+interface RenderedBoardCard {
+  key: string
+  card: BoardCard
+  phase: 'entering' | 'present' | 'exiting'
+}
+
 type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
 type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture'
 
@@ -171,6 +177,11 @@ const LIBRARY_LIST_MIN_WIDTH = 320
 const LIBRARY_LIST_DEFAULT_WIDTH = 372
 const LIBRARY_DETAIL_MIN_WIDTH = 420
 const LIBRARY_COLUMN_GAP_PX = 12
+const LIBRARY_CARD_MOTION_MS = 180
+
+function getBoardCardKey(card: Pick<BoardCard, 'id' | 'type'>): string {
+  return `${card.type}:${card.id}`
+}
 
 function clampLibraryListWidth(width: number, containerWidth?: number): number {
   const maxFromContainer = typeof containerWidth === 'number'
@@ -294,6 +305,9 @@ export default function LibraryPage({
   const listRowRef = useRef<HTMLDivElement | null>(null)
   const listScrollerRef = useRef<HTMLDivElement | null>(null)
   const pendingScrollRestoreRef = useRef<number | null>(null)
+  const latestLoadRequestRef = useRef(0)
+  const cardMotionTimeoutsRef = useRef<number[]>([])
+  const cardMotionFrameRef = useRef<number | null>(null)
   const [isSmallScreen, setIsSmallScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 900 : false))
   const [topicNotes, setTopicNotes] = useState<TopicItem[]>([])
   const [dailyNotes, setDailyNotes] = useState<DailyItem[]>([])
@@ -301,6 +315,8 @@ export default function LibraryPage({
   const [files, setFiles] = useState<FileItem[]>([])
   const [scriptures, setScriptures] = useState<ScriptureItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   const [activeObject, setActiveObject] = useState<ActiveLibraryObject | null>(null)
   const [deferredSelection, setDeferredSelection] = useState<{ id: string; type: EditorObjectType } | null>(null)
@@ -323,6 +339,7 @@ export default function LibraryPage({
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
   const [isResizingFileList, setIsResizingFileList] = useState(false)
+  const [renderedCards, setRenderedCards] = useState<RenderedBoardCard[]>([])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -419,18 +436,32 @@ export default function LibraryPage({
   const isTagFilterCustomized = hasActiveTagFilters(tagFilters)
 
   const loadAll = useCallback(async () => {
-    setLoading(true)
+    const requestId = latestLoadRequestRef.current + 1
+    latestLoadRequestRef.current = requestId
+
+    if (hasLoadedOnce) {
+      setIsRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+
     try {
       const bundle = await listMetaBundle()
+      if (latestLoadRequestRef.current !== requestId) return
+
       setTopicNotes(bundle.topicNotes as TopicItem[])
       setDailyNotes(bundle.dailyNotes as DailyItem[])
       setHabits(bundle.habits as HabitItem[])
       setFiles(bundle.files as FileItem[])
       setScriptures(bundle.scriptures as ScriptureItem[])
+      setHasLoadedOnce(true)
     } finally {
-      setLoading(false)
+      if (latestLoadRequestRef.current === requestId) {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
     }
-  }, [])
+  }, [hasLoadedOnce])
 
   const captureListScrollForRestore = useCallback(() => {
     const node = listScrollerRef.current
@@ -438,8 +469,10 @@ export default function LibraryPage({
     pendingScrollRestoreRef.current = node.scrollTop
   }, [])
 
+  const isListReloading = loading || isRefreshing
+
   useEffect(() => {
-    if (loading) return
+    if (isListReloading) return
     const targetScrollTop = pendingScrollRestoreRef.current
     if (targetScrollTop == null) return
     const node = listScrollerRef.current
@@ -452,7 +485,7 @@ export default function LibraryPage({
         node.scrollTop = targetScrollTop
       })
     })
-  }, [loading])
+  }, [isListReloading])
 
   useEffect(() => {
     loadAll()
@@ -821,6 +854,86 @@ export default function LibraryPage({
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
   }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
+
+  useEffect(() => {
+    if (cardMotionFrameRef.current !== null) {
+      window.cancelAnimationFrame(cardMotionFrameRef.current)
+      cardMotionFrameRef.current = null
+    }
+    cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    cardMotionTimeoutsRef.current = []
+
+    const enteringKeys: string[] = []
+    const exitingKeys: string[] = []
+
+    setRenderedCards((previous) => {
+      const previousByKey = new Map(previous.map((item) => [item.key, item]))
+      const nextCards: RenderedBoardCard[] = allCards.map((card) => {
+        const key = getBoardCardKey(card)
+        const existing = previousByKey.get(key)
+        if (!existing) {
+          enteringKeys.push(key)
+          return { key, card, phase: 'entering' as const }
+        }
+        return {
+          key,
+          card,
+          phase: existing.phase === 'exiting' ? 'present' as const : existing.phase,
+        }
+      })
+
+      const nextKeySet = new Set(nextCards.map((item) => item.key))
+      const exitingCards = previous
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => !nextKeySet.has(item.key))
+
+      if (exitingCards.length === 0) {
+        return nextCards
+      }
+
+      const combined: RenderedBoardCard[] = [...nextCards]
+      exitingCards.forEach(({ item, index }) => {
+        exitingKeys.push(item.key)
+        combined.splice(Math.min(index, combined.length), 0, {
+          ...item,
+          phase: 'exiting' as const,
+        })
+      })
+
+      return combined
+    })
+
+    if (enteringKeys.length > 0) {
+      const enteringKeySet = new Set(enteringKeys)
+      cardMotionFrameRef.current = window.requestAnimationFrame(() => {
+        cardMotionFrameRef.current = null
+        setRenderedCards((previous) => previous.map((item) => (
+          enteringKeySet.has(item.key) && item.phase === 'entering'
+            ? { ...item, phase: 'present' }
+            : item
+        )))
+      })
+    }
+
+    if (exitingKeys.length > 0) {
+      const exitingKeySet = new Set(exitingKeys)
+      const timeoutId = window.setTimeout(() => {
+        setRenderedCards((previous) => previous.filter((item) => !(exitingKeySet.has(item.key) && item.phase === 'exiting')))
+        cardMotionTimeoutsRef.current = cardMotionTimeoutsRef.current.filter((value) => value !== timeoutId)
+      }, LIBRARY_CARD_MOTION_MS)
+      cardMotionTimeoutsRef.current.push(timeoutId)
+    }
+  }, [allCards])
+
+  useEffect(() => {
+    return () => {
+      if (cardMotionFrameRef.current !== null) {
+        window.cancelAnimationFrame(cardMotionFrameRef.current)
+      }
+      cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    }
+  }, [])
+
   const activeNoteType = activeObject?.type ?? null
   const activeNoteId = activeObject?.objectId ?? null
   const isGalleryMode = !activeObject
@@ -999,11 +1112,11 @@ export default function LibraryPage({
             ) : null}
 
             <div ref={listScrollerRef} className="ui-scroller flex-1 overflow-auto px-3 py-2">
-              {loading ? (
+              {loading && !hasLoadedOnce ? (
                 <div className="flex h-full min-h-[240px] items-center justify-center">
                   <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
                 </div>
-              ) : allCards.length === 0 ? (
+              ) : renderedCards.length === 0 ? (
                 <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
                   {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
                 </div>
@@ -1016,12 +1129,13 @@ export default function LibraryPage({
                     maxWidth: '100%',
                   }}
                 >
-                  {allCards.map((card) => {
+                  {renderedCards.map(({ card, key, phase }) => {
                     const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
                     return (
                       <div
-                        key={`${card.type}:${card.id}`}
-                        className="w-full break-inside-avoid inline-block"
+                        key={key}
+                        data-motion-phase={phase}
+                        className="library-card-motion w-full break-inside-avoid inline-block"
                         style={{ marginBottom: '14px' }}
                       >
                         <NoteCard
@@ -1036,16 +1150,17 @@ export default function LibraryPage({
                 </div>
               ) : (
                 <div className="mx-auto flex w-full max-w-[960px] flex-col" style={{ gap: '14px' }}>
-                  {allCards.map((card) => {
+                  {renderedCards.map(({ card, key, phase }) => {
                     const isOpenable = card.type === 'topic-note' || card.type === 'daily-note' || card.type === 'habit' || card.type === 'project' || card.type === 'ref-material' || card.type === 'scripture' || card.type === 'tag'
                     return (
-                      <NoteCard
-                        key={`${card.type}:${card.id}`}
-                        card={card}
-                        isSelected={activeNoteId === card.id && activeNoteType === card.type}
-                        onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
-                        title={isOpenable ? 'Click to open in the detail pane' : undefined}
-                      />
+                      <div key={key} data-motion-phase={phase} className="library-card-motion">
+                        <NoteCard
+                          card={card}
+                          isSelected={activeNoteId === card.id && activeNoteType === card.type}
+                          onClick={isOpenable ? () => { void handleSelectItem(card.id, card.type as EditorObjectType) } : undefined}
+                          title={isOpenable ? 'Click to open in the detail pane' : undefined}
+                        />
+                      </div>
                     )
                   })}
                 </div>
@@ -1055,7 +1170,15 @@ export default function LibraryPage({
 
           <div className="px-3 pb-1 pt-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="pb-[3px] text-xs text-[var(--color-text-secondary)]">{resultsLabel}</div>
+              <div className="flex flex-wrap items-center gap-2 pb-[3px] text-xs text-[var(--color-text-secondary)]">
+                <span>{resultsLabel}</span>
+                {isRefreshing ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Updating…
+                  </span>
+                ) : null}
+              </div>
               {showInbox && (
                 <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
                   <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />

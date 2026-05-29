@@ -257,6 +257,27 @@ textarea {
   scrollbar-gutter: stable;
 }
 
+.library-card-motion {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top center;
+  will-change: opacity, transform;
+  transition:
+    opacity 160ms cubic-bezier(0.2, 0, 0, 1),
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.library-card-motion[data-motion-phase='entering'] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.992);
+}
+
+.library-card-motion[data-motion-phase='exiting'] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px) scale(0.988);
+}
+
 
 /* Layout support */
 .mention-container {

@@ -977,7 +977,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     </p>
                   </div>
                 ) : (
-                  <div className="relative mb-2 flex min-h-0 overflow-hidden">
+                  <div className="mb-2">
                     <RichMarkdownEditor
                       label="Content"
                       value={content}
