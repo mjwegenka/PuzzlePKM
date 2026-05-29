@@ -4,360 +4,123 @@
   <img src="./public/icons/icon-128.png" alt="PuzzlePKM icon" width="128" height="128" />
 </p>
 
-A local-first knowledge management app with folder-based sync. The core product surface is the CLI (`cli.mjs` entrypoint + `cli/` modules), with a desktop wrapper powered by Tauri.
+PuzzlePKM is a local-first personal knowledge management app with a fast CLI and a desktop interface.
+Your notes and objects stay in a local SQLite database and sync to a folder you control.
 
-## Features
+## Download for macOS
 
-- **Topic Notes** – Rich-text notes with tags and bi-directional links to other objects; optional date metadata can place them on calendar views (see [`DEC-40`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-41`](./IMPLEMENTATION_DECISIONS.md))
-- **Daily Notes** – One note per calendar day with date-link lifecycle guardrails (date-anchored routing, uniqueness enforced; see [`DEC-39`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-43`](./IMPLEMENTATION_DECISIONS.md))
-- **Projects & Reference Materials** – Sync-backed directories browsable inside the app. Each directory is named by slug derived from the project/reference material title and contains a `meta.yaml` file with metadata. Directories can contain user files alongside the metadata.
-- **Habits** – Lightweight dated entries (≤ 255 chars) with a single identity tag and lifecycle status (`planned`/`accomplished`) (see [`DEC-42`](./IMPLEMENTATION_DECISIONS.md))
-- **Scripture** – Save-time scripture reference extraction/normalization for notes, with canonical Bible Gateway links and shared Scripture objects ordered by canonical book sequence (see [`DEC-48`](./IMPLEMENTATION_DECISIONS.md))
-- **Tags** – Case-insensitive, aggregate any object type
-- **Local-folder sync** – Sync against a configured local root folder
-- **Offline-first** – SQLite local store; sync when connected
-- **Background sync daemon** – `puzzlepkm sync --watch` for continuous background syncing
-- **iOS companion app** – Write-only iPhone app for capturing daily notes and habits on the go; entries are merged on the next desktop sync (see [`DEC-52`](./IMPLEMENTATION_DECISIONS.md) and [`ios/README.md`](./ios/README.md))
+- Direct download (always points to the latest published desktop build):
+  `https://github.com/mjwegenka/PuzzlePKM/releases/download/desktop-latest/PuzzlePKM-macos.dmg`
 
-## Tech Stack
+## Status
 
-| Layer | Choice |
-|---|---|
-| CLI | Pure Node.js (`cli.mjs`) — no build step required |
-| Desktop wrapper | Tauri v2 (Rust host + web UI shell) |
-| Companion web shell | React 18 + TypeScript + Vite |
-| Desktop UI | shadcn/ui (Radix primitives + Tailwind variants) |
-| Local store | node:sqlite (built-in SQLite) |
-| Styling | TailwindCSS v4 + shadcn/ui tokens |
-| Secure storage | app-managed secrets file (see `DEC-03`) |
-| Sync transport | Local folder sync |
-| iOS mobile app | SwiftUI (iOS 17+) + SwiftyDropbox SDK |
+PuzzlePKM is stable and ready for day-to-day local-first PKM workflows.
 
-## UI Design Canonical Source
+## Core capabilities
 
-For all UI appearance and interaction styling decisions, use [`UI_GUIDELINES.md`](./UI_GUIDELINES.md) as the canonical source of truth.
+- Capture and organize `daily-note`, `topic-note`, `habit`, `project`, `ref-material`, `scripture`, and `tag` objects.
+- Author rich note content with links and automatic backlinks between objects.
+- Browse and edit your data from either the CLI or desktop UI.
+- Sync to local folders for portability and backup-friendly workflows.
 
-- This is intentionally feature-agnostic and defines reusable visual/interaction rules.
-- If UI styling guidance in other docs conflicts, `UI_GUIDELINES.md` wins.
-- Keep product/domain behavior in this README and decision history in [`IMPLEMENTATION_DECISIONS.md`](./IMPLEMENTATION_DECISIONS.md).
+## Stack
 
-## Desktop UI Features
+- Node.js 22+ CLI (`cli.mjs`)
+- React + TypeScript + Vite desktop UI shell (`src/`)
+- Tauri desktop wrapper (`src-tauri/`)
+- Built-in `node:sqlite` local persistence
 
-The desktop wrapper provides a full-featured interface for knowledge management:
+## Quick start
 
-- **Calendar View** – Navigate daily notes by date
-- **File Browser** – Browse and manage projects and reference materials
-- **Object Editor** – Create and edit notes with rich text support
-- **Tabbed object workspace** – Open multiple objects side-by-side in editor tabs, with per-tab unsaved-change indicators and close confirmation (see [`DEC-46`](./IMPLEMENTATION_DECISIONS.md))
-- **@ Mentions** – Link to other objects by typing `@` in note content; uses UUID-keyed internal hrefs and supports block-level targets via `objectId#blockId` (see [`DEC-34`](./IMPLEMENTATION_DECISIONS.md) and [`DEC-57`](./IMPLEMENTATION_DECISIONS.md))
-- **Block-backed note content** – Note bodies are authored from ordered `note_blocks`, which are the canonical persisted source for note content (see [`DEC-38`](./IMPLEMENTATION_DECISIONS.md))
-- **Library multi-select** – Gallery and list views support Shift/Cmd/Ctrl click-to-toggle selection, Cmd/Ctrl+A select-all, bulk tag editing, and bulk delete for daily notes, topic notes, and habits (see [`DEC-70`](./IMPLEMENTATION_DECISIONS.md))
-- **Tag Management** – Organize content with tags (bottom of editor); sidebar tags provide shared include/exclude filters across Library, Calendar, and Graph (see [`DEC-62`](./IMPLEMENTATION_DECISIONS.md))
-- **Sidebar Navigation** – Primary destinations are Library, Calendar, and Graph. The sidebar can be collapsed via a footer hide-nav button and reopened from floating controls that also expose sync. Settings opens from the native macOS **PuzzlePKM** app menu as a dedicated window, and the same menu includes **New Window** to open additional main app windows. Scripture discovery/listing is in existing Library/object-detail surfaces rather than a standalone page (see [`DEC-55`](./IMPLEMENTATION_DECISIONS.md), [`DEC-62`](./IMPLEMENTATION_DECISIONS.md), [`DEC-71`](./IMPLEMENTATION_DECISIONS.md), and [`DEC-72`](./IMPLEMENTATION_DECISIONS.md))
-- **Pinned Sidebar Section** – Tag any object with `Pinned` to surface it under sidebar **Pinned**; order can be manually rearranged and is saved locally (see [`DEC-45`](./IMPLEMENTATION_DECISIONS.md))
+### Requirements
 
-See the `Desktop UI Contract Work (In Progress)` section in this README for the current desktop UI implementation roadmap.
+- Node.js 22+
 
-## shadcn/ui foundation in `src/`
-
-The shared shadcn/ui foundation now powers the desktop UI surfaces in `src/`.
-
-- Utility helper: `src/lib/utils.ts` exports `cn(...inputs)` (`clsx` + `tailwind-merge`).
-- Tailwind token wiring: `src/index.css` defines shared semantic tokens for light/dark themes (`--background`, `--foreground`, `--card`, `--primary`, etc.) and maps them through `@theme inline`.
-- Core primitives now available under `src/components/ui/`:
-  - `button.tsx`
-  - `input.tsx`
-  - `textarea.tsx`
-  - `select.tsx`
-  - `dialog.tsx`
-  - `dropdown-menu.tsx`
-  - `tooltip.tsx`
-  - `badge.tsx`
-  - `card.tsx`
-  - `tabs.tsx`
-
-Usage example:
-
-```tsx
-import { Button } from '@/components/ui/button'
-
-<Button variant="secondary">Save</Button>
-```
-
-
-## Development Setup
-
-### Prerequisites
-- Node.js 22+ (uses built-in `node:sqlite`)
-- macOS, Linux, or Windows
-- Optional: any cloud-sync desktop client if you want off-device replication of the sync folder
-
-### 1. Install dependencies
+### Install
 
 ```bash
 npm install
 ```
 
-### 2. Configure sync root folder
-
-Set the folder PuzzlePKM should sync against. You can use any local folder, including one mirrored by your cloud-sync client.
-
-```bash
-npm run cli -- settings set root-folder "/PuzzlePKM"
-```
-
-By default, `/PuzzlePKM` maps to:
-- macOS: `~/Library/CloudStorage/Sync/PuzzlePKM`
-- Linux/Windows fallback: `~/Sync/PuzzlePKM`
-
-### 3. Run the companion web shell in development
-
-```bash
-npm run dev
-```
-
-### 4. Run the desktop wrapper in development
-
-```bash
-npm run tauri:dev
-```
-
-### CLI usage
-
-Run the CLI directly:
+### CLI help
 
 ```bash
 npm run cli -- --help
 ```
 
-Run the interactive shell:
+### Optional: set a sync root folder
 
 ```bash
-npm run cli
+npm run cli -- settings set root-folder "/PuzzlePKM"
 ```
 
-The shell exits with `Ctrl+C` or `Ctrl+D`.
-
-#### Sync
+### Run the desktop app in development
 
 ```bash
-# One-shot sync with local folder
-puzzlepkm sync
-
-# Background sync daemon (syncs every 15 minutes by default)
-puzzlepkm sync --watch
-
-# Background sync with custom interval
-puzzlepkm sync --watch --interval 5
+npm run tauri:dev
 ```
 
-`puzzlepkm sync` syncs daily notes, topic notes, habits, projects, and reference materials against the configured local sync root. If sync folders are missing, PuzzlePKM creates them automatically. Projects and reference materials are stored as directories:
+### Build a macOS binary and publish the README download link target
 
-- **Daily notes**: `{rootFolder}/daily-notes/{date}.md`
-- **Topic notes**: `{rootFolder}/topic-notes/{slug}-{shortId}.md`
-- **Habits**: `{rootFolder}/habits/{date}-{firstTag}-{last6CharsOfId}.md`
-- **Projects**: `{rootFolder}/projects/{slug}/meta.yaml` (directory can contain user files)
-- **Reference Materials**: `{rootFolder}/ref-materials/{slug}/meta.yaml` (directory can contain user files)
+`npm run tauri:build` now runs `tauri build` and then uploads the newest DMG to the GitHub release tag `desktop-latest` as `PuzzlePKM-macos.dmg`.
 
-Internal links remain canonical UUID hrefs in storage/editor surfaces (`DEC-57`), while sync serialization applies `DEC-56` resolver precedence to produce BibleGateway scripture URLs or safe relative filesystem paths when possible.
-
-When a project or reference material name changes, its directory is renamed to match the new slug. Sync directory names are automatically determined by the project/reference material title.
-
-If a note has previously been synced and then its Markdown file is deleted from an existing sync notes folder, the next sync deletes the local copy instead of recreating it. If an entire sync notes folder is missing, PuzzlePKM recreates that folder, leaves local data unchanged for that run, and reports a warning to avoid accidental mass deletion.
-
-Deleting sync-tracked objects from PuzzlePKM (`puzzlepkm delete ...` or desktop UI delete flows) performs a hard delete: PuzzlePKM deletes the corresponding file/folder path in the configured sync root first, then removes the local database record.
-
-Daily Note creation is non-overwriting: if a note already exists for a date, PuzzlePKM opens/edits the existing note instead of creating a second note or overwriting via “new note” flow.
-
-#### Notes and objects
+Set a token before running the command:
 
 ```bash
-puzzlepkm add "Quick note text"
-puzzlepkm list daily-note
-puzzlepkm get topic-note <id>
-puzzlepkm create project
-puzzlepkm update habit <id>
-puzzlepkm delete tag <id>
-puzzlepkm browse all
-puzzlepkm migrate-links --dry-run
-puzzlepkm migrate-links --apply
-
-# Batch import Markdown notes from a directory
-puzzlepkm import daily-note ./daily-notes
-puzzlepkm import topic-note ./topic-notes
-```
-
-#### Settings
-
-```bash
-puzzlepkm settings show
-puzzlepkm settings set root-folder /PuzzlePKM
-```
-
-Default CLI database path follows platform app-data conventions:
-- macOS: `~/Library/Application Support/puzzlepkm/puzzlepkm.sqlite`
-- Linux: `~/.config/puzzlepkm/puzzlepkm.sqlite` (or `$XDG_CONFIG_HOME/puzzlepkm/puzzlepkm.sqlite`)
-- Windows: `%APPDATA%\\puzzlepkm\\puzzlepkm.sqlite`
-
-Install globally from a checkout (optional) to use the `puzzlepkm` command:
-
-```bash
-npm install -g .
-puzzlepkm --help
-```
-
-Use `PUZZLEPKM_DB_PATH` to point the CLI at a specific PuzzlePKM SQLite file:
-
-```bash
-PUZZLEPKM_DB_PATH=/absolute/path/to/puzzlepkm.sqlite puzzlepkm list
-```
-
-#### Runtime naming
-
-- CLI command: `puzzlepkm`
-- Database env var: `PUZZLEPKM_DB_PATH`
-- App-data folder names: `puzzlepkm`
-- Desktop bundle identifier: `com.puzzlepkm.desktop`
-
-### 5. Build for production
-
-```bash
-npm run build
-```
-
-Build desktop packages:
-
-```bash
+export GITHUB_TOKEN="<github_token_with_repo_access>"
 npm run tauri:build
 ```
 
-To run the full build alias used by repo automation:
+If `GITHUB_TOKEN` is not set, the build still runs locally and upload is skipped.
+
+## Common CLI commands
 
 ```bash
-npm run build:all
+npm run cli -- add "Quick note text"
+npm run cli -- list daily-note
+npm run cli -- get topic-note <id>
+npm run cli -- create project
+npm run cli -- update habit <id>
+npm run cli -- delete tag <id>
 ```
 
-Lint the codebase:
+### Sync
 
 ```bash
+npm run cli -- sync
+npm run cli -- sync --watch
+npm run cli -- sync --watch --interval 5
+```
+
+## Build and checks
+
+```bash
+npm run build
 npm run lint
+npm run version:check
 ```
 
-Run narrow sync parser unit coverage:
+## Versioning
+
+PuzzlePKM uses Changesets for automated version PRs on `main`.
 
 ```bash
-npm run test:sync-parser
+# Create a changeset in your feature branch
+npm run changeset
+
+# Optional local validation before opening a PR
+npm run version:check
 ```
 
-Run CLI smoke coverage (create/get/list/update/delete/sync paths):
+When changesets reach `main`, GitHub Actions opens or updates a `chore: version packages` PR. Merging that PR bumps versions in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` together.
 
-```bash
-npm run test:smoke
+## Project layout
+
+```text
+cli.mjs     CLI entrypoint
+cli/        CLI command and object modules
+src/        React desktop UI shell
+src-tauri/  Tauri desktop host
+public/     Static assets
+scripts/    Tests and automation helpers
 ```
-
-Run the SQLite scale benchmark harness:
-
-```bash
-npm run benchmark:sqlite
-```
-
-Issue queue automation helpers:
-
-```bash
-# Dry run queue sequencing labels
-npm run issues:queue
-
-# Apply queue sequencing labels from local CLI
-npm run issues:queue:apply
-```
-
-For issue sequencing details, use the automation scripts in `scripts/` (`issue_sequence_runner.mjs` and `apply_issue_labels_and_milestones.mjs`).
-
-## SQLite scale benchmark
-
-Use the benchmark harness to generate a repeatable synthetic dataset, run key operations, and emit JSON results:
-
-```bash
-npm run benchmark:sqlite -- --runs 5 --keep-artifacts
-```
-
-The script measures list/get/search/save/sync reconcile/backlink refresh and records query plans in `sqlite-benchmark-results.json`.
-The repository includes a captured sample run at [`benchmarks/sqlite-benchmark-sample.json`](./benchmarks/sqlite-benchmark-sample.json).
-
-Latest benchmark evidence (5,760-object dataset: 2,000 topic notes, 1,200 daily notes, 800 habits, 400 projects, 400 ref materials, 900 scriptures, 60 tags):
-
-- `list.topic-notes.baseline-simulation`: **54.35ms avg**
-- `list.topic-notes` (batched tags + block reads): **29.10ms avg**
-- `search.notes-filter`: **29.61ms avg**
-- `save.topic-note`: **10.97ms avg**
-- `backlink.refresh.topic-note`: **9.05ms avg**
-- `sync.reconcile` (single pass upload of 4,800 local objects): **6435.97ms**
-
-Recommendation: stay on SQLite for the current product scope (thousands of objects) and continue query/index hardening before considering an alternative datastore. Revisit only if routine list/search/save operations trend above ~150ms at this scale or if sync throughput requirements materially exceed current local-folder behavior.
-
-## Project Structure
-
-```
-cli.mjs            Standalone CLI entrypoint (no build step — runs directly with Node.js 22+)
-cli/               Modular CLI command/domain implementation
-src/               Lightweight companion web shell (React / TypeScript)
-src-tauri/         Desktop wrapper host (Tauri config + Rust commands)
-public/            Static assets for the web shell
-ios/               iOS companion app (Swift / SwiftUI)
-```
-
-CLI modular ownership follows `DEC-53`/`DEC-54`: command routing lives under `cli/commands/`, while per-object boundaries live under `cli/objects/<object-type>/` with `definition.mjs`, `repository.mjs`, and `service.mjs`.
-
-## iOS Companion App
-
-The `ios/` directory contains a write-only iPhone app for capturing daily notes and habits on the go. Entries are written to a `mobile-inbox/` sub-folder inside your Dropbox sync root and merged into the desktop app on the next `puzzlepkm sync`.
-
-See [`ios/README.md`](./ios/README.md) for Xcode setup instructions and [`DEC-52`](./IMPLEMENTATION_DECISIONS.md) for the design decision record.
-
-```bash
-# After writing notes/habits from the iOS app, merge them on the desktop:
-puzzlepkm sync
-```
-
-## Project Status
-
-- Core product scope is implemented and stable for local-first use.
-- v1 release-readiness verification is the active delivery gate.
-- iOS companion app is implemented and integrated with desktop sync.
-
-## Implementation Notes (CLI modularization + link model docs slice)
-
-- Roadmap wiring for this docs-alignment slice is tracked in `DEC-59` (depends on #195, #198, #199, #200, #201; unblocks none).
-- Relevant behavior decisions for this slice: `DEC-53`, `DEC-54`, `DEC-55`, `DEC-56`, `DEC-57`, `DEC-58`, `DEC-59`.
-
-## v1 Release Readiness Checklist
-
-Use this checklist to determine release readiness (`DEC-51`).
-
-**Regression**
-- [ ] All object types (daily-note, topic-note, habit, project, ref-material, scripture) can be created, read, updated, and deleted via CLI without data loss.
-- [ ] `note_blocks` backfill runs idempotently on `openDb()` for all notes; malformed rows emit warnings and do not abort startup.
-- [ ] Block IDs match `blk-<12 hex chars>` format; positions are contiguous and unique per note.
-- [ ] Daily Note date identity is immutable: update flows reject date-field mutations.
-- [ ] Habit writes enforce one-tag rule and persist a valid `status` value.
-- [ ] Backlink sets remain reciprocal after add/remove/edit of a source link.
-
-**Sync safety**
-- [ ] One-shot `puzzlepkm sync` completes without data loss across all object types.
-- [ ] Background `puzzlepkm sync --watch` operates correctly with the default 15-minute interval and a custom `--interval`.
-- [ ] Missing sync folder triggers folder creation and skips deletion reconciliation for that type on the same run (safe fallback).
-- [ ] Deleting a locally-tracked object removes its sync file before the DB record is dropped.
-- [ ] Inbox tag is added exactly once to newly imported objects; existing objects are never re-tagged on subsequent syncs.
-- [ ] Serialized sync files omit `syncPath` metadata; DB `sync_path` values are derived from actual filesystem locations during sync.
-
-**Migration flows**
-- [ ] Opening existing databases auto-backfills `note_blocks` from `content_markdown` without data loss.
-- [ ] Markdown without embedded block IDs receives fresh block IDs on import; no content is dropped.
-- [ ] Links resolve correctly with local-sync transport metadata (`DEC-08`).
-- [ ] `PUZZLEPKM_DB_PATH` resolves to the correct database.
-- [ ] `puzzlepkm` CLI command resolves to the expected binary.
-
-**Documentation**
-- [ ] Command lists in `README.md` and `AGENTS.md` are identical and cover all runnable commands.
-- [ ] All `DEC-*` references in `README.md` resolve to entries in `IMPLEMENTATION_DECISIONS.md`.
-- [ ] No behavioral rule appears in more than one canonical file.
