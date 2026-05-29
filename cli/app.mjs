@@ -42,6 +42,7 @@ const MAX_HABIT_TEXT_LENGTH = 255;
 const PRIMARY_PRODUCT_NAME = 'PuzzlePKM';
 const PRIMARY_CLI_COMMAND = 'puzzlepkm';
 const PRIMARY_DB_ENV_VAR = 'PUZZLEPKM_DB_PATH';
+const PRIMARY_SECRETS_ENV_VAR = 'PUZZLEPKM_SECRETS_PATH';
 const HABIT_STATUS_PLANNED = 'planned';
 const HABIT_STATUS_ACCOMPLISHED = 'accomplished';
 const HABIT_STATUSES = new Set([HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED]);
@@ -335,7 +336,7 @@ function defaultAppDataDir() {
 const appDataDir = defaultAppDataDir();
 
 function secretsFilePath() {
-  return join(appDataDir, 'secrets.json');
+  return process.env[PRIMARY_SECRETS_ENV_VAR] ?? join(appDataDir, 'secrets.json');
 }
 
 const dbFile = process.env[PRIMARY_DB_ENV_VAR] ?? join(appDataDir, 'puzzlepkm.sqlite');
@@ -404,6 +405,16 @@ function addInboxTagForHabit(tagNames) {
   const names = Array.isArray(tagNames) ? tagNames : [];
   const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
   return hasInbox ? names : [INBOX_TAG_NAME, ...names];
+}
+
+function mergeRemoteTagsPreservingImportedInbox(existingTagNames, remoteTagNames) {
+  const remoteNames = Array.isArray(remoteTagNames) ? remoteTagNames : [];
+  const existingHasInbox = (Array.isArray(existingTagNames) ? existingTagNames : [])
+    .some((tag) => String(tag ?? '').trim().toLowerCase() === INBOX_TAG_NAME.toLowerCase());
+  const remoteHasInbox = remoteNames
+    .some((tag) => String(tag ?? '').trim().toLowerCase() === INBOX_TAG_NAME.toLowerCase());
+  if (!existingHasInbox || remoteHasInbox) return remoteNames;
+  return [...remoteNames, INBOX_TAG_NAME];
 }
 
 function normalizeTagNameForComparison(value) {
@@ -1102,14 +1113,38 @@ function backfillMissingSyncPaths(db) {
 
   const missingProject = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingProject) {
-    const slug = slugify(row.name || row.id);
-    db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(projectDirectoryPath(rootFolder, slug), row.id);
+    db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(canonicalProjectSyncPath(rootFolder, row.name || row.id), row.id);
   }
 
   const missingRefMat = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingRefMat) {
-    const slug = slugify(row.name || row.id);
-    db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(refMaterialDirectoryPath(rootFolder, slug), row.id);
+    db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(canonicalRefMaterialSyncPath(rootFolder, row.name || row.id), row.id);
+  }
+
+  // Repair legacy file-object rows that store stale human-readable folder paths
+  // instead of the canonical slug-backed sync directory (README / DEC-10).
+  const projectRows = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
+  for (const row of projectRows) {
+    const canonicalPath = canonicalProjectSyncPath(rootFolder, row.name || row.id);
+    const currentPath = String(row.sync_path ?? '').trim();
+    if (!currentPath || currentPath === canonicalPath) continue;
+    const currentLocalPath = resolveLocalSyncPath(currentPath);
+    const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
+    if (!existsSync(currentLocalPath) && existsSync(canonicalLocalPath)) {
+      db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(canonicalPath, row.id);
+    }
+  }
+
+  const refMatRows = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
+  for (const row of refMatRows) {
+    const canonicalPath = canonicalRefMaterialSyncPath(rootFolder, row.name || row.id);
+    const currentPath = String(row.sync_path ?? '').trim();
+    if (!currentPath || currentPath === canonicalPath) continue;
+    const currentLocalPath = resolveLocalSyncPath(currentPath);
+    const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
+    if (!existsSync(currentLocalPath) && existsSync(canonicalLocalPath)) {
+      db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(canonicalPath, row.id);
+    }
   }
 
   const missingHabit = db.prepare("SELECT id, date, sync_path FROM habits WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
@@ -2674,12 +2709,20 @@ function projectDirectoryPath(rootFolder, slug) {
   return `${projectsFolderPath(rootFolder)}/${slug}`;
 }
 
+function canonicalProjectSyncPath(rootFolder, name) {
+  return projectDirectoryPath(rootFolder, slugify(name || 'untitled'));
+}
+
 function projectMetaPath(rootFolder, slug) {
   return `${projectDirectoryPath(rootFolder, slug)}/meta.yaml`;
 }
 
 function refMaterialDirectoryPath(rootFolder, slug) {
   return `${refMaterialsFolderPath(rootFolder)}/${slug}`;
+}
+
+function canonicalRefMaterialSyncPath(rootFolder, name) {
+  return refMaterialDirectoryPath(rootFolder, slugify(name || 'untitled'));
 }
 
 function refMaterialMetaPath(rootFolder, slug) {
@@ -2775,7 +2818,6 @@ function dailyNoteToMarkdown(fields, options = {}) {
     id: fields.id,
     type: 'daily-note',
     date: fields.date,
-    syncPath: fields.syncPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -2792,7 +2834,6 @@ function topicNoteToMarkdown(fields, options = {}) {
     type: 'topic-note',
     title: fields.title,
     date: fields.date || '',
-    syncPath: fields.syncPath || '',
     tags: fields.tagNames,
     linkedObjectIds: fields.linkedObjectIds,
     createdAt: fields.createdAt,
@@ -2807,7 +2848,6 @@ function projectToMetaYaml(fields) {
   return serializeMetaYaml({
     id: fields.id,
     name: fields.name,
-    syncPath: fields.syncPath,
     startDate: fields.startDate,
     endDate: fields.endDate,
     tags: fields.tagNames,
@@ -2821,7 +2861,6 @@ function refMaterialToMetaYaml(fields) {
     id: fields.id,
     name: fields.name,
     author: fields.author,
-    syncPath: fields.syncPath,
     tags: fields.tagNames,
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
@@ -2835,20 +2874,11 @@ function habitToMarkdown(fields) {
     text: fields.text,
     date: fields.date,
     status: normalizeHabitStatus(fields.status, HABIT_STATUS_PLANNED),
-    syncPath: fields.syncPath || '',
     tags: normalizeHabitTagNames(fields.tagNames),
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
   return `${fm}\n`;
-}
-
-function readSyncPathField(data) {
-  if (typeof data.syncPath === 'string') return data.syncPath;
-  if (typeof data.sync_path === 'string') return data.sync_path;
-  if (typeof data.dropboxPath === 'string') return data.dropboxPath;
-  if (typeof data.dropbox_path === 'string') return data.dropbox_path;
-  return '';
 }
 
 function parseDailyNoteMarkdown(content) {
@@ -2860,7 +2890,6 @@ function parseDailyNoteMarkdown(content) {
   return {
     id: data.id,
     date: data.date,
-    syncPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2880,7 +2909,6 @@ function parseTopicNoteMarkdown(content) {
     id: data.id,
     title: data.title,
     date: typeof data.date === 'string' ? data.date : '',
-    syncPath: readSyncPathField(data),
     contentMarkdown: body,
     blocks,
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
@@ -2897,12 +2925,23 @@ function parseProjectMetaYaml(content) {
   return {
     id: data.id,
     name: data.name,
-    syncPath: readSyncPathField(data),
     startDate: typeof data.startDate === 'string' ? data.startDate : '',
     endDate: typeof data.endDate === 'string' ? data.endDate : '',
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseProjectSyncFolderEntry(content, folder) {
+  const parsed = parseProjectMetaYaml(content);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    // DEC-69: folder-backed sync locations come from the scanned folder, not serialized metadata.
+    syncPath: folder.path,
+    slug: folder.name,
+    folderPath: folder.path,
   };
 }
 
@@ -2914,10 +2953,21 @@ function parseRefMaterialMetaYaml(content) {
     id: data.id,
     name: data.name,
     author: typeof data.author === 'string' ? data.author : '',
-    syncPath: readSyncPathField(data),
     tagNames: Array.isArray(data.tags) ? data.tags.map(String) : [],
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+function parseRefMaterialSyncFolderEntry(content, folder) {
+  const parsed = parseRefMaterialMetaYaml(content);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    // DEC-69: folder-backed sync locations come from the scanned folder, not serialized metadata.
+    syncPath: folder.path,
+    slug: folder.name,
+    folderPath: folder.path,
   };
 }
 
@@ -2931,7 +2981,6 @@ function parseHabitMarkdown(content) {
     text: data.text,
     date: data.date,
     status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
-    syncPath: readSyncPathField(data),
     tagNames: normalizeHabitTagNames(Array.isArray(data.tags) ? data.tags.map(String) : []),
     createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
@@ -3021,7 +3070,8 @@ function shouldApplyRemoteProject(existing, remote) {
   if ((remote.syncPath ?? '') !== (existing.syncPath ?? '')) return true;
   if ((remote.startDate ?? '') !== (existing.startDate ?? '')) return true;
   if ((remote.endDate ?? '') !== (existing.endDate ?? '')) return true;
-  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  const effectiveRemoteTags = mergeRemoteTagsPreservingImportedInbox(existing.tags, remote.tagNames);
+  if (!sameStringArrayAsSet(effectiveRemoteTags, existing.tags)) return true;
   return false;
 }
 
@@ -3034,7 +3084,8 @@ function shouldApplyRemoteRefMaterial(existing, remote) {
   if ((remote.name ?? '') !== (existing.name ?? '')) return true;
   if ((remote.author ?? '') !== (existing.author ?? '')) return true;
   if ((remote.syncPath ?? '') !== (existing.syncPath ?? '')) return true;
-  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  const effectiveRemoteTags = mergeRemoteTagsPreservingImportedInbox(existing.tags, remote.tagNames);
+  if (!sameStringArrayAsSet(effectiveRemoteTags, existing.tags)) return true;
   return false;
 }
 
@@ -3063,6 +3114,82 @@ async function syncDownloadText(path) {
   const filePath = resolveLocalSyncPath(path);
   if (!existsSync(filePath)) return null;
   return readFileSync(filePath, 'utf8');
+}
+
+function stripLegacySyncPathMetadata(content) {
+  const raw = String(content ?? '');
+  if (!raw) return { content: raw, changed: false };
+
+  const newline = raw.includes('\r\n') ? '\r\n' : '\n';
+  const hadTrailingNewline = /\r?\n$/.test(raw);
+  const lines = raw.split(/\r?\n/);
+  const legacyFieldPattern = /^\s*(syncPath|sync_path|dropboxPath|dropbox_path)\s*:/;
+
+  let changed = false;
+  let filtered;
+  if (lines[0]?.trim() === '---') {
+    let frontMatterClosed = false;
+    filtered = lines.filter((line, index) => {
+      if (index === 0) return true;
+      if (!frontMatterClosed && line.trim() === '---') {
+        frontMatterClosed = true;
+        return true;
+      }
+      if (!frontMatterClosed && legacyFieldPattern.test(line)) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+  } else {
+    filtered = lines.filter((line) => {
+      if (legacyFieldPattern.test(line)) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  const next = filtered.join(newline);
+  return {
+    content: hadTrailingNewline ? `${next}${newline}` : next,
+    changed,
+  };
+}
+
+async function scrubLegacySyncPathMetadataFromSyncFiles(rootFolder) {
+  const targets = [];
+
+  for (const folderPath of [dailyNotesFolderPath(rootFolder), topicNotesFolderPath(rootFolder), habitsFolderPath(rootFolder)]) {
+    const { files } = await listSyncMdFiles(folderPath);
+    for (const file of files) {
+      targets.push(file.path);
+    }
+  }
+
+  for (const folderPath of [projectsFolderPath(rootFolder), refMaterialsFolderPath(rootFolder)]) {
+    const { folders } = await listSyncFolders(folderPath);
+    for (const folder of folders) {
+      targets.push(`${folder.path}/meta.yaml`);
+    }
+  }
+
+  const result = { rewritten: 0, errors: [] };
+  for (const targetPath of targets) {
+    try {
+      const content = await syncDownloadText(targetPath);
+      if (content === null) continue;
+      const stripped = stripLegacySyncPathMetadata(content);
+      if (!stripped.changed) continue;
+      await syncUploadText(targetPath, stripped.content);
+      result.rewritten++;
+    } catch (error) {
+      result.errors.push(`${targetPath}: ${String(error)}`);
+    }
+  }
+
+  return result;
 }
 
 async function ensureSyncFolder(path) {
@@ -3136,6 +3263,7 @@ async function fetchAllDailyNotesFromSyncFolder(token, rootFolder) {
       if (!parsed) return null;
       return {
         ...parsed,
+        syncPath: f.path,
         serverModified: f.serverModified,
         contentHash: f.contentHash,
       };
@@ -3159,6 +3287,7 @@ async function fetchAllTopicNotesFromSyncFolder(token, rootFolder) {
       if (!parsed) return null;
       return {
         ...parsed,
+        syncPath: f.path,
         serverModified: f.serverModified,
         contentHash: f.contentHash,
       };
@@ -3179,12 +3308,10 @@ async function fetchAllProjectsFromSyncFolder(token, rootFolder) {
       const metaPath = `${folder.path}/meta.yaml`;
       const content = await syncDownloadText(metaPath);
       if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
-      const parsed = parseProjectMetaYaml(content);
+      const parsed = parseProjectSyncFolderEntry(content, folder);
       if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
       return {
         ...parsed,
-        slug: folder.name,
-        folderPath: folder.path,
         serverModified: new Date().toISOString(),
       };
     }),
@@ -3206,12 +3333,10 @@ async function fetchAllRefMaterialsFromSyncFolder(token, rootFolder) {
       const metaPath = `${folder.path}/meta.yaml`;
       const content = await syncDownloadText(metaPath);
       if (!content) return { _stub: true, slug: folder.name, folderPath: folder.path };
-      const parsed = parseRefMaterialMetaYaml(content);
+      const parsed = parseRefMaterialSyncFolderEntry(content, folder);
       if (!parsed) return { _stub: true, slug: folder.name, folderPath: folder.path };
       return {
         ...parsed,
-        slug: folder.name,
-        folderPath: folder.path,
         serverModified: new Date().toISOString(),
       };
     }),
@@ -3236,6 +3361,7 @@ async function fetchAllHabitsFromSyncFolder(token, rootFolder) {
       if (!parsed) return null;
       return {
         ...parsed,
+        syncPath: f.path,
         serverModified: f.serverModified,
       };
     }),
@@ -3446,7 +3572,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
           syncPath: fields.syncPath,
           startDate: fields.startDate,
           endDate: fields.endDate,
-          tags: fields.tagNames,
+          tags: mergeRemoteTagsPreservingImportedInbox(existing.tags, fields.tagNames),
           updatedAt: fields.updatedAt,
         });
         result.updated++;
@@ -3518,8 +3644,12 @@ async function reconcileProjectsDb(db, token, rootFolder) {
           }
         } else {
           const slug = slugify(item.name);
+          const syncPath = canonicalProjectSyncPath(rootFolder, item.name);
           await ensureSyncFolder(projectDirectoryPath(rootFolder, slug));
-          await syncUploadText(projectMetaPath(rootFolder, slug), projectToMetaYaml(item));
+          await syncUploadText(projectMetaPath(rootFolder, slug), projectToMetaYaml({ ...item, syncPath }));
+          if (item.syncPath !== syncPath) {
+            updateProjectRecord(db, item.id, { syncPath, updatedAt: item.updatedAt });
+          }
           markRemotePresence(db, 'project', item.id, getIsoNow());
           result.uploaded++;
         }
@@ -3581,7 +3711,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           name: fields.name,
           author: fields.author,
           syncPath: fields.syncPath,
-          tags: fields.tagNames,
+          tags: mergeRemoteTagsPreservingImportedInbox(existing.tags, fields.tagNames),
           updatedAt: fields.updatedAt,
         });
         result.updated++;
@@ -3648,8 +3778,12 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
           }
         } else {
           const slug = slugify(item.name);
+          const syncPath = canonicalRefMaterialSyncPath(rootFolder, item.name);
           await ensureSyncFolder(refMaterialDirectoryPath(rootFolder, slug));
-          await syncUploadText(refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml(item));
+          await syncUploadText(refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml({ ...item, syncPath }));
+          if (item.syncPath !== syncPath) {
+            updateRefMatRecord(db, item.id, { syncPath, updatedAt: item.updatedAt });
+          }
           markRemotePresence(db, 'ref-material', item.id, getIsoNow());
           result.uploaded++;
         }
@@ -3886,13 +4020,14 @@ async function runSync() {
       reconcileMobileInboxDailyNotes(db, rootFolder),
       reconcileMobileInboxHabits(db, rootFolder),
     ]);
+    const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     return {
       imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + mobileNoteResult.imported + mobileHabitResult.imported,
       updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + mobileNoteResult.appended,
       uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
       deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted,
       warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...mobileNoteResult.errors, ...mobileHabitResult.errors],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...mobileNoteResult.errors, ...mobileHabitResult.errors, ...metadataCleanupResult.errors],
     };
   });
 }
@@ -4255,6 +4390,8 @@ function createCommandContext(rl) {
     isDailyNoteDeleteEligible,
     hasKnownRemoteCopy,
     getSyncRootFolder,
+    canonicalProjectSyncPath,
+    canonicalRefMaterialSyncPath,
     dailyNoteSyncPath,
     topicNoteSyncPath,
     habitSyncPath,
@@ -4361,6 +4498,10 @@ export const __testing = {
   runSync,
   saveSyncToken,
   saveSyncRootFolder,
+  parseProjectMetaYaml,
+  parseProjectSyncFolderEntry,
+  parseRefMaterialMetaYaml,
+  parseRefMaterialSyncFolderEntry,
   createDailyNoteRecord,
   createTopicNoteRecord,
   updateTopicNoteRecord,

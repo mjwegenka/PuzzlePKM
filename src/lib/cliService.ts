@@ -128,13 +128,6 @@ function normalizeSyncPath(path: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-function withLegacyPathAlias<T extends { syncPath: string }>(item: T): T & { syncPath: string } {
-  return {
-    ...item,
-    syncPath: item.syncPath,
-  };
-}
-
 function normalizePathForLookup(path: string): string {
   return normalizeSyncPath(path)
     .replace(/[?#].*$/, '')
@@ -218,11 +211,11 @@ async function listObjectPathIndex(): Promise<ResolvedObjectRef[]> {
             : (parts[3] ?? '');
         const path = rawPath.trim();
         if (!id || !path || path === '(no path)') continue;
-        rows.push(withLegacyPathAlias({
+        rows.push({
           id,
           type,
           syncPath: normalizeSyncPath(path),
-        }));
+        });
       }
     } catch {
       // Ignore per-type lookup failures and continue.
@@ -679,7 +672,7 @@ export async function listHabitMeta(): Promise<
           date,
           status,
           text,
-          ...withLegacyPathAlias({ syncPath: parts[4] ?? '' }),
+          syncPath: parts[4] ?? '',
           tags,
           displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),
           type: 'habit' as const,
@@ -722,7 +715,7 @@ export async function listFileMeta(): Promise<
             id: parts[0],
             name,
             author: type === 'ref-material' ? (parts[2] ?? '') : undefined,
-            ...withLegacyPathAlias({ syncPath: resolveDisplaySyncPath(rawSyncPath, syncRootFolder) }),
+            syncPath: resolveDisplaySyncPath(rawSyncPath, syncRootFolder),
             startDate: type === 'project' ? (parts[3] ?? '') : undefined,
             tags,
             displayTitle: getObjectDisplayTitle(type, { name }),
@@ -758,8 +751,8 @@ function resolveDisplaySyncPath(path: string, rootFolder: string | null): string
     firstSegment === 'puzzlepkm'
     || (rootName ? firstSegment === rootName : false)
     || knownObjectFolders.has(firstSegment)
-    // Legacy absolute-like aliases can look like /Dropith/projects/...; detect
-    // by checking a non-filesystem root segment followed by a known object folder.
+    // Some root-relative aliases can look like /SomeRoot/projects/...; detect
+    // them by checking a non-filesystem root segment followed by a known object folder.
     || (Boolean(secondSegment) && !filesystemRootSegments.has(firstSegment ?? '') && knownObjectFolders.has(secondSegment ?? ''))
   );
 
@@ -879,8 +872,9 @@ export async function getScriptureById(id: string): Promise<Scripture | null> {
  */
 export async function browseDirectory(
   path: string,
+  options?: { objectType?: 'project' | 'ref-material'; objectName?: string },
 ): Promise<{ directoryPath: string; entries: Array<{ kind: 'dir' | 'file'; name: string }> }> {
-  const candidates = await resolveSyncPathCandidates(path);
+  const candidates = await resolveSyncPathCandidates(path, options);
   let lastError: string | null = null;
 
   for (const candidate of candidates) {
@@ -987,22 +981,59 @@ async function getSyncRootFolder(): Promise<string | null> {
   return parsed.sync?.resolvedRootFolder ?? parsed.sync?.effectiveRootFolder ?? parsed.sync?.rootFolder ?? null;
 }
 
-async function resolveSyncPathCandidates(path: string): Promise<string[]> {
+async function resolveSyncPathCandidates(
+  path: string,
+  options?: { objectType?: 'project' | 'ref-material'; objectName?: string },
+): Promise<string[]> {
   const raw = String(path ?? '').trim();
   if (!raw) throw new Error('Browse path is required');
 
-  const candidates = [raw];
+  const candidates: string[] = [];
   const isAbsoluteLike = /^(\/|[A-Za-z]:[\\/])/.test(raw);
-  if (!isAbsoluteLike) return uniquePaths(candidates);
 
-  const root = await getSyncRootFolder();
-  if (!root) return uniquePaths(candidates);
+  // Always try to get the sync root so we can build absolute candidates.
+  const root = await getSyncRootFolder().catch(() => null);
 
-  // Keep direct absolute paths first, then try root-relative mappings.
-  if (raw.startsWith('/')) {
-    const suffix = getRootRelativeSuffix(raw, root);
-    candidates.push(joinPath(root, suffix));
+  if (isAbsoluteLike) {
+    // Try the raw absolute path first.
+    candidates.push(raw);
+    if (root) {
+      // Also try resolving the root-relative suffix under the actual root folder
+      // in case the path was stored from a different machine or Dropbox location.
+      const suffix = getRootRelativeSuffix(raw, root);
+      if (suffix) candidates.push(joinPath(root, suffix));
+    }
+  } else {
+    // Relative path (e.g. "PuzzlePKM/projects/my-project") — resolve under root.
+    if (root) {
+      candidates.push(joinPath(root, raw));
+      // Also strip any known root-name prefix so "PuzzlePKM/projects/x" works
+      // when the root folder itself is "/Users/x/Dropbox/PuzzlePKM".
+      const suffix = getRootRelativeSuffix(raw, root);
+      if (suffix && suffix !== raw) candidates.push(joinPath(root, suffix));
+    }
+    // Keep raw as last-resort fallback (CLI will resolve from its CWD).
+    candidates.push(raw);
+  }
+
+  // Repair fallback for stale file-object paths: derive the canonical slug-backed
+  // sync directory from the current object name and configured sync root.
+  const objectName = String(options?.objectName ?? '').trim();
+  const objectType = options?.objectType;
+  if (root && objectName && (objectType === 'project' || objectType === 'ref-material')) {
+    const slug = slugifyForPath(objectName);
+    const folder = objectType === 'project' ? 'projects' : 'ref-materials';
+    candidates.push(joinPath(root, folder, slug));
   }
 
   return uniquePaths(candidates);
 }
+
+function slugifyForPath(text: string): string {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60) || 'untitled';
+}
+

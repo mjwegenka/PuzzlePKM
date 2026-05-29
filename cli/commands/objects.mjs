@@ -86,10 +86,12 @@ export async function handleObjectsCommand(action, args, ctx) {
         }
         case 'project': {
           const id = input.id;
+          const rootFolder = ctx.getSyncRootFolder();
+          const canonicalSyncPath = ctx.canonicalProjectSyncPath(rootFolder, input.name ?? 'Untitled');
           if (id && ctx.getProject(db, id)) {
             return ctx.updateProjectRecord(db, id, {
               name: input.name,
-              syncPath: input.syncPath,
+              syncPath: canonicalSyncPath,
               startDate: input.startDate,
               endDate: input.endDate,
               tags: input.tags,
@@ -99,7 +101,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           return ctx.createProjectRecord(db, {
             id: id ?? ctx.randomUUID(),
             name: input.name ?? 'Untitled',
-            syncPath: input.syncPath ?? '',
+            syncPath: canonicalSyncPath,
             startDate: input.startDate ?? null,
             endDate: input.endDate ?? null,
             tags: input.tags ?? [],
@@ -109,11 +111,13 @@ export async function handleObjectsCommand(action, args, ctx) {
         }
         case 'ref-material': {
           const id = input.id;
+          const rootFolder = ctx.getSyncRootFolder();
+          const canonicalSyncPath = ctx.canonicalRefMaterialSyncPath(rootFolder, input.name ?? 'Untitled');
           if (id && ctx.getRefMat(db, id)) {
             return ctx.updateRefMatRecord(db, id, {
               name: input.name,
               author: input.author,
-              syncPath: input.syncPath,
+              syncPath: canonicalSyncPath,
               tags: input.tags,
               updatedAt: now,
             });
@@ -122,7 +126,7 @@ export async function handleObjectsCommand(action, args, ctx) {
             id: id ?? ctx.randomUUID(),
             name: input.name ?? 'Untitled',
             author: input.author ?? '',
-            syncPath: input.syncPath ?? '',
+            syncPath: canonicalSyncPath,
             tags: input.tags ?? [],
             createdAt: now,
             updatedAt: now,

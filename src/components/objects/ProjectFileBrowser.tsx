@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Archive,
+  ExternalLink,
   FileAudio2,
   FileCode2,
   FileImage,
@@ -65,6 +66,7 @@ function fileIconForName(name: string): React.ReactNode {
 
 export default function ProjectFileBrowser({ type, object, embedded = false }: ProjectFileBrowserProps) {
   const syncPath = String((object?.syncPath ?? object?.syncPath ?? '') as string).trim()
+  const objectName = String((object?.name ?? '') as string).trim()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [directoryPath, setDirectoryPath] = useState('')
@@ -83,7 +85,10 @@ export default function ProjectFileBrowser({ type, object, embedded = false }: P
     setLoading(true)
     setError(null)
     try {
-      const result = await browseDirectory(syncPath)
+      const result = await browseDirectory(syncPath, {
+        objectType: type,
+        objectName,
+      })
       setDirectoryPath(result.directoryPath)
       setEntries(result.entries)
     } catch (err) {
@@ -100,7 +105,7 @@ export default function ProjectFileBrowser({ type, object, embedded = false }: P
     } finally {
       setLoading(false)
     }
-  }, [syncPath])
+  }, [objectName, syncPath, type])
 
   useEffect(() => {
     void load()
@@ -119,6 +124,15 @@ export default function ProjectFileBrowser({ type, object, embedded = false }: P
     [directoryPath],
   )
 
+  const handleOpenDirectory = useCallback(async () => {
+    if (!directoryPath) return
+    try {
+      await openPathInDefaultApp(directoryPath)
+    } catch (err) {
+      setError(String(err))
+    }
+  }, [directoryPath])
+
   return (
     <div
       className={embedded
@@ -135,9 +149,17 @@ export default function ProjectFileBrowser({ type, object, embedded = false }: P
       </div>
 
       {directoryPath && (
-        <p className="mb-3 block break-all text-xs leading-[1.45] text-[var(--color-text-disabled)]">
-          {directoryPath}
-        </p>
+        <button
+          type="button"
+          onClick={() => void handleOpenDirectory()}
+          className="mb-3 flex w-full items-start gap-1.5 text-left group"
+          title="Open in Finder"
+        >
+          <ExternalLink className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--color-text-disabled)] transition-colors group-hover:text-[var(--color-accent-link)]" />
+          <span className="break-all text-xs leading-[1.45] text-[var(--color-text-disabled)] transition-colors group-hover:text-[var(--color-accent-link)] group-hover:underline">
+            {directoryPath}
+          </span>
+        </button>
       )}
 
       {error && <Alert variant="destructive" className="mb-3">{error}</Alert>}

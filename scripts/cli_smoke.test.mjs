@@ -1,6 +1,8 @@
+/* eslint-env node */
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
@@ -39,12 +41,25 @@ function parseLastJson(stdout) {
   return JSON.parse(raw.slice(start, end + 1));
 }
 
+function assertNoSerializedPathMetadata(content) {
+  assert.doesNotMatch(content, /^syncPath\s*:/m);
+  assert.doesNotMatch(content, /^sync_path\s*:/m);
+  assert.doesNotMatch(content, /^dropboxPath\s*:/m);
+  assert.doesNotMatch(content, /^dropbox_path\s*:/m);
+}
+
+function toPosixPath(path) {
+  return path.replace(/\\/g, '/');
+}
+
 test('CLI smoke: create/get/list/update/delete and sync command paths', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-smoke-'));
   const dbPath = join(sandboxDir, 'smoke.sqlite');
+  const secretsPath = join(sandboxDir, 'secrets.json');
   const syncRoot = join(sandboxDir, 'sync-root');
   const env = {
     PUZZLEPKM_DB_PATH: dbPath,
+    PUZZLEPKM_SECRETS_PATH: secretsPath,
   };
 
   try {
@@ -88,9 +103,11 @@ test('CLI smoke: create/get/list/update/delete and sync command paths', () => {
 test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relative paths', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-link-resolver-'));
   const dbPath = join(sandboxDir, 'links.sqlite');
+  const secretsPath = join(sandboxDir, 'secrets.json');
   const syncRoot = join(sandboxDir, 'sync-root');
   const env = {
     PUZZLEPKM_DB_PATH: dbPath,
+    PUZZLEPKM_SECRETS_PATH: secretsPath,
   };
 
   try {
@@ -141,6 +158,8 @@ test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relat
     const expectedRelativePath = relative(dirname(syncedSource.syncPath), syncedTarget.syncPath).replace(/\\/g, '/');
     const expectedRelativePathWithFragment = `${expectedRelativePath}#${blockFragment}`;
 
+    assertNoSerializedPathMetadata(sourceFileContent);
+
     assert.match(sourceFileContent, new RegExp(`\\[PathTarget\\]\\(${expectedRelativePathWithFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[ScriptureTarget\\]\\(${scripture.passageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
     assert.match(sourceFileContent, new RegExp(`\\[UnsafeTarget\\]\\(${unsafeTopic.id}\\)`));
@@ -149,11 +168,95 @@ test('CLI sync resolves canonical UUID links to BibleGateway URLs and safe relat
   }
 });
 
+test('CLI sync derives project/ref-material sync paths from folder locations and scrubs serialized path keys', () => {
+  const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-file-paths-'));
+  const dbPath = join(sandboxDir, 'file-paths.sqlite');
+  const secretsPath = join(sandboxDir, 'secrets.json');
+  const syncRoot = join(sandboxDir, 'sync-root');
+  const env = {
+    PUZZLEPKM_DB_PATH: dbPath,
+    PUZZLEPKM_SECRETS_PATH: secretsPath,
+  };
+
+  try {
+    runCli(['settings', 'set', 'root-folder', syncRoot], { env });
+
+    const project = parseLastJson(
+      runCli(['write', 'project', JSON.stringify({ name: 'Alpha Project', startDate: '2026-05-01', endDate: '2026-05-31', tags: ['Planning'] })], { env }).stdout,
+    );
+    const refMaterial = parseLastJson(
+      runCli(['write', 'ref-material', JSON.stringify({ name: 'Alpha Reference', author: 'Test Author', tags: ['Library'] })], { env }).stdout,
+    );
+
+    runCli(['sync'], { env });
+
+    const syncedProject = parseLastJson(runCli(['get', 'project', project.id], { env }).stdout);
+    const syncedRefMaterial = parseLastJson(runCli(['get', 'ref-material', refMaterial.id], { env }).stdout);
+
+    const projectFolderPath = join(syncRoot, 'projects', 'alpha-project');
+    const refMaterialFolderPath = join(syncRoot, 'ref-materials', 'alpha-reference');
+    const projectMetaPath = join(projectFolderPath, 'meta.yaml');
+    const refMaterialMetaPath = join(refMaterialFolderPath, 'meta.yaml');
+
+    assert.equal(syncedProject.syncPath, toPosixPath(projectFolderPath));
+    assert.equal(syncedRefMaterial.syncPath, toPosixPath(refMaterialFolderPath));
+    assertNoSerializedPathMetadata(readFileSync(projectMetaPath, 'utf8'));
+    assertNoSerializedPathMetadata(readFileSync(refMaterialMetaPath, 'utf8'));
+
+    const movedProjectFolderPath = join(syncRoot, 'projects', 'manual-project-folder');
+    const movedRefMaterialFolderPath = join(syncRoot, 'ref-materials', 'manual-reference-folder');
+    renameSync(projectFolderPath, movedProjectFolderPath);
+    renameSync(refMaterialFolderPath, movedRefMaterialFolderPath);
+
+    writeFileSync(join(movedProjectFolderPath, 'meta.yaml'), [
+      `id: ${project.id}`,
+      'name: Alpha Project',
+      'startDate: 2026-05-01',
+      'endDate: 2026-05-31',
+      'tags: ["Planning"]',
+      `createdAt: ${project.createdAt}`,
+      `updatedAt: ${project.updatedAt}`,
+      'syncPath: /wrong/project/path',
+      'dropboxPath: /wrong/project/dropbox-path',
+    ].join('\n') + '\n');
+
+    writeFileSync(join(movedRefMaterialFolderPath, 'meta.yaml'), [
+      `id: ${refMaterial.id}`,
+      'name: Alpha Reference',
+      'author: Test Author',
+      'tags: ["Library"]',
+      `createdAt: ${refMaterial.createdAt}`,
+      `updatedAt: ${refMaterial.updatedAt}`,
+      'syncPath: /wrong/ref-material/path',
+      'dropbox_path: /wrong/ref-material/dropbox-path',
+    ].join('\n') + '\n');
+
+    runCli(['sync'], { env });
+
+    const rederivedProject = parseLastJson(runCli(['get', 'project', project.id], { env }).stdout);
+    const rederivedRefMaterial = parseLastJson(runCli(['get', 'ref-material', refMaterial.id], { env }).stdout);
+    assert.equal(rederivedProject.syncPath, toPosixPath(movedProjectFolderPath));
+    assert.equal(rederivedRefMaterial.syncPath, toPosixPath(movedRefMaterialFolderPath));
+    assert.equal(rederivedProject.startDate, '2026-05-01');
+    assert.equal(rederivedProject.endDate, '2026-05-31');
+    assert.equal(rederivedRefMaterial.author, 'Test Author');
+
+    assertNoSerializedPathMetadata(readFileSync(join(movedProjectFolderPath, 'meta.yaml'), 'utf8'));
+    assertNoSerializedPathMetadata(readFileSync(join(movedRefMaterialFolderPath, 'meta.yaml'), 'utf8'));
+    assert.equal(existsSync(projectFolderPath), false, 'sync should not recreate the old canonical project folder after deriving the moved path');
+    assert.equal(existsSync(refMaterialFolderPath), false, 'sync should not recreate the old canonical ref-material folder after deriving the moved path');
+  } finally {
+    rmSync(sandboxDir, { recursive: true, force: true });
+  }
+});
+
 test('CLI block-ID round-trip: block IDs survive write→get→write and explicit-blocks payload', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-blocks-'));
   const dbPath = join(sandboxDir, 'blocks.sqlite');
+  const secretsPath = join(sandboxDir, 'secrets.json');
   const env = {
     PUZZLEPKM_DB_PATH: dbPath,
+    PUZZLEPKM_SECRETS_PATH: secretsPath,
   };
 
   try {
@@ -208,9 +311,11 @@ test('CLI block-ID round-trip: block IDs survive write→get→write and explici
 test('CLI migrate-links dry-run/apply converts unambiguous legacy paths and reports unresolved links', () => {
   const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-migrate-links-'));
   const dbPath = join(sandboxDir, 'migrate-links.sqlite');
+  const secretsPath = join(sandboxDir, 'secrets.json');
   const syncRoot = join(sandboxDir, 'sync-root');
   const env = {
     PUZZLEPKM_DB_PATH: dbPath,
+    PUZZLEPKM_SECRETS_PATH: secretsPath,
   };
 
   try {

@@ -49,6 +49,7 @@ If information must change, update the canonical file above instead of duplicati
 - Typecheck + bundle: `npm run build`
 - Build desktop wrapper: `npm run tauri:build`
 - Lint: `npm run lint`
+- Run sync parser unit coverage: `npm run test:sync-parser`
 - Run CLI smoke coverage: `npm run test:smoke`
 - Run full build alias: `npm run build:all`
 - Run SQLite benchmark harness: `npm run benchmark:sqlite`

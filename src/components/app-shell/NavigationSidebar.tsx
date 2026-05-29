@@ -507,7 +507,7 @@ function StackedTagsHeader({ loadingTags, count, hasActiveFilters }: { loadingTa
       </span>
       {loadingTags ? <Loader2 className="h-[11px] w-[11px] animate-spin text-[var(--color-text-disabled)]" /> : (
         <span className="text-xs font-medium text-[var(--color-accent-metadata)]">
-          {count === 0 ? 'No tags' : hasActiveFilters ? 'Filtered' : 'All selected'}
+          {count === 0 ? 'No tags' : hasActiveFilters ? 'Filtered' : 'No filters'}
         </span>
       )}
     </div>

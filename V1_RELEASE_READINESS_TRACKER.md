@@ -31,7 +31,7 @@ Target Tag: v1.0.0-rc
 | S3 | Missing sync folder => folder recreated + deletion reconciliation skipped for that run/type | PASS | Folder-missing guard/warnings in per-type reconcile functions (`cli.mjs:3562`, `3649`, `3776`, `3902`, `3992`) | @copilot | Code-level validation of skip+recreate behavior. |
 | S4 | Delete flow removes sync file/folder before local DB record drop | PASS | Delete path enforces remote delete first (`DEC-27`; delete flows in `cli.mjs`) | @copilot | Matches documented hard-delete contract. |
 | S5 | `Inbox` tag applied exactly once to new imports only | FAIL | Re-sync of imported legacy note in `/tmp/puzzlepkm-s6-check` dropped `Inbox` tag on second sync | @copilot | Gap: imported object no longer retains one-time Inbox tagging expectation. |
-| S6 | `syncPath` present/correct in serialized front matter; legacy aliases still round-trip | PASS | Added legacy alias parsing in `readSyncPathField` (`cli.mjs`); validated `dropboxPath` import via `/tmp/puzzlepkm-s6-check` | @copilot | `syncPath` populated correctly from legacy front matter. |
+| S6 | Synced files omit serialized `syncPath`; DB `sync_path` derives from actual filesystem locations on sync | PASS | `DEC-69`; sync serializers no longer emit `syncPath`, sync import derives from scanned file/folder paths, and sync cleanup strips legacy serialized path keys in place | @copilot | File contents are now location-derived instead of metadata-derived. |
 
 ## 3) Migration Flows
 

@@ -242,6 +242,12 @@ Lint the codebase:
 npm run lint
 ```
 
+Run narrow sync parser unit coverage:
+
+```bash
+npm run test:sync-parser
+```
+
 Run CLI smoke coverage (create/get/list/update/delete/sync paths):
 
 ```bash
@@ -341,7 +347,7 @@ Use this checklist to determine release readiness (`DEC-51`).
 - [ ] Missing sync folder triggers folder creation and skips deletion reconciliation for that type on the same run (safe fallback).
 - [ ] Deleting a locally-tracked object removes its sync file before the DB record is dropped.
 - [ ] Inbox tag is added exactly once to newly imported objects; existing objects are never re-tagged on subsequent syncs.
-- [ ] `syncPath` metadata is present and correct in serialized front matter.
+- [ ] Serialized sync files omit `syncPath` metadata; DB `sync_path` values are derived from actual filesystem locations during sync.
 
 **Migration flows**
 - [ ] Opening existing databases auto-backfills `note_blocks` from `content_markdown` without data loss.

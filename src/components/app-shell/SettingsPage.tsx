@@ -138,7 +138,7 @@ export default function SettingsPage() {
   const normalizedSyncRootPreview = normalizeSyncRootInput(syncRoot)
 
   return (
-    <div className="mx-auto flex max-w-[680px] flex-col gap-2.5 pb-4 pr-2">
+    <div className="mx-auto flex max-w-[720px] flex-col gap-5 pb-10 pr-2">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Settings className="h-7 w-7 text-[var(--color-accent-selected)]" />
@@ -146,15 +146,15 @@ export default function SettingsPage() {
           <h1 className="text-lg font-bold leading-tight text-[var(--color-text-primary)]">
             Settings
           </h1>
-          <p className="text-xs text-[var(--color-text-secondary)]">
+          <p className="mt-1 text-sm leading-6 text-[var(--color-text-secondary)]">
             PuzzlePKM configuration &amp; diagnostics
           </p>
         </div>
       </div>
 
       {/* ── CLI Status ─────────────────────────────────────────────────────── */}
-      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
-        <div className="mb-3 flex items-center gap-2">
+      <section className="space-y-4 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
+        <div className="flex items-center gap-2">
           <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
           <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             CLI Status
@@ -169,7 +169,7 @@ export default function SettingsPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
               {cliStatus.ok ? (
                 <CheckCircle2 className="h-[15px] w-[15px] text-[var(--color-success-main)]" />
@@ -191,7 +191,7 @@ export default function SettingsPage() {
               </span>
             </div>
             {cliStatus.detail && (
-              <p className="text-sm text-[var(--color-text-secondary)]">{cliStatus.detail}</p>
+              <p className="text-sm leading-6 text-[var(--color-text-secondary)]">{cliStatus.detail}</p>
             )}
             {cliStatus.error && (
               <Alert variant="destructive" className="mt-2 text-xs">
@@ -203,8 +203,8 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Storage ────────────────────────────────────────────────────────── */}
-      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
-        <div className="mb-3 flex items-center gap-2">
+      <section className="space-y-4 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
+        <div className="flex items-center gap-2">
           <HardDrive className="h-4 w-4 text-[var(--color-accent-selected)]" />
           <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Storage
@@ -214,16 +214,16 @@ export default function SettingsPage() {
         {!config.loaded ? (
           <Loader2 className="h-4 w-4 animate-spin text-[var(--color-text-secondary)]" />
         ) : (
-          <div className="space-y-3">
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)]">Database path</p>
-              <p className="break-all font-mono text-xs text-[var(--color-text-primary)]">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--color-text-secondary)]">Database path</p>
+              <p className="break-all font-mono text-sm leading-6 text-[var(--color-text-primary)]">
                 {config.dbPath || '(platform default puzzlepkm app-data folder)'}
               </p>
             </div>
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)]">Sync root folder</p>
-              <p className="break-all text-xs text-[var(--color-text-primary)]">{config.syncRootFolder || '(not configured)'}</p>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--color-text-secondary)]">Sync root folder</p>
+              <p className="break-all text-sm leading-6 text-[var(--color-text-primary)]">{config.syncRootFolder || '(not configured)'}</p>
             </div>
           </div>
         )}
@@ -235,21 +235,21 @@ export default function SettingsPage() {
       </section>
 
       {/* ── Sync ───────────────────────────────────────────────────────────── */}
-      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
-        <div className="mb-3 flex items-center gap-2">
+      <section className="space-y-6 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
+        <div className="flex items-center gap-2">
           <Cloud className="h-4 w-4 text-[var(--color-accent-selected)]" />
           <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             Local Sync
           </p>
         </div>
 
-        <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
+        <p className="text-sm leading-6 text-[var(--color-text-secondary)]">
           Projects and Reference Materials are discovered under your configured sync folder.
           Set the root folder path below.
         </p>
 
-        <div className="space-y-3">
-          <div className="space-y-1.5">
+        <div className="space-y-5">
+          <div className="space-y-2">
             <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
               Sync root folder
             </label>
@@ -260,20 +260,20 @@ export default function SettingsPage() {
               aria-invalid={Boolean(syncRootValidationError)}
               className={syncRootValidationError ? 'border-[rgba(226,89,89,0.44)] focus-visible:ring-[rgba(226,89,89,0.25)]' : undefined}
           />
-            <p className={`text-xs ${syncRootValidationError ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
+            <p className={`text-sm leading-6 ${syncRootValidationError ? 'text-rose-300' : 'text-[var(--color-text-disabled)]'}`}>
               {syncRootValidationError || 'Folder path used by sync'}
             </p>
           </div>
 
           {!syncRootValidationError && normalizedSyncRootPreview && (
-            <p className="break-all text-xs text-[var(--color-text-secondary)]">
+            <p className="break-all text-sm leading-6 text-[var(--color-text-secondary)]">
               Effective sync root:{' '}
               <span className="font-mono text-[var(--color-text-primary)]">{normalizedSyncRootPreview}</span>
             </p>
           )}
 
           {config.resolvedSyncRootFolder && (
-            <p className="break-all text-xs text-[var(--color-text-secondary)]">
+            <p className="break-all text-sm leading-6 text-[var(--color-text-secondary)]">
               Resolved local folder:{' '}
               <span className="font-mono text-[var(--color-text-primary)]">{config.resolvedSyncRootFolder}</span>
             </p>
@@ -285,46 +285,50 @@ export default function SettingsPage() {
             </Alert>
           )}
 
-          <Button
-            disabled={saving || Boolean(syncRootValidationError)}
-            onClick={handleSaveSyncRoot}
-            size="sm"
-            className="self-start"
-          >
-            {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            Save path
-          </Button>
+          <div className="pt-3 pb-2">
+            <Button
+              disabled={saving || Boolean(syncRootValidationError)}
+              onClick={handleSaveSyncRoot}
+              size="sm"
+              className="self-start"
+            >
+              {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              Save path
+            </Button>
+          </div>
         </div>
 
-        <div className="my-4 h-px bg-[var(--color-border-subtle)]" />
+        <div className="h-px bg-[var(--color-border-subtle)]" />
 
-        <p className="mb-2 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
-          Expected folder structure
-        </p>
-        <pre className="m-0 overflow-auto rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-3 text-xs text-[var(--color-text-secondary)]">
-          {`<sync-root>/
+        <div className="space-y-4 pt-2">
+          <p className="block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+            Expected folder structure
+          </p>
+          <pre className="m-0 overflow-auto rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-4 text-xs leading-6 text-[var(--color-text-secondary)]">
+            {`<sync-root>/
 └── ...
     ├── projects/      ← each sub-folder = one Project
     ├── ref-materials/ ← each sub-folder = one Ref Material
     ├── daily-notes/
     ├── topic-notes/
     └── habits/`}
-        </pre>
-        <p className="mt-2 block text-xs text-[var(--color-text-disabled)]">
-          New projects and reference materials are added by creating folders in the sync root, not through
-          the app.
-        </p>
+          </pre>
+          <p className="block text-sm leading-6 text-[var(--color-text-disabled)]">
+            New projects and reference materials are added by creating folders in the sync root, not through
+            the app.
+          </p>
+        </div>
       </section>
 
       {/* ── About ──────────────────────────────────────────────────────────── */}
-      <section className="rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-4">
-        <div className="mb-3 flex items-center gap-2">
+      <section className="space-y-4 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
+        <div className="flex items-center gap-2">
           <Info className="h-4 w-4 text-[var(--color-accent-selected)]" />
           <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
             About PuzzlePKM
           </p>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {[
             ['App', 'PuzzlePKM Desktop'],
             ['Architecture', 'CLI-first · Tauri wrapper · React UI'],
@@ -332,9 +336,9 @@ export default function SettingsPage() {
             ['Sync', 'Local folder'],
             ['CLI command', 'puzzlepkm'],
           ].map(([label, value]) => (
-            <div key={label} className="flex gap-3 py-1">
-              <span className="min-w-[110px] text-sm text-[var(--color-text-secondary)]">{label}</span>
-              <span className="text-sm text-[var(--color-text-primary)]">{value}</span>
+            <div key={label} className="flex gap-3 py-1.5">
+              <span className="min-w-[110px] text-sm leading-6 text-[var(--color-text-secondary)]">{label}</span>
+              <span className="text-sm leading-6 text-[var(--color-text-primary)]">{value}</span>
             </div>
           ))}
         </div>

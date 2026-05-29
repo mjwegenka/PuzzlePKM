@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
@@ -16,7 +16,7 @@ import {
 import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
 import { AuthorSelect } from './AuthorSelect'
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, type ResolvedObjectRef, type AuthorSummary } from '../../lib/cliService'
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary } from '../../lib/cliService'
 import { normalizeNoteBlocks, joinBlockMarkdown } from '../../lib/noteBlocks'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
@@ -67,6 +67,18 @@ function isPinnedTag(tag: string): boolean {
   return normalizeTagValue(tag) === 'pinned';
 }
 
+function dedupeNormalizedTags(tagNames: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const tagName of tagNames) {
+    const normalized = normalizeTagValue(tagName);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    next.push(normalized);
+  }
+  return next;
+}
+
 export default function ObjectEditor({ object, type, flatTop = false, onSave, onSaveAndOpenPrevious, onSaveAndOpenNext, onCancel, onDirty, onNavigateToObject, onDateChange, initialBlockId }: ObjectEditorProps) {
   const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
@@ -96,6 +108,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
+  const [tagDialogTags, setTagDialogTags] = useState<string[]>([]);
+  const [popularTagPills, setPopularTagPills] = useState<string[]>([]);
+  const [popularTagsLoading, setPopularTagsLoading] = useState(false);
   const [tagDialogError, setTagDialogError] = useState<string | null>(null);
   const [navigationDialogError, setNavigationDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -253,6 +268,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const closeTagDialog = useCallback(() => {
     setShowTagDialog(false);
+    setTagDialogTags([]);
     setNewTag('');
     setTagDialogError(null);
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
@@ -260,8 +276,15 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     }
   }, []);
 
-  const handleAddTag = useCallback((): boolean => {
-    const tag = newTag.trim().toLowerCase();
+  const openTagDialog = useCallback(() => {
+    setTagDialogError(null);
+    setNewTag('');
+    setTagDialogTags(dedupeNormalizedTags(tags));
+    setShowTagDialog(true);
+  }, [tags]);
+
+  const handleAddDialogTag = useCallback((): boolean => {
+    const tag = normalizeTagValue(newTag);
     setTagDialogError(null);
     if (!tag) return false;
 
@@ -270,17 +293,47 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       return false;
     }
 
-    if (tag) {
-      if (type === 'habit') {
-        setTags([tag]);
-      } else if (!tags.includes(tag)) {
-        setTags([...tags, tag]);
-      }
-      setNewTag('');
-      return true;
+    setTagDialogTags((prev) => {
+      if (prev.includes(tag)) return prev;
+      if (type === 'habit') return [tag];
+      return [...prev, tag];
+    });
+    setNewTag('');
+    return true;
+  }, [newTag, type]);
+
+  const handleToggleDialogTag = useCallback((rawTag: string) => {
+    const tag = normalizeTagValue(rawTag);
+    if (!tag) return;
+    setTagDialogError(null);
+    if (type === 'habit' && isPinnedTag(tag)) {
+      setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
+      return;
     }
-    return false;
-  }, [newTag, tags, type]);
+    setTagDialogTags((prev) => {
+      if (prev.includes(tag)) return prev.filter((existing) => existing !== tag);
+      if (type === 'habit') return [tag];
+      return [...prev, tag];
+    });
+  }, [type]);
+
+  const handleSaveTagDialog = useCallback(() => {
+    let nextTags = [...tagDialogTags];
+    const pendingTag = normalizeTagValue(newTag);
+    if (pendingTag) {
+      if (type === 'habit' && isPinnedTag(pendingTag)) {
+        setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
+        return;
+      }
+      if (type === 'habit') {
+        nextTags = [pendingTag];
+      } else if (!nextTags.includes(pendingTag)) {
+        nextTags = [...nextTags, pendingTag];
+      }
+    }
+    setTags(dedupeNormalizedTags(nextTags));
+    closeTagDialog();
+  }, [closeTagDialog, newTag, tagDialogTags, type]);
 
   const handleRemoveTag = (tag: string) => {
     setTags(tags.filter((t) => t !== tag));
@@ -294,6 +347,42 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     });
     return () => window.cancelAnimationFrame(frame);
   }, [showTagDialog]);
+
+  useEffect(() => {
+    if (!showTagDialog) return;
+    let cancelled = false;
+    setPopularTagsLoading(true);
+    void listTags()
+      .then((allTags) => {
+        if (cancelled) return;
+        const topPills = dedupeNormalizedTags(
+          [...allTags]
+            .sort((a, b) => b.objectCount - a.objectCount || a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }))
+            .slice(0, 20)
+            .map((tag) => tag.displayName || tag.name),
+        );
+        setPopularTagPills(topPills);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPopularTagPills([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPopularTagsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showTagDialog]);
+
+  const tagDialogPills = useMemo(() => {
+    const merged = [...popularTagPills];
+    for (const assignedTag of tagDialogTags) {
+      if (!merged.includes(assignedTag)) merged.push(assignedTag);
+    }
+    return merged;
+  }, [popularTagPills, tagDialogTags]);
 
   const buildPersistPayload = useCallback((tagsOverride?: string[]): { data: Record<string, unknown>; tagsToPersist: string[] } => {
     const tagsToPersist = tagsOverride ?? tags;
@@ -367,6 +456,17 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const isPinned = tags.some(isPinnedTag);
   const canPin = type === 'topic-note' || type === 'daily-note' || type === 'project' || type === 'ref-material';
   const canDelete = Boolean(object?.id) && (type === 'topic-note' || type === 'daily-note' || type === 'habit');
+
+  // Habits require exactly one tag and a date before they can be saved.
+  const habitSaveBlocker: string | null =
+    type === 'habit'
+      ? tags.length === 0
+        ? 'Habits require exactly one tag.'
+        : !date
+          ? 'Habits require a date.'
+          : null
+      : null;
+  const canSave = !habitSaveBlocker;
   const handleTogglePinned = async () => {
     if (!canPin) return;
     const nextTags = isPinned
@@ -587,8 +687,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           variant="ghost"
           size="icon"
           onClick={() => {
-            setTagDialogError(null);
-            setShowTagDialog(true);
+            openTagDialog();
           }}
           className="h-6 w-6 text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
           aria-label="Add tag"
@@ -777,10 +876,16 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {deleting ? 'Deleting…' : 'Delete'}
                   </Button>
                 )}
+                {habitSaveBlocker && (
+                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
+                    {habitSaveBlocker}
+                  </Alert>
+                )}
                 <Button
                   onClick={handleSave}
-                  disabled={saving || deleting}
+                  disabled={saving || deleting || !canSave}
                   size="sm"
+                  title={habitSaveBlocker ?? undefined}
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
@@ -789,7 +894,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   type="button"
                   variant="outline"
                   onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenPrevious); }}
-                  disabled={saving || deleting || !onSaveAndOpenPrevious}
+                  disabled={saving || deleting || !onSaveAndOpenPrevious || !canSave}
                   size="sm"
                   title="Save and open previous object"
                 >
@@ -799,7 +904,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   type="button"
                   variant="outline"
                   onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenNext); }}
-                  disabled={saving || deleting || !onSaveAndOpenNext}
+                  disabled={saving || deleting || !onSaveAndOpenNext || !canSave}
                   size="sm"
                   title="Save and open next object"
                 >
@@ -902,6 +1007,11 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {saveError}
                   </Alert>
                 )}
+                {!saveError && habitSaveBlocker && (
+                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
+                    {habitSaveBlocker}
+                  </Alert>
+                )}
                 {onCancel && (
                   <Button variant="outline" onClick={onCancel} disabled={saving || deleting} size="sm">
                     Cancel
@@ -935,8 +1045,9 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
                 <Button
                   onClick={handleSave}
-                  disabled={saving || deleting}
+                  disabled={saving || deleting || !canSave}
                   size="sm"
+                  title={habitSaveBlocker ?? undefined}
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
@@ -945,7 +1056,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   type="button"
                   variant="outline"
                   onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenPrevious); }}
-                  disabled={saving || deleting || !onSaveAndOpenPrevious}
+                  disabled={saving || deleting || !onSaveAndOpenPrevious || !canSave}
                   size="sm"
                   title="Save and open previous object"
                 >
@@ -955,7 +1066,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   type="button"
                   variant="outline"
                   onClick={() => { void handleSaveAndOpenSibling(onSaveAndOpenNext); }}
-                  disabled={saving || deleting || !onSaveAndOpenNext}
+                  disabled={saving || deleting || !onSaveAndOpenNext || !canSave}
                   size="sm"
                   title="Save and open next object"
                 >
@@ -972,36 +1083,83 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         {showTagDialog ? (
           <DialogContent className="max-w-sm" aria-label="Add Tag">
             <DialogHeader>
-              <DialogTitle>Add Tag</DialogTitle>
+              <DialogTitle>Edit Tags</DialogTitle>
               <DialogDescription>
-                Add a lowercase tag to this object.
+                Pick from popular tags or add a new one.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-1">
+            <div className="space-y-3">
               <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                 Tag name
               </label>
-              <Input
-                autoFocus
-                ref={tagInputRef}
-                value={newTag}
-                onChange={(e) => {
-                  setTagDialogError(null);
-                  setNewTag(e.target.value.toLowerCase());
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (handleAddTag()) closeTagDialog();
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    closeTagDialog();
-                  }
-                }}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  autoFocus
+                  ref={tagInputRef}
+                  value={newTag}
+                  onChange={(e) => {
+                    setTagDialogError(null);
+                    setNewTag(e.target.value.toLowerCase());
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleAddDialogTag();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      closeTagDialog();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    handleAddDialogTag();
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                  Most used tags
+                </p>
+                {popularTagsLoading ? (
+                  <p className="text-xs italic text-[var(--color-text-disabled)]">Loading tags…</p>
+                ) : null}
+                <div className="max-h-40 overflow-y-auto rounded-md border border-[var(--color-border-subtle)] p-2">
+                  {tagDialogPills.length === 0 ? (
+                    <p className="text-xs italic text-[var(--color-text-disabled)]">No tags available yet.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {tagDialogPills.map((tag) => {
+                        const isSelected = tagDialogTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              handleToggleDialogTag(tag);
+                            }}
+                            className={cn(
+                              'inline-flex min-h-[28px] items-center rounded-full border px-3 py-1 text-sm transition-colors',
+                              isSelected
+                                ? 'border-[var(--color-border-strong)] bg-[var(--color-accent)]/20 text-[var(--color-text-primary)]'
+                                : 'border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]',
+                            )}
+                          >
+                            <span className="ui-tag-text">#{tag}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
               {tagDialogError ? (
                 <Alert variant="destructive" className="py-2 text-xs">
                   {tagDialogError}
@@ -1012,10 +1170,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               <Button variant="outline" onClick={closeTagDialog}>Cancel</Button>
               <Button
                 onClick={() => {
-                  if (handleAddTag()) closeTagDialog();
+                  handleSaveTagDialog();
                 }}
               >
-                Add
+                Save Tags
               </Button>
             </DialogFooter>
           </DialogContent>
