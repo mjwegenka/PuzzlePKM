@@ -51,6 +51,7 @@ export interface TopicNoteMeta {
   updatedAt: string;
   date?: string;
   preview: string;
+  contentSearch?: string;
   tags: string[];
   displayTitle: string;
   type: 'topic-note';
@@ -60,6 +61,7 @@ export interface DailyNoteMeta {
   id: string;
   date: string;
   preview: string;
+  contentSearch?: string;
   tags: string[];
   displayTitle: string;
   type: 'daily-note';
@@ -70,6 +72,7 @@ export interface HabitMeta {
   date: string;
   status: 'planned' | 'accomplished';
   text: string;
+  contentSearch?: string;
   syncPath: string;
   tags: string[];
   displayTitle: string;
@@ -500,6 +503,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
         const title = String(row.title ?? '');
         const date = String(row.date ?? '').trim() || undefined;
         const preview = String(row.preview ?? '');
+        const contentSearch = String(row.contentSearch ?? row.content_search ?? '').trim() || undefined;
         const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
         return {
           id: String(row.id ?? ''),
@@ -507,6 +511,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
           updatedAt: String(row.updatedAt ?? ''),
           date,
           preview,
+          contentSearch,
           tags,
           displayTitle: getObjectDisplayTitle('topic-note', { title, date, preview }),
           type: 'topic-note' as const,
@@ -518,11 +523,13 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       .map((row) => {
         const date = String(row.date ?? '');
         const preview = String(row.preview ?? '');
+        const contentSearch = String(row.contentSearch ?? row.content_search ?? '').trim() || undefined;
         const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
         return {
           id: String(row.id ?? ''),
           date,
           preview,
+          contentSearch,
           tags,
           displayTitle: getObjectDisplayTitle('daily-note', { date }),
           type: 'daily-note' as const,
@@ -534,6 +541,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       .map((row): HabitMeta => {
         const date = String(row.date ?? '');
         const text = String(row.text ?? '');
+        const contentSearch = String(row.contentSearch ?? row.content_search ?? row.text ?? '').trim() || undefined;
         const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
         const status: HabitMeta['status'] = row.status === 'accomplished' ? 'accomplished' : 'planned';
         return {
@@ -541,6 +549,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
           date,
           status,
           text,
+          contentSearch,
           syncPath: String(row.syncPath ?? ''),
           tags,
           displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),

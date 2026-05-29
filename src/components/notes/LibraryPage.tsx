@@ -85,6 +85,7 @@ interface TopicItem {
   id: string
   title: string
   preview: string
+  contentSearch?: string
   date?: string
   updatedAt: string
   tags: string[]
@@ -96,6 +97,7 @@ interface DailyItem {
   id: string
   date: string
   preview: string
+  contentSearch?: string
   tags: string[]
   displayTitle: string
   type: 'daily-note'
@@ -105,6 +107,7 @@ interface HabitItem {
   id: string
   date: string
   text: string
+  contentSearch?: string
   tags: string[]
   displayTitle: string
   type: 'habit'
@@ -143,6 +146,7 @@ interface ActiveLibraryObject {
 interface BoardCard extends NoteCardData {
   type: NoteCardData['type']
   sortTimestamp: number
+  contentSearch?: string
 }
 
 interface RenderedBoardCard {
@@ -213,9 +217,9 @@ function normalizeSearchQuery(value: string): string {
   return String(value).trim().toLowerCase()
 }
 
-function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet'>, query: string): boolean {
+function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet' | 'contentSearch'>, query: string): boolean {
   if (!query) return true
-  return [card.title, card.metadata, card.snippet].some((value) =>
+  return [card.title, card.metadata, card.snippet, card.contentSearch].some((value) =>
     String(value ?? '').toLowerCase().includes(query),
   )
 }
@@ -249,6 +253,21 @@ function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tagName = target.tagName.toLowerCase()
   return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select'
+}
+
+async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+  const maxWorkers = Math.max(1, Math.min(concurrency, items.length))
+  let index = 0
+
+  const workers = Array.from({ length: maxWorkers }, async () => {
+    while (index < items.length) {
+      const current = items[index]
+      index += 1
+      await worker(current)
+    }
+  })
+
+  await Promise.all(workers)
 }
 
 // ── Create panel (type selector + blank editor) ───────────────────────────────
@@ -796,6 +815,7 @@ export default function LibraryPage({
           metadata: n.date ? formatDatePretty(n.date) : undefined,
           metadataAccent: Boolean(n.date),
           snippet,
+          contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
           tags: n.tags,
           sortTimestamp: toSortTimestamp(n.updatedAt, n.date),
         }
@@ -810,6 +830,7 @@ export default function LibraryPage({
         title: n.displayTitle,
         weekdayLabel: formatWeekdayFull(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
+        contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
         tags: n.tags,
         sortTimestamp: toSortTimestamp(n.date),
       }))
@@ -822,6 +843,7 @@ export default function LibraryPage({
         title: n.displayTitle,
         weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
         snippet: sanitizeCardPreview(n.text) || undefined,
+        contentSearch: sanitizeCardPreview(n.contentSearch ?? n.text) || undefined,
         tags: n.tags,
         hideTags: true,
         sortTimestamp: toSortTimestamp(n.date),
@@ -1046,15 +1068,30 @@ export default function LibraryPage({
     setIsBulkSaving(true)
 
     try {
-      for (const card of selectedCards) {
-        const existing = await getObject(card.type, card.id)
-        const saved = await writeObject(card.type, {
-          ...existing,
-          tags: card.type === 'habit' ? nextTags.slice(0, 1) : nextTags,
-        })
+      const savedByKey = new Map<string, Record<string, unknown>>()
+      const failures: string[] = []
 
-        if (activeObject?.objectId === card.id && activeObject.type === card.type && !activeObject.isDirty) {
-          setActiveObject((prev) => (prev ? { ...prev, object: { ...saved, type: card.type }, isDirty: false } : prev))
+      await runWithConcurrency(selectedCards, 8, async (card) => {
+        try {
+          const saved = await writeObject(card.type, {
+            id: card.id,
+            tags: card.type === 'habit' ? nextTags.slice(0, 1) : nextTags,
+          })
+          savedByKey.set(getBoardCardKey(card), saved)
+        } catch (error) {
+          failures.push(`${card.type} ${card.id}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      })
+
+      if (failures.length > 0) {
+        throw new Error(failures.length === 1 ? failures[0] : `${failures[0]} (+${failures.length - 1} more)`)
+      }
+
+      if (activeObject && !activeObject.isDirty) {
+        const activeKey = `${activeObject.type}:${activeObject.objectId}`
+        const updatedActive = savedByKey.get(activeKey)
+        if (updatedActive) {
+          setActiveObject((prev) => (prev ? { ...prev, object: { ...updatedActive, type: prev.type }, isDirty: false } : prev))
         }
       }
 

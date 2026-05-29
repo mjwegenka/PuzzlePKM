@@ -368,18 +368,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="inline-flex items-center rounded-full border border-current bg-[var(--color-surface-control)]/88 p-1 text-[var(--color-text-disabled)] hover:bg-[var(--color-surface-hover)]">
-            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handlePrevMonth}>
-              <ChevronLeft className="h-4.5 w-4.5" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 px-4 text-sm text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleToday}>
-              Today
-            </Button>
-            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleNextMonth}>
-              <ChevronRight className="h-4.5 w-4.5" />
-            </Button>
-          </div>
-
           <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -413,6 +401,18 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
               placeholder="Search"
               className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
             />
+          </div>
+
+          <div className="ml-auto inline-flex shrink-0 items-center rounded-full border border-current bg-[var(--color-surface-control)]/88 p-1 text-[var(--color-text-disabled)] hover:bg-[var(--color-surface-hover)]">
+            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handlePrevMonth}>
+              <ChevronLeft className="h-4.5 w-4.5" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 px-4 text-sm text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleToday}>
+              Today
+            </Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleNextMonth}>
+              <ChevronRight className="h-4.5 w-4.5" />
+            </Button>
           </div>
         </div>
 

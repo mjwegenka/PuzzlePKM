@@ -15,7 +15,6 @@
         "title": "PuzzlePKM",
         "width": 1280,
         "height": 840,
-        "minWidth": 980,
         "minHeight": 640,
         "decorations": true,
         "titleBarStyle": "Transparent",

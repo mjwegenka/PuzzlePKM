@@ -9,6 +9,8 @@ import {
   Hash,
   Loader2,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pin,
   RefreshCw,
   Repeat,
@@ -117,6 +119,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
   const { syncing, lastSyncedAt, syncError, triggerSync } = useSyncStatus();
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedNavItem[]>([]);
   const [tags, setTags] = useState<TagSummary[]>([]);
   const [loadingPinned, setLoadingPinned] = useState(false);
@@ -291,19 +294,28 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
 
   return (
     <TooltipProvider>
+      <>
       <aside
-        className="relative flex shrink-0 flex-col overflow-hidden bg-[var(--color-surface-app)] px-2 pb-2"
+        className="relative flex shrink-0 flex-col overflow-hidden bg-[var(--color-surface-app)] transition-[width,padding] duration-200 ease-out"
         style={{
-          width: sidebarWidth,
-          paddingTop: '12px',
+          width: isCollapsed ? 0 : sidebarWidth,
+          paddingTop: isCollapsed ? '0px' : '12px',
         }}
+        aria-hidden={isCollapsed}
       >
         <div
+          className={cn(
+            'flex h-full min-w-0 flex-col transition-[transform,opacity] duration-200 ease-out',
+            isCollapsed ? '-translate-x-8 opacity-0 pointer-events-none' : 'translate-x-0 opacity-100',
+          )}
+        >
+        <div
+          aria-hidden={isCollapsed}
           onMouseDown={handleResizeStart}
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize navigation sidebar"
-          className="absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize"
+          className={cn('absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize', isCollapsed ? 'pointer-events-none opacity-0' : undefined)}
         >
           <div
             className="absolute right-[2px] top-0 h-full w-px transition-colors"
@@ -471,6 +483,23 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                   type="button"
                   variant="ghost"
                   size="icon"
+                  onClick={() => setIsCollapsed(true)}
+                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                  aria-label="Hide navigation"
+                >
+                  <PanelLeftClose className="h-[17px] w-[17px]" />
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">Hide navigation</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={triggerSync}
                   disabled={syncing}
                   className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
@@ -493,7 +522,51 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
           </div>
         </div>
 
+        </div>
+
       </aside>
+      {isCollapsed ? (
+        <div className="fixed bottom-9 left-3 z-40 flex items-center gap-2 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)]/95 p-2 shadow-lg backdrop-blur">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsCollapsed(false)}
+                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                  aria-label="Show navigation"
+                >
+                  <PanelLeftOpen className="h-[17px] w-[17px]" />
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">Show navigation</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={triggerSync}
+                  disabled={syncing}
+                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                  style={{ color: syncError ? 'var(--destructive)' : undefined }}
+                  aria-label="Sync now"
+                >
+                  {syncing ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <RefreshCw className="h-[17px] w-[17px]" />}
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">{syncTooltip}</TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
+      </>
     </TooltipProvider>
   );
 }

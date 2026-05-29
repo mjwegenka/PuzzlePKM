@@ -15,6 +15,7 @@ struct CliSerializer(Arc<tokio::sync::Mutex<()>>);
 struct BackgroundSyncState(Arc<tokio::sync::Mutex<BackgroundSyncStatus>>);
 
 const SETTINGS_MENU_ID: &str = "app-settings";
+const NEW_WINDOW_MENU_ID: &str = "app-new-window";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -307,6 +308,22 @@ fn open_settings_window(app: &tauri::AppHandle) {
     .build();
 }
 
+fn open_new_main_window(app: &tauri::AppHandle) {
+    let mut index: u32 = 1;
+    let label = loop {
+        let candidate = format!("main-{index}");
+        if app.get_webview_window(&candidate).is_none() {
+            break candidate;
+        }
+        index += 1;
+    };
+
+    let _ = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+        .title("PuzzlePKM")
+        .focused(true)
+        .build();
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(CliSerializer(Arc::new(tokio::sync::Mutex::new(()))))
@@ -317,6 +334,8 @@ fn main() {
             let handle = app.handle();
             let app_menu = SubmenuBuilder::new(handle, "PuzzlePKM")
                 .about_with_text("About PuzzlePKM", None)
+                .separator()
+                .text(NEW_WINDOW_MENU_ID, "New Window")
                 .separator()
                 .text(SETTINGS_MENU_ID, "Settings…")
                 .separator()
@@ -347,8 +366,10 @@ fn main() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            if event.id().as_ref() == SETTINGS_MENU_ID {
-                open_settings_window(app);
+            match event.id().as_ref() {
+                NEW_WINDOW_MENU_ID => open_new_main_window(app),
+                SETTINGS_MENU_ID => open_settings_window(app),
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
