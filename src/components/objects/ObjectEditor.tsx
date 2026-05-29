@@ -16,7 +16,7 @@ import {
 import DatePicker from '../ui/date-picker'
 import { Input } from '../ui/input'
 import { AuthorSelect } from './AuthorSelect'
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary } from '../../lib/cliService'
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary, DATE_MENTION_HREF_PREFIX } from '../../lib/cliService'
 import { normalizeNoteBlocks, joinBlockMarkdown } from '../../lib/noteBlocks'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
@@ -40,8 +40,72 @@ interface ObjectEditorProps {
 }
 
 
-function normalizeSyncPath(path?: string): string | undefined {
-  const value = (path ?? '').trim();
+/**
+ * Scans note blocks for `date:YYYY-MM-DD` placeholder hrefs inserted when a user
+ * mentions a date that has no existing daily note. For each found date, creates or
+ * retrieves the daily note and replaces the placeholder href with the real UUID so
+ * the saved content contains proper internal links. (DEC-43)
+ */
+async function resolvePendingDateHrefs(
+  blocks: NoteBlock[],
+  markdownContent: string,
+): Promise<{ blocks: NoteBlock[]; content: string } | undefined> {
+  const datePattern = new RegExp(`\\(${DATE_MENTION_HREF_PREFIX}(\\d{4}-\\d{2}-\\d{2})\\)`, 'g');
+  const dates = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = datePattern.exec(markdownContent)) !== null) {
+    dates.add(match[1]);
+  }
+  if (dates.size === 0) return undefined;
+
+  const replacements = new Map<string, string>();
+  for (const date of dates) {
+    try {
+      // Try fetching the existing note first (avoids the duplicate-date error on create).
+      let existingId: string | undefined;
+      try {
+        const existing = await getObject('daily-note', date);
+        existingId = String((existing as { id?: unknown }).id ?? '').trim() || undefined;
+      } catch {
+        // Not found — proceed to create.
+      }
+
+      if (existingId) {
+        replacements.set(date, existingId);
+      } else {
+        const created = await writeObject('daily-note', {
+          date,
+          contentMarkdown: '',
+          blocks: [],
+          tags: [],
+        });
+        const createdId = String(created.id ?? '').trim();
+        if (createdId) replacements.set(date, createdId);
+      }
+    } catch {
+      // Resolution failed — leave the date: href unchanged.
+    }
+  }
+
+  if (replacements.size === 0) return undefined;
+
+  let resolvedContent = markdownContent;
+  for (const [date, uuid] of replacements) {
+    resolvedContent = resolvedContent.replaceAll(`${DATE_MENTION_HREF_PREFIX}${date}`, uuid);
+  }
+
+  const resolvedBlocks = blocks.map((block) => {
+    let md = block.contentMarkdown;
+    for (const [date, uuid] of replacements) {
+      md = md.replaceAll(`${DATE_MENTION_HREF_PREFIX}${date}`, uuid);
+    }
+    return md !== block.contentMarkdown ? { ...block, contentMarkdown: md } : block;
+  });
+
+  return { blocks: resolvedBlocks, content: resolvedContent };
+}
+
+function normalizeSyncPath(path?: string): string | undefined {  const value = (path ?? '').trim();
   return value && value !== '(no path)' ? value.replace(/\\/g, '/') : undefined;
 }
 
@@ -239,6 +303,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       const baseHref = option.id.trim();
       if (!baseHref) return '';
 
+      // Synthetic date option — keep the date: placeholder href.
+      // It will be resolved to a real daily note UUID at save time.
+      if (baseHref.startsWith(DATE_MENTION_HREF_PREFIX)) return baseHref;
+
       const isNoteTarget =
         option.type === 'topic-note' || option.type === 'daily-note';
       if (!isNoteTarget) return baseHref;
@@ -384,8 +452,14 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     return merged;
   }, [popularTagPills, tagDialogTags]);
 
-  const buildPersistPayload = useCallback((tagsOverride?: string[]): { data: Record<string, unknown>; tagsToPersist: string[] } => {
+  const buildPersistPayload = useCallback((
+    tagsOverride?: string[],
+    blocksOverride?: NoteBlock[],
+    contentOverride?: string,
+  ): { data: Record<string, unknown>; tagsToPersist: string[] } => {
     const tagsToPersist = tagsOverride ?? tags;
+    const effectiveBlocks = blocksOverride ?? noteBlocks;
+    const effectiveContent = contentOverride ?? content;
     const data: Record<string, unknown> = {
       id: object?.id,
       tags: tagsToPersist,
@@ -394,13 +468,13 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     if (type === 'topic-note') {
       data.title = title;
       data.date = date;
-      data.contentMarkdown = content;
-      data.blocks = noteBlocks;
+      data.contentMarkdown = effectiveContent;
+      data.blocks = effectiveBlocks;
       data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
     } else if (type === 'daily-note') {
       data.date = date;
-      data.contentMarkdown = content;
-      data.blocks = noteBlocks;
+      data.contentMarkdown = effectiveContent;
+      data.blocks = effectiveBlocks;
       data.linkedObjectIds = (object?.linkedObjectIds as string[]) ?? [];
     } else if (type === 'project') {
       data.name = title;
@@ -411,7 +485,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       data.author = author || '';
       data.syncPath = (object?.syncPath as string) ?? '';
     } else if (type === 'habit') {
-      data.text = content;
+      data.text = effectiveContent;
       data.date = date;
     }
 
@@ -438,7 +512,22 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setSaving(true);
     setSaveError(null);
     try {
-      const { data, tagsToPersist } = buildPersistPayload(tagsOverride);
+      // DEC-43: resolve any pending date: placeholder hrefs in note content to
+      // real daily note UUIDs (creating the daily notes if they don't exist yet).
+      let blocksForSave: NoteBlock[] | undefined;
+      let contentForSave: string | undefined;
+      if (type === 'topic-note' || type === 'daily-note') {
+        const resolved = await resolvePendingDateHrefs(noteBlocks, content);
+        if (resolved) {
+          blocksForSave = resolved.blocks;
+          contentForSave = resolved.content;
+          // Update editor state so the resolved UUIDs are reflected after save.
+          setNoteBlocks(resolved.blocks);
+          setContent(resolved.content);
+        }
+      }
+
+      const { data, tagsToPersist } = buildPersistPayload(tagsOverride, blocksForSave, contentForSave);
       const saved = await writeObject(type, data);
       commitSavedSnapshot(tagsToPersist);
       return saved;

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
 import { normalizeNoteBlocks } from './noteBlocks';
-import { formatDatePretty } from './dateUtils';
+import { formatDatePretty, parseDateQueryToISO } from './dateUtils';
 
 export interface CliRunResult {
   exitCode: number;
@@ -44,6 +44,8 @@ export interface MentionSearchResult {
   author?: string;
   date?: string;
   syncPath?: string;
+  /** True for synthetic "create new" options that don't yet exist in the DB. */
+  isNew?: boolean;
 }
 
 export interface TopicNoteMeta {
@@ -401,6 +403,7 @@ export async function runSync(): Promise<void> {
 /**
  * Search all objects (daily-note, topic-note, project, ref-material, habit)
  * by title or date. Returns up to `limit` results.
+ * Optimized: Only format dates for items that match the query.
  */
 export async function searchObjects(
   query: string,
@@ -418,54 +421,102 @@ export async function searchObjects(
 
   if (topicsRes.status === 'fulfilled') {
     for (const item of topicsRes.value) {
-      const title = item.displayTitle
-      const prettyDate = item.date ? formatDatePretty(item.date).toLowerCase() : '';
-      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || (item.date ?? '').includes(q)) {
+      if (results.length >= limit) break;
+      const title = item.displayTitle;
+      const titleMatch = !q || title.toLowerCase().includes(q);
+      const rawDateMatch = !q || (item.date ?? '').includes(q);
+
+      if (titleMatch || rawDateMatch) {
         results.push({
           id: item.id,
           type: 'topic-note',
           title,
           date: item.date,
-        })
+        });
+      } else if (item.date) {
+        // Only format pretty date if there's a date and cheaper checks didn't match
+        const prettyDate = formatDatePretty(item.date).toLowerCase();
+        if (prettyDate.includes(q)) {
+          results.push({
+            id: item.id,
+            type: 'topic-note',
+            title,
+            date: item.date,
+          });
+        }
       }
     }
   }
 
-  if (dailiesRes.status === 'fulfilled') {
+  if (dailiesRes.status === 'fulfilled' && results.length < limit) {
     for (const item of dailiesRes.value) {
-      const title = item.displayTitle
-      const prettyDate = formatDatePretty(item.date).toLowerCase();
-      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || item.preview.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+      if (results.length >= limit) break;
+      const title = item.displayTitle;
+      const titleMatch = !q || title.toLowerCase().includes(q);
+      const previewMatch = !q || item.preview.toLowerCase().includes(q);
+      const rawDateMatch = !q || item.date.toLowerCase().includes(q);
+
+      if (titleMatch || previewMatch || rawDateMatch) {
         results.push({
           id: item.id,
           type: 'daily-note',
           title,
           date: item.date,
-        })
+        });
+      } else {
+        // Only format pretty date if none of the cheaper checks matched
+        const prettyDate = formatDatePretty(item.date).toLowerCase();
+        if (prettyDate.includes(q)) {
+          results.push({
+            id: item.id,
+            type: 'daily-note',
+            title,
+            date: item.date,
+          });
+        }
       }
     }
   }
 
-  if (habitsRes.status === 'fulfilled') {
+  if (habitsRes.status === 'fulfilled' && results.length < limit) {
     for (const item of habitsRes.value) {
-      const title = item.displayTitle
-      const prettyDate = formatDatePretty(item.date).toLowerCase();
-      if (!q || title.toLowerCase().includes(q) || prettyDate.includes(q) || item.text.toLowerCase().includes(q) || item.date.toLowerCase().includes(q)) {
+      if (results.length >= limit) break;
+      const title = item.displayTitle;
+      const titleMatch = !q || title.toLowerCase().includes(q);
+      const textMatch = !q || item.text.toLowerCase().includes(q);
+      const rawDateMatch = !q || item.date.toLowerCase().includes(q);
+
+      if (titleMatch || textMatch || rawDateMatch) {
         results.push({
           id: item.id,
           type: 'habit',
           title,
           date: item.date,
-        })
+        });
+      } else {
+        // Only format pretty date if none of the cheaper checks matched
+        const prettyDate = formatDatePretty(item.date).toLowerCase();
+        if (prettyDate.includes(q)) {
+          results.push({
+            id: item.id,
+            type: 'habit',
+            title,
+            date: item.date,
+          });
+        }
       }
     }
   }
 
-  if (filesRes.status === 'fulfilled') {
+  if (filesRes.status === 'fulfilled' && results.length < limit) {
     for (const item of filesRes.value) {
-      const title = item.displayTitle
-      const prettyDate = item.startDate ? formatDatePretty(item.startDate).toLowerCase() : '';
-      if (!q || title.toLowerCase().includes(q) || (item.author ?? '').toLowerCase().includes(q) || prettyDate.includes(q) || (item.startDate ?? '').includes(q)) {
+      if (results.length >= limit) break;
+      const title = item.displayTitle;
+      const titleMatch = !q || title.toLowerCase().includes(q);
+      const authorMatch = !q || (item.author ?? '').toLowerCase().includes(q);
+      const rawDateMatch = !q || (item.startDate ?? '').includes(q);
+
+      if (titleMatch || authorMatch || rawDateMatch) {
         results.push({
           id: item.id,
           type: item.type,
@@ -473,13 +524,53 @@ export async function searchObjects(
           author: item.author,
           date: item.startDate,
           syncPath: item.syncPath,
-        })
+        });
+      } else if (item.startDate) {
+        // Only format pretty date if there's a date and cheaper checks didn't match
+        const prettyDate = formatDatePretty(item.startDate).toLowerCase();
+        if (prettyDate.includes(q)) {
+          results.push({
+            id: item.id,
+            type: item.type,
+            title,
+            author: item.author,
+            date: item.startDate,
+            syncPath: item.syncPath,
+          });
+        }
       }
     }
   }
 
-  return results.slice(0, limit)
+  // If the query looks like a date and no existing daily note covers it exactly,
+  // add a synthetic "create new daily note" option at the top of results.
+  if (q) {
+    const parsedDate = parseDateQueryToISO(q);
+    if (parsedDate) {
+      const alreadyListed = results.some(
+        (r) => r.type === 'daily-note' && r.date === parsedDate,
+      );
+      if (!alreadyListed) {
+        const prettyDate = formatDatePretty(parsedDate);
+        results.unshift({
+          id: `${DATE_MENTION_HREF_PREFIX}${parsedDate}`,
+          type: 'daily-note',
+          title: prettyDate || parsedDate,
+          date: parsedDate,
+          isNew: true,
+        });
+      }
+    }
+  }
+
+  return results.slice(0, limit);
 }
+
+/**
+ * Sentinel prefix used in mention link hrefs for pending (not-yet-created) daily notes.
+ * When a note is saved, these are replaced with real daily note UUIDs.
+ */
+export const DATE_MENTION_HREF_PREFIX = 'date:';
 
 export async function listMetaBundle(options: { force?: boolean } = {}): Promise<MetaBundle> {
   if (!options.force && metaBundleInFlight) {
