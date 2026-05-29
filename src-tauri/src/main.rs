@@ -1,8 +1,9 @@
 use serde::Serialize;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::Command;
-use std::io::ErrorKind;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
@@ -10,6 +11,8 @@ use tauri::path::BaseDirectory;
 /// Serializes all CLI subprocess invocations so only one Node.js process
 /// accesses the SQLite database at a time, preventing "database is locked".
 struct CliSerializer(Arc<tokio::sync::Mutex<()>>);
+
+struct BackgroundSyncState(Arc<tokio::sync::Mutex<BackgroundSyncStatus>>);
 
 const SETTINGS_MENU_ID: &str = "app-settings";
 
@@ -19,6 +22,30 @@ struct CliRunResult {
     exit_code: i32,
     stdout: String,
     stderr: String,
+}
+
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundSyncStatus {
+    syncing: bool,
+    last_started_at: Option<u64>,
+    last_finished_at: Option<u64>,
+    last_succeeded_at: Option<u64>,
+    last_error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundSyncStartResult {
+    started: bool,
+    status: BackgroundSyncStatus,
+}
+
+fn unix_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn resolve_cli_path(app: &tauri::AppHandle) -> PathBuf {
@@ -64,8 +91,46 @@ fn resolve_node_candidates() -> Vec<String> {
     deduped
 }
 
-#[tauri::command]
-async fn run_puzzlepkm_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunResult, String> {
+fn run_cli_subprocess(
+    cli_path: PathBuf,
+    node_candidates: Vec<String>,
+    args: Vec<String>,
+) -> Result<CliRunResult, String> {
+    let mut last_not_found_error: Option<String> = None;
+
+    for node_binary in &node_candidates {
+        match Command::new(node_binary).arg(&cli_path).args(&args).output() {
+            Ok(output) => {
+                return Ok(CliRunResult {
+                    exit_code: output.status.code().unwrap_or(1),
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                });
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                last_not_found_error = Some(format!("{node_binary}: {error}"));
+                continue;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to execute Node CLI via `{node_binary}`: {error}"
+                ));
+            }
+        }
+    }
+
+    let details = last_not_found_error
+        .unwrap_or_else(|| "no candidate binaries were attempted".to_string());
+    Err(format!(
+        "Failed to execute Node CLI: no Node binary found. Install Node and ensure it is available to GUI apps, or set PUZZLEPKM_NODE_PATH. Last error: {details}"
+    ))
+}
+
+async fn execute_cli_command(
+    app: tauri::AppHandle,
+    args: Vec<String>,
+    serialize: bool,
+) -> Result<CliRunResult, String> {
     if args.is_empty() {
         return Err("Provide at least one CLI argument (example: `help`).".to_string());
     }
@@ -81,46 +146,81 @@ async fn run_puzzlepkm_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<C
 
     let node_candidates = resolve_node_candidates();
 
-    // Acquire the serializer so only one Node.js/SQLite process runs at a time.
-    let serializer = app.state::<CliSerializer>();
-    let _guard = serializer.0.lock().await;
+    if serialize {
+        let serializer = app.state::<CliSerializer>();
+        let _guard = serializer.0.lock().await;
 
-    // Run the blocking subprocess on a thread-pool thread so the Tauri main
-    // thread (and therefore the WebView / UI event loop) is never stalled.
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut last_not_found_error: Option<String> = None;
+        tauri::async_runtime::spawn_blocking(move || run_cli_subprocess(cli_path, node_candidates, args))
+            .await
+            .map_err(|e| format!("Spawn-blocking join error: {e}"))?
+    } else {
+        tauri::async_runtime::spawn_blocking(move || run_cli_subprocess(cli_path, node_candidates, args))
+            .await
+            .map_err(|e| format!("Spawn-blocking join error: {e}"))?
+    }
+}
 
-        for node_binary in &node_candidates {
-            match Command::new(node_binary).arg(&cli_path).args(&args).output() {
-                Ok(output) => {
-                    return Ok(CliRunResult {
-                        exit_code: output.status.code().unwrap_or(1),
-                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                    });
-                }
-                Err(error) if error.kind() == ErrorKind::NotFound => {
-                    last_not_found_error = Some(format!("{node_binary}: {error}"));
-                    continue;
-                }
-                Err(error) => {
-                    return Err(format!(
-                        "Failed to execute Node CLI via `{node_binary}`: {error}"
-                    ));
-                }
-            }
+#[tauri::command]
+async fn run_puzzlepkm_cli(app: tauri::AppHandle, args: Vec<String>) -> Result<CliRunResult, String> {
+    execute_cli_command(app, args, true).await
+}
+
+#[tauri::command]
+async fn get_background_sync_status(app: tauri::AppHandle) -> Result<BackgroundSyncStatus, String> {
+    let state = app.state::<BackgroundSyncState>();
+    let snapshot = state.0.lock().await.clone();
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn start_background_sync(app: tauri::AppHandle) -> Result<BackgroundSyncStartResult, String> {
+    let state = app.state::<BackgroundSyncState>();
+    let snapshot = {
+        let mut status = state.0.lock().await;
+        if status.syncing {
+            return Ok(BackgroundSyncStartResult {
+                started: false,
+                status: status.clone(),
+            });
         }
 
-        let details = last_not_found_error
-            .unwrap_or_else(|| "no candidate binaries were attempted".to_string());
-        Err(format!(
-            "Failed to execute Node CLI: no Node binary found. Install Node and ensure it is available to GUI apps, or set PUZZLEPKM_NODE_PATH. Last error: {details}"
-        ))
+        status.syncing = true;
+        status.last_started_at = Some(unix_timestamp_ms());
+        status.last_error = None;
+        status.clone()
+    };
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = execute_cli_command(app_handle.clone(), vec!["sync".to_string()], false).await;
+        let state = app_handle.state::<BackgroundSyncState>();
+        let mut status = state.0.lock().await;
+        status.syncing = false;
+        status.last_finished_at = Some(unix_timestamp_ms());
+
+        match result {
+            Ok(run) if run.exit_code == 0 => {
+                status.last_succeeded_at = status.last_finished_at;
+                status.last_error = None;
+            }
+            Ok(run) => {
+                let stderr = run.stderr.trim();
+                status.last_error = Some(if stderr.is_empty() {
+                    format!("sync failed with exit code {}", run.exit_code)
+                } else {
+                    stderr.to_string()
+                });
+            }
+            Err(error) => {
+                status.last_error = Some(error);
+            }
+        }
+    });
+
+    Ok(BackgroundSyncStartResult {
+        started: true,
+        status: snapshot,
     })
-    .await
-    .map_err(|e| format!("Spawn-blocking join error: {e}"))
-    .and_then(|r| r)
-    // _guard is dropped here, releasing the lock for the next caller.
 }
 
 #[tauri::command]
@@ -183,6 +283,9 @@ fn open_settings_window(app: &tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .manage(CliSerializer(Arc::new(tokio::sync::Mutex::new(()))))
+        .manage(BackgroundSyncState(Arc::new(tokio::sync::Mutex::new(
+            BackgroundSyncStatus::default(),
+        ))))
         .setup(|app| {
             let handle = app.handle();
             let app_menu = SubmenuBuilder::new(handle, "PuzzlePKM")
@@ -221,7 +324,12 @@ fn main() {
                 open_settings_window(app);
             }
         })
-        .invoke_handler(tauri::generate_handler![run_puzzlepkm_cli, open_url])
+        .invoke_handler(tauri::generate_handler![
+            run_puzzlepkm_cli,
+            get_background_sync_status,
+            start_background_sync,
+            open_url
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

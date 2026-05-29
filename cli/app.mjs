@@ -1073,9 +1073,19 @@ function repairInvalidScriptureChapters(db) {
   return removed;
 }
 
+function configureDbConcurrency(db) {
+  // Desktop background sync may overlap with foreground reads/writes.
+  // Use WAL + a busy timeout so separate CLI processes can coexist without
+  // stalling the UI or immediately failing with "database is locked".
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA busy_timeout = 5000');
+}
+
 function openDb() {
   mkdirSync(dirname(dbFile), { recursive: true });
   const db = new DatabaseSync(dbFile);
+  configureDbConcurrency(db);
   ensureSchema(db);
   backfillMissingSyncPaths(db);
   backfillNoteBlocks(db);

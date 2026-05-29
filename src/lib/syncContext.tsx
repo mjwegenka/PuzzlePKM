@@ -1,11 +1,13 @@
 /**
- * DEC-19: Sync context — provides 30-second auto-sync and a manual trigger
- * available to any component tree. ObjectEditor triggers sync after every save.
+ * DEC-18 / DEC-33: Sync context — provides auto/manual sync status while
+ * desktop sync itself runs in a native background task so the foreground UI
+ * stays responsive during long reconciliations.
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { runSync } from './cliService';
+import { getBackgroundSyncStatus, startBackgroundSync } from './cliService';
 
 const SYNC_INTERVAL_MS = 30_000;
+const SYNC_STATUS_POLL_MS = 1_000;
 
 interface SyncState {
   syncing: boolean;
@@ -28,30 +30,62 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  // Guard against concurrent syncs
-  const syncingRef = useRef(false);
   const scheduledSyncRef = useRef<number | null>(null);
+  const latestStatusRef = useRef({
+    syncing: false,
+    lastSucceededAt: null as number | null,
+    lastError: null as string | null,
+  });
 
-  const doSync = useCallback(async () => {
-    if (syncingRef.current) return;
-    syncingRef.current = true;
-    setSyncing(true);
-    setSyncError(null);
-    try {
-      await runSync();
-      setLastSyncedAt(new Date());
+  const applySyncStatus = useCallback((status: { syncing: boolean; lastSucceededAt: number | null; lastError: string | null }) => {
+    const previous = latestStatusRef.current;
+    latestStatusRef.current = status;
+    setSyncing(status.syncing);
+    setSyncError(status.lastError ?? null);
+    setLastSyncedAt(typeof status.lastSucceededAt === 'number' ? new Date(status.lastSucceededAt) : null);
+
+    if (previous.syncing && !status.syncing && !status.lastError && status.lastSucceededAt !== previous.lastSucceededAt) {
       window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
-    } catch (err) {
-      setSyncError(String(err));
-    } finally {
-      setSyncing(false);
-      syncingRef.current = false;
     }
   }, []);
 
+  const refreshSyncStatus = useCallback(async () => {
+    try {
+      const status = await getBackgroundSyncStatus();
+      applySyncStatus(status);
+    } catch (err) {
+      const message = String(err);
+      setSyncing(false);
+      setSyncError(message);
+    }
+  }, [applySyncStatus]);
+
+  const doSync = useCallback(async () => {
+    try {
+      const result = await startBackgroundSync();
+      applySyncStatus(result.status);
+    } catch (err) {
+      setSyncError(String(err));
+    }
+  }, [applySyncStatus]);
+
+  useEffect(() => {
+    void refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  useEffect(() => {
+    if (!syncing) return;
+    const id = window.setInterval(() => {
+      void refreshSyncStatus();
+    }, SYNC_STATUS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshSyncStatus, syncing]);
+
   // 30-second auto-sync
   useEffect(() => {
-    const id = setInterval(doSync, SYNC_INTERVAL_MS);
+    const id = window.setInterval(() => {
+      void doSync();
+    }, SYNC_INTERVAL_MS);
     return () => clearInterval(id);
   }, [doSync]);
 

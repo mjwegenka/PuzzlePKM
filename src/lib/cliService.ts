@@ -9,6 +9,19 @@ export interface CliRunResult {
   stderr: string;
 }
 
+export interface BackgroundSyncStatus {
+  syncing: boolean;
+  lastStartedAt: number | null;
+  lastFinishedAt: number | null;
+  lastSucceededAt: number | null;
+  lastError: string | null;
+}
+
+interface BackgroundSyncStartResult {
+  started: boolean;
+  status: BackgroundSyncStatus;
+}
+
 function stripNodeWarnings(stderr: string): string {
   const lines = String(stderr ?? '').split('\n');
   const filtered: string[] = [];
@@ -306,6 +319,31 @@ export async function runPuzzlePKMCli(args: string[]): Promise<CliRunResult> {
   };
 }
 
+function isTauriRuntimeAvailable(): boolean {
+  return typeof window !== 'undefined'
+    && typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke === 'function';
+}
+
+export async function getBackgroundSyncStatus(): Promise<BackgroundSyncStatus> {
+  if (!isTauriRuntimeAvailable()) {
+    return {
+      syncing: false,
+      lastStartedAt: null,
+      lastFinishedAt: null,
+      lastSucceededAt: null,
+      lastError: 'Tauri runtime is not available. Launch with `npm run tauri:dev` to enable sync.',
+    };
+  }
+  return invoke<BackgroundSyncStatus>('get_background_sync_status');
+}
+
+export async function startBackgroundSync(): Promise<BackgroundSyncStartResult> {
+  if (!isTauriRuntimeAvailable()) {
+    throw new Error('Tauri runtime is not available. Launch with `npm run tauri:dev` to enable sync.');
+  }
+  return invoke<BackgroundSyncStartResult>('start_background_sync');
+}
+
 export async function listObjects(type: string): Promise<string> {
   const result = await runPuzzlePKMCli(['list', type]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `list ${type} failed`);
@@ -352,8 +390,8 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
 
 /** DEC-19: One-shot local-folder sync triggered from the desktop UI. */
 export async function runSync(): Promise<void> {
-  const result = await runPuzzlePKMCli(['sync']);
-  if (result.exitCode !== 0) throw new Error(result.stderr || 'sync failed');
+  const result = await startBackgroundSync();
+  if (result.status.lastError) throw new Error(result.status.lastError);
 }
 
 /**
