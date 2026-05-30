@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import {
   ArrowUpDown,
   CalendarDays,
@@ -49,6 +49,7 @@ import {
   getObject,
   listHabitMeta,
   listMetaBundle,
+  rankSearchCandidates,
   writeObject,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
@@ -147,6 +148,8 @@ interface BoardCard extends NoteCardData {
   type: NoteCardData['type']
   sortTimestamp: number
   contentSearch?: string
+  date?: string
+  author?: string
 }
 
 interface RenderedBoardCard {
@@ -215,13 +218,6 @@ function sanitizeCardPreview(value: string): string {
 
 function normalizeSearchQuery(value: string): string {
   return String(value).trim().toLowerCase()
-}
-
-function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet' | 'contentSearch'>, query: string): boolean {
-  if (!query) return true
-  return [card.title, card.metadata, card.snippet, card.contentSearch].some((value) =>
-    String(value ?? '').toLowerCase().includes(query),
-  )
 }
 
 function toSortTimestamp(...values: Array<string | undefined>): number {
@@ -380,6 +376,7 @@ export default function LibraryPage({
 
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
+  const deferredBoardFilter = useDeferredValue(boardFilter)
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
@@ -799,7 +796,7 @@ export default function LibraryPage({
   }, [showInbox, visibleObjectTypeSet])
   const hasActiveBoardFilters = isObjectTypeFilterCustomized || isTagFilterCustomized
   const allCards = useMemo((): BoardCard[] => {
-    const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
+    const normalizedBoardFilter = normalizeSearchQuery(deferredBoardFilter)
     const topicCards: BoardCard[] = topicNotes
       .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n): BoardCard | null => {
@@ -812,6 +809,7 @@ export default function LibraryPage({
           id: n.id,
           type: 'topic-note' as NoteType,
           title,
+          date: n.date,
           metadata: n.date ? formatDatePretty(n.date) : undefined,
           metadataAccent: Boolean(n.date),
           snippet,
@@ -828,6 +826,7 @@ export default function LibraryPage({
         id: n.id,
         type: 'daily-note' as NoteType,
         title: n.displayTitle,
+        date: n.date,
         weekdayLabel: formatWeekdayFull(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
@@ -841,6 +840,7 @@ export default function LibraryPage({
         id: n.id,
         type: 'habit' as NoteType,
         title: n.displayTitle,
+        date: n.date,
         weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
         snippet: sanitizeCardPreview(n.text) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.text) || undefined,
@@ -855,6 +855,8 @@ export default function LibraryPage({
         id: f.id,
         type: f.type,
         title: f.displayTitle,
+        date: f.type === 'project' ? f.startDate : undefined,
+        author: f.type === 'ref-material' ? f.author : undefined,
         metadata: f.type === 'project'
           ? (f.startDate ? formatDatePretty(f.startDate) : undefined)
           : (f.author ? `by ${f.author}` : undefined),
@@ -884,16 +886,15 @@ export default function LibraryPage({
       }
     }
     const tagCards: BoardCard[] = [...tagCountMap.entries()].map(([tag, count]) => ({
-      id: tag,
-      type: 'tag' as const,
-      title: `#${tag}`,
+        id: tag,
+        type: 'tag' as const,
+        title: `#${tag}`,
       metadata: count === 1 ? '1 object' : `${count} objects`,
       tags: [tag],
       sortTimestamp: count,
     }))
 
     const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
-      if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
       if (!effectiveVisibleObjectTypeSet.has(card.type)) return false
 
       if (showInbox) {
@@ -903,12 +904,45 @@ export default function LibraryPage({
       return itemMatchesTagFilters(card.tags, tagFilters)
     })
 
+    if (normalizedBoardFilter) {
+      const ranked = rankSearchCandidates(
+        normalizedBoardFilter,
+        cards.map((card, index) => ({
+          id: getBoardCardKey(card),
+          type: card.type,
+          title: card.title,
+          date: card.date,
+          author: card.author,
+          metadata: card.metadata,
+          snippet: card.snippet,
+          contentSearch: card.contentSearch,
+          tags: card.tags,
+          sourceOrder: index,
+          typeOrder: card.type === 'project'
+            ? 0
+            : card.type === 'ref-material'
+              ? 1
+              : card.type === 'topic-note'
+                ? 2
+                : card.type === 'habit'
+                  ? 3
+                  : card.type === 'daily-note'
+                    ? 4
+                    : card.type === 'scripture'
+                      ? 5
+                      : 6,
+          card,
+        })),
+      )
+      return ranked.map((entry) => entry.item.card)
+    }
+
     const compareByTitle = (a: BoardCard, b: BoardCard) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
     if (boardSort === 'title-asc') return cards.sort(compareByTitle)
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
 
   useEffect(() => {
     cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -1051,6 +1085,10 @@ export default function LibraryPage({
     await handleSelectItem(card.id, card.type as EditorObjectType)
   }, [clearCardSelection, handleCardSelectionGesture, handleSelectItem, selectedCardKeys.length])
 
+  const activeObjectType = activeObject?.type
+  const activeObjectId = activeObject?.objectId
+  const activeObjectIsDirty = activeObject?.isDirty
+
   const handleApplyBulkTags = useCallback(async () => {
     const nextTags = parseBulkTags(bulkTagInput)
     const selectedCards = selectedEditableCards
@@ -1084,11 +1122,12 @@ export default function LibraryPage({
       })
 
       if (failures.length > 0) {
-        throw new Error(failures.length === 1 ? failures[0] : `${failures[0]} (+${failures.length - 1} more)`)
+        setBulkTagError(failures.length === 1 ? failures[0] : `${failures[0]} (+${failures.length - 1} more)`)
+        return
       }
 
-      if (activeObject && !activeObject.isDirty) {
-        const activeKey = `${activeObject.type}:${activeObject.objectId}`
+      if (activeObjectType && activeObjectId && !activeObjectIsDirty) {
+        const activeKey = `${activeObjectType}:${activeObjectId}`
         const updatedActive = savedByKey.get(activeKey)
         if (updatedActive) {
           setActiveObject((prev) => (prev ? { ...prev, object: { ...updatedActive, type: prev.type }, isDirty: false } : prev))
@@ -1104,7 +1143,7 @@ export default function LibraryPage({
     } finally {
       setIsBulkSaving(false)
     }
-  }, [activeObject?.isDirty, activeObject?.objectId, activeObject?.type, bulkTagInput, clearCardSelection, loadAll, onSaved, selectedEditableCards])
+  }, [activeObjectId, activeObjectIsDirty, activeObjectType, bulkTagInput, clearCardSelection, loadAll, onSaved, selectedEditableCards])
 
   const handleConfirmBulkDelete = useCallback(async () => {
     const selectedCards = selectedDeletableCards

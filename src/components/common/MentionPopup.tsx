@@ -8,6 +8,10 @@ export interface MentionOption {
   title: string;
   date?: string;
   syncPath?: string;
+  /** Optional note block fragment target (`objectId#blockId`). */
+  blockId?: string;
+  matchType?: 'object' | 'block';
+  blockPreview?: string;
   /** True for synthetic "create new daily note" options. */
   isNew?: boolean;
 }
@@ -79,7 +83,8 @@ export default function MentionPopup({
         <div ref={listRef} className="flex-1 overflow-auto p-1.5">
           {options.slice(0, 8).map((option, idx) => {
             const color = getObjectColor(option.type).accent;
-            const label = TYPE_LABELS[option.type] ?? option.type;
+            const baseLabel = TYPE_LABELS[option.type] ?? option.type;
+            const label = option.matchType === 'block' ? `${baseLabel} block` : baseLabel;
             const isNew = option.isNew === true;
             return (
               <button
@@ -103,10 +108,17 @@ export default function MentionPopup({
                 >
                   {isNew ? `+ ${label}` : label}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">
-                  {option.title || '(untitled)'}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-[var(--color-text-primary)]">
+                    {option.title || '(untitled)'}
+                  </span>
+                  {option.matchType === 'block' && option.blockPreview && (
+                    <span className="block truncate text-xs text-[var(--color-text-secondary)]">
+                      {option.blockPreview}
+                    </span>
+                  )}
                 </span>
-                {option.date && ['daily-note', 'habit', 'project'].includes(option.type) && (
+                {option.date && ['daily-note', 'habit', 'project'].includes(option.type) && option.matchType !== 'block' && (
                   <span className="ml-1 shrink-0 text-xs text-[var(--color-text-secondary)]">
                     {option.date}
                   </span>

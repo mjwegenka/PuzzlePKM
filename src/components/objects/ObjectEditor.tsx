@@ -205,8 +205,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
   const [liveForwardLinks, setLiveForwardLinks] = useState<Array<Record<string, unknown>>>([]);
   const [liveBacklinkLinks, setLiveBacklinkLinks] = useState<Array<Record<string, unknown>>>([]);
-  const mentionTargetBlockCacheRef = useRef(new Map<string, string | null>());
   const tagInputRef = useRef<HTMLInputElement | null>(null);
+  const lastMissingLinkedBlockRef = useRef<string | null>(null);
 
   // Authors catalog for ref-material type
   const [authors, setAuthors] = useState<AuthorSummary[]>([]);
@@ -271,7 +271,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setIsDirty(false);
     setPendingNavigation(null);
     setNavigationDialogError(null);
-    mentionTargetBlockCacheRef.current = new Map();
+    lastMissingLinkedBlockRef.current = null;
     onDirtyRef.current?.(false);
   }, [object, defaultDate, type]);
 
@@ -334,29 +334,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       const isNoteTarget =
         option.type === 'topic-note' || option.type === 'daily-note';
       if (!isNoteTarget) return baseHref;
-
-      const cacheKey = `${option.type}:${option.id}`;
-      if (!mentionTargetBlockCacheRef.current.has(cacheKey)) {
-        try {
-          const noteType = option.type === 'topic-note' ? 'topic-note' : 'daily-note';
-          const note = await getObject(noteType, option.id);
-          const blocks = Array.isArray((note as { blocks?: unknown }).blocks)
-            ? ((note as { blocks: NoteBlock[] }).blocks ?? [])
-            : [];
-          const firstBlockId = blocks.find((block) => typeof block?.blockId === 'string' && block.blockId)?.blockId ?? null;
-          mentionTargetBlockCacheRef.current.set(cacheKey, firstBlockId);
-        } catch {
-          mentionTargetBlockCacheRef.current.set(cacheKey, null);
-        }
-      }
-
-      const blockId = mentionTargetBlockCacheRef.current.get(cacheKey);
+      const blockId = typeof option.blockId === 'string' ? option.blockId.trim() : '';
       if (!blockId) return baseHref;
       const withoutFragment = baseHref.replace(/#.*/, '');
       return `${withoutFragment}#${blockId}`;
     },
     [],
   );
+
+  const handleMissingLinkedBlock = useCallback((blockId: string) => {
+    if (!blockId || lastMissingLinkedBlockRef.current === blockId) return;
+    lastMissingLinkedBlockRef.current = blockId;
+    setSaveError(`Linked block ${blockId} no longer exists; opened note at the top instead.`);
+  }, []);
 
   const closeTagDialog = useCallback(() => {
     setShowTagDialog(false);
@@ -1106,6 +1096,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                       onBlocksChange={isNoteType ? setNoteBlocks : undefined}
                       onShiftClickLink={handleShiftClickLink}
                       scrollToBlockId={isNoteType ? initialBlockId : undefined}
+                      onMissingLinkedBlock={handleMissingLinkedBlock}
                     />
                   </div>
                 )

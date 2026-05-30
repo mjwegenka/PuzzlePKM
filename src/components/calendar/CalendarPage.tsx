@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import { addDays, format, isSameDay, isSameMonth, isValid, parseISO, startOfMonth, startOfWeek } from 'date-fns'
 import * as Popover from '@radix-ui/react-popover'
 import { CalendarIcon, ChevronLeft, ChevronRight, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import MentionPopup, { type MentionOption } from '../common/MentionPopup'
 import { Button } from '../ui/button'
 import FilterChip from '../ui/FilterChip'
 import { Calendar } from '../ui/calendar'
@@ -23,8 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 import { Input } from '../ui/input'
-import { listHabitMeta, listMetaBundle, getObject } from '../../lib/cliService'
-import type { ResolvedObjectRef } from '../../lib/cliService'
+import { listHabitMeta, listMetaBundle, getObject, rankSearchCandidates, type ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
 import { cn } from '../../lib/utils'
@@ -52,6 +52,23 @@ interface CalEvent {
   label: string
   type: CalObjectType
   tags: string[]
+}
+
+interface CalendarSearchCandidate {
+  id: string
+  type: CalObjectType
+  title: string
+  date?: string
+  metadata?: string
+  snippet?: string
+  contentSearch?: string
+  tags: string[]
+}
+
+interface CalendarSearchOption extends MentionOption {
+  objectId: string
+  objectType: CalObjectType
+  hasDate: boolean
 }
 
 interface CalendarPageProps {
@@ -101,7 +118,12 @@ function formatDateKey(date: Date): string {
 export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
+  const [searchCandidates, setSearchCandidates] = useState<CalendarSearchCandidate[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(0)
+  const [searchPopupPosition, setSearchPopupPosition] = useState<{ top: number; left: number } | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate())
   const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | undefined>()
   const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
@@ -109,6 +131,7 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const [showConfirmClose, setShowConfirmClose] = useState(false)
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<CalObjectType[]>(DEFAULT_VISIBLE_CAL_TYPES)
   const [jumpDateOpen, setJumpDateOpen] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   const today = useMemo(() => new Date(), [])
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
@@ -139,15 +162,46 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const loadEvents = useCallback(async () => {
     const bundle = await listMetaBundle()
     const evts: CalEvent[] = []
+    const candidates: CalendarSearchCandidate[] = []
     for (const n of bundle.dailyNotes) {
       if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
+      candidates.push({
+        id: n.id,
+        type: 'daily-note',
+        title: n.displayTitle || 'Daily Note',
+        date: n.date || undefined,
+        metadata: TYPE_LABELS['daily-note'],
+        snippet: n.preview,
+        contentSearch: n.contentSearch,
+        tags: n.tags ?? [],
+      })
     }
     for (const n of bundle.topicNotes) {
       const d = n.date
       if (d) evts.push({ id: n.id, date: d, label: n.displayTitle || d, type: 'topic-note', tags: n.tags ?? [] })
+      candidates.push({
+        id: n.id,
+        type: 'topic-note',
+        title: n.displayTitle || 'Topic Note',
+        date: d || undefined,
+        metadata: TYPE_LABELS['topic-note'],
+        snippet: n.preview,
+        contentSearch: n.contentSearch,
+        tags: n.tags ?? [],
+      })
     }
     for (const h of bundle.habits) {
       if (h.date) evts.push({ id: h.id, date: h.date, label: h.displayTitle || 'Habit', type: 'habit', tags: h.tags ?? [] })
+      candidates.push({
+        id: h.id,
+        type: 'habit',
+        title: h.displayTitle || 'Habit',
+        date: h.date || undefined,
+        metadata: TYPE_LABELS.habit,
+        snippet: h.text,
+        contentSearch: h.contentSearch,
+        tags: h.tags ?? [],
+      })
     }
     for (const p of bundle.files) {
       if (p.type === 'project' && p.startDate) {
@@ -157,8 +211,20 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
         const datedRef = p.startDate
         if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.displayTitle, type: 'ref-material', tags: p.tags ?? [] })
       }
+      candidates.push({
+        id: p.id,
+        type: p.type,
+        title: p.displayTitle,
+        date: p.startDate || undefined,
+        metadata: p.type === 'project'
+          ? TYPE_LABELS.project
+          : (p.author ? `${TYPE_LABELS['ref-material']} by ${p.author}` : TYPE_LABELS['ref-material']),
+        contentSearch: p.author,
+        tags: p.tags ?? [],
+      })
     }
     setEvents(evts)
+    setSearchCandidates(candidates)
   }, [])
 
   useEffect(() => {
@@ -172,15 +238,69 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [loadEvents])
 
   const filteredEvents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    return events.filter((event) => {
-      if (!visibleObjectTypeSet.has(event.type)) return false
-      if (!itemMatchesTagFilters(event.tags, tagFilters)) return false
-      if (!query) return true
-      const typeLabel = TYPE_LABELS[event.type].toLowerCase()
-      return event.label.toLowerCase().includes(query) || typeLabel.includes(query)
-    })
-  }, [events, searchQuery, tagFilters, visibleObjectTypeSet])
+    return events.filter((event) => visibleObjectTypeSet.has(event.type) && itemMatchesTagFilters(event.tags, tagFilters))
+  }, [events, tagFilters, visibleObjectTypeSet])
+
+  const searchOptions = useMemo<CalendarSearchOption[]>(() => {
+    const query = deferredSearchQuery.trim().toLowerCase()
+    if (!query) return []
+    const visible = searchCandidates.filter(
+      (candidate) => visibleObjectTypeSet.has(candidate.type) && itemMatchesTagFilters(candidate.tags, tagFilters),
+    )
+    const ranked = rankSearchCandidates(
+      query,
+      visible.map((candidate, index) => ({
+        id: `${candidate.type}:${candidate.id}`,
+        type: candidate.type,
+        title: candidate.title,
+        date: candidate.date,
+        metadata: candidate.metadata,
+        snippet: candidate.snippet,
+        contentSearch: candidate.contentSearch,
+        tags: candidate.tags,
+        sourceOrder: index,
+        candidate,
+      })),
+    )
+    const datedFirst = ranked.filter((entry) => entry.item.candidate.date)
+    const undated = ranked.filter((entry) => !entry.item.candidate.date)
+    return [...datedFirst, ...undated].slice(0, 8).map((entry) => ({
+      id: entry.item.id,
+      objectId: entry.item.candidate.id,
+      objectType: entry.item.candidate.type,
+      type: entry.item.candidate.type,
+      title: entry.item.candidate.title,
+      date: entry.item.candidate.date,
+      blockPreview: entry.item.candidate.metadata,
+      hasDate: Boolean(entry.item.candidate.date),
+    }))
+  }, [deferredSearchQuery, searchCandidates, tagFilters, visibleObjectTypeSet])
+
+  const showSearchPopup = searchFocused && searchQuery.trim().length > 0
+
+  useEffect(() => {
+    if (!showSearchPopup) {
+      setSearchPopupPosition(null)
+      return
+    }
+    const updatePosition = () => {
+      const input = searchInputRef.current
+      if (!input) return
+      const rect = input.getBoundingClientRect()
+      setSearchPopupPosition({ top: rect.bottom + 6, left: rect.left })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [showSearchPopup])
+
+  useEffect(() => {
+    setSearchSelectedIndex(0)
+  }, [deferredSearchQuery])
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>()
@@ -222,6 +342,33 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
       )
     }
   }, [onOpenObjectTab])
+
+  const navigateToDate = useCallback((date: string) => {
+    setSelectedDate(date)
+    const parsed = parseISO(date)
+    if (isValid(parsed)) setCurrentMonth(parsed)
+  }, [])
+
+  const handleSelectSearchOption = useCallback(async (option: CalendarSearchOption) => {
+    setSearchQuery('')
+    setSearchSelectedIndex(0)
+    if (option.date) {
+      navigateToDate(option.date)
+      return
+    }
+    if (onOpenObjectTab) {
+      await Promise.resolve(onOpenObjectTab({ id: option.objectId, type: option.objectType, forceNewTab: true }))
+      return
+    }
+    try {
+      const full = await getObject(option.objectType, option.objectId)
+      setSelectedType(option.objectType)
+      setSelectedObject({ ...full, type: option.objectType })
+    } catch {
+      setSelectedType(option.objectType)
+      setSelectedObject({ id: option.objectId, type: option.objectType, tags: [] })
+    }
+  }, [navigateToDate, onOpenObjectTab])
 
   const handleDayClick = useCallback(
     async (dateValue: Date) => {
@@ -412,12 +559,49 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
           <div className="relative w-[248px] max-w-full min-w-0 flex-[1_1_120px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
             <Input
+              ref={searchInputRef}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => {
+                window.setTimeout(() => setSearchFocused(false), 120)
+              }}
+              onKeyDown={(event) => {
+                if (!showSearchPopup) return
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  setSearchSelectedIndex((idx) => Math.min(idx + 1, Math.max(searchOptions.length - 1, 0)))
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setSearchSelectedIndex((idx) => Math.max(idx - 1, 0))
+                } else if (event.key === 'Enter') {
+                  const option = searchOptions[searchSelectedIndex]
+                  if (!option) return
+                  event.preventDefault()
+                  void handleSelectSearchOption(option)
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setSearchFocused(false)
+                }
+              }}
               placeholder="Search"
               className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
             />
           </div>
+          {showSearchPopup && (
+            <MentionPopup
+              query={searchQuery}
+              options={searchOptions}
+              selectedIndex={Math.min(searchSelectedIndex, Math.max(searchOptions.length - 1, 0))}
+              onSelect={(option) => {
+                const selected = searchOptions.find((entry) => entry.id === option.id && entry.type === option.type)
+                if (!selected) return
+                void handleSelectSearchOption(selected)
+              }}
+              onClose={() => setSearchFocused(false)}
+              position={searchPopupPosition}
+            />
+          )}
 
           <Popover.Root open={jumpDateOpen} onOpenChange={setJumpDateOpen}>
             <Popover.Trigger asChild>

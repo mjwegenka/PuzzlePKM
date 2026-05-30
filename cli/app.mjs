@@ -2405,8 +2405,38 @@ function listObjects(type) {
 function listMetaBundle() {
   return withDb((db) => {
     cleanupOrphanedTags(db, undefined, { fullSweep: true });
+    const noteBlocks = db.prepare(`
+      SELECT
+        nb.note_id AS note_id,
+        nb.note_type AS note_type,
+        nb.block_id AS block_id,
+        nb.position AS position,
+        nb.content_markdown AS content_markdown
+      FROM note_blocks nb
+      WHERE nb.note_type IN ('topic-note', 'daily-note')
+      ORDER BY nb.note_type ASC, nb.note_id ASC, nb.position ASC
+    `).all().map((row) => ({
+      noteId: row.note_id,
+      noteType: row.note_type,
+      blockId: row.block_id,
+      position: Number.isInteger(row.position) ? row.position : Number.parseInt(String(row.position ?? '0'), 10) || 0,
+      preview: listField(String(row.content_markdown ?? '')).slice(0, 140),
+    }));
+    const firstBlockByNoteId = new Map();
+    for (const block of noteBlocks) {
+      if (!block.noteId || !block.blockId || firstBlockByNoteId.has(block.noteId)) continue;
+      firstBlockByNoteId.set(block.noteId, block.blockId);
+    }
     const projects = listProjects(db).map((row) => ({ ...row, type: 'project' }));
     const refMaterials = listRefMats(db).map((row) => ({ ...row, type: 'ref-material' }));
+    const topicNotes = listTopicNotes(db).map((row) => ({
+      ...row,
+      firstBlockId: firstBlockByNoteId.get(row.id) || undefined,
+    }));
+    const dailyNotes = listDailyNotes(db).map((row) => ({
+      ...row,
+      firstBlockId: firstBlockByNoteId.get(row.id) || undefined,
+    }));
     // Bulk fetch all object-link edges in a single query to avoid N+1 per-note gets
     const objectLinks = db
       .prepare('SELECT source_id, target_id FROM object_links')
@@ -2414,13 +2444,14 @@ function listMetaBundle() {
       .map((row) => ({ sourceId: row.source_id, targetId: row.target_id }));
     return {
       syncRootFolder: getSyncRootFolder(),
-      topicNotes: listTopicNotes(db),
-      dailyNotes: listDailyNotes(db),
+      topicNotes,
+      dailyNotes,
       habits: listHabits(db),
       files: [...projects, ...refMaterials],
       scriptures: listScriptures(db),
       tags: listTags(db),
       objectLinks,
+      noteBlocks,
     };
   });
 }

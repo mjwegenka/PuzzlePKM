@@ -59,7 +59,7 @@ function habitTitle(data: Record<string, unknown>): string {
 }
 
 function projectTitle(data: Record<string, unknown>): string {
-  const name = sanitizeDisplayText(String(data.name ?? ''))
+  const name = sanitizeDisplayText(String(data.name ?? data.title ?? ''))
   return name || 'Project'
 }
 
@@ -100,5 +100,4 @@ export function isObjectType(value: string): value is ObjectType {
 export function getObjectDisplayTitle(type: ObjectType, object: unknown): string {
   return OBJECT_TYPE_DEFINITIONS[type].getDisplayTitle(asRecord(object))
 }
-
 
