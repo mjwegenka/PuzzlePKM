@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { cn, Button, FilterChip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Textarea, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, LibraryLayout } from 'aslan-ui';
+import NoteCard from "../ui/NoteCard";
+import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import {
   ArrowUpDown,
   CalendarDays,
@@ -14,48 +16,22 @@ import {
 import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
-import FilterChip from '../ui/FilterChip'
-import { NoteCard } from '../ui/NoteCard'
-import type { NoteCardData } from '../ui/NoteCard'
-import { Button } from '../ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog'
-import { Textarea } from '../ui/textarea'
 
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu'
-import { Input } from '../ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
+import type { NoteCardData } from '../ui/NoteCard'
+
 import {
   deleteObject,
   getObject,
   listHabitMeta,
   listMetaBundle,
+  rankSearchCandidates,
   writeObject,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
 import { getObjectDisplayTitle } from '@/lib/objectTypeDefinitions'
 import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
-import { cn } from '@/lib/utils'
+import { useUnsavedChangesStore } from '@/lib/unsavedChangesStore'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -147,6 +123,8 @@ interface BoardCard extends NoteCardData {
   type: NoteCardData['type']
   sortTimestamp: number
   contentSearch?: string
+  date?: string
+  author?: string
 }
 
 interface RenderedBoardCard {
@@ -215,13 +193,6 @@ function sanitizeCardPreview(value: string): string {
 
 function normalizeSearchQuery(value: string): string {
   return String(value).trim().toLowerCase()
-}
-
-function cardMatchesSearch(card: Pick<BoardCard, 'title' | 'metadata' | 'snippet' | 'contentSearch'>, query: string): boolean {
-  if (!query) return true
-  return [card.title, card.metadata, card.snippet, card.contentSearch].some((value) =>
-    String(value ?? '').toLowerCase().includes(query),
-  )
 }
 
 function toSortTimestamp(...values: Array<string | undefined>): number {
@@ -375,15 +346,23 @@ export default function LibraryPage({
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
   const [confirmCloseTarget, setConfirmCloseTarget] = useState<'create' | 'active-object' | null>(null)
 
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setDirty('library-active', !!activeObject?.isDirty)
+  }, [activeObject?.isDirty])
+
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setDirty('library-create', createHasUnsavedChanges)
+  }, [createHasUnsavedChanges])
+
   // Inbox filter
   const [showInbox, setShowInbox] = useState(false)
 
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
+  const deferredBoardFilter = useDeferredValue(boardFilter)
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
-  const [isResizingFileList, setIsResizingFileList] = useState(false)
   const [renderedCards, setRenderedCards] = useState<RenderedBoardCard[]>([])
   const [selectedCardKeys, setSelectedCardKeys] = useState<string[]>([])
   const selectionAnchorKeyRef = useRef<string | null>(null)
@@ -437,37 +416,7 @@ export default function LibraryPage({
     return () => window.removeEventListener('resize', clampToContainer)
   }, [activeObject, isCreating, isSmallScreen])
 
-  const handleFileListResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if ((!activeObject && !isCreating) || isSmallScreen) return
 
-    event.preventDefault()
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    setIsResizingFileList(true)
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const containerRect = listRowRef.current?.getBoundingClientRect()
-      const containerWidth = containerRect?.width
-      const nextWidth = containerRect
-        ? moveEvent.clientX - containerRect.left
-        : moveEvent.clientX
-
-      setFileListWidth(clampLibraryListWidth(nextWidth, containerWidth))
-    }
-
-    const handleMouseUp = () => {
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-      setIsResizingFileList(false)
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-  }, [activeObject, isCreating, isSmallScreen])
 
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
@@ -799,7 +748,7 @@ export default function LibraryPage({
   }, [showInbox, visibleObjectTypeSet])
   const hasActiveBoardFilters = isObjectTypeFilterCustomized || isTagFilterCustomized
   const allCards = useMemo((): BoardCard[] => {
-    const normalizedBoardFilter = normalizeSearchQuery(boardFilter)
+    const normalizedBoardFilter = normalizeSearchQuery(deferredBoardFilter)
     const topicCards: BoardCard[] = topicNotes
       .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n): BoardCard | null => {
@@ -812,6 +761,7 @@ export default function LibraryPage({
           id: n.id,
           type: 'topic-note' as NoteType,
           title,
+          date: n.date,
           metadata: n.date ? formatDatePretty(n.date) : undefined,
           metadataAccent: Boolean(n.date),
           snippet,
@@ -828,6 +778,7 @@ export default function LibraryPage({
         id: n.id,
         type: 'daily-note' as NoteType,
         title: n.displayTitle,
+        date: n.date,
         weekdayLabel: formatWeekdayFull(n.date),
         snippet: sanitizeCardPreview(n.preview) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
@@ -841,6 +792,7 @@ export default function LibraryPage({
         id: n.id,
         type: 'habit' as NoteType,
         title: n.displayTitle,
+        date: n.date,
         weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
         snippet: sanitizeCardPreview(n.text) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.text) || undefined,
@@ -855,6 +807,8 @@ export default function LibraryPage({
         id: f.id,
         type: f.type,
         title: f.displayTitle,
+        date: f.type === 'project' ? f.startDate : undefined,
+        author: f.type === 'ref-material' ? f.author : undefined,
         metadata: f.type === 'project'
           ? (f.startDate ? formatDatePretty(f.startDate) : undefined)
           : (f.author ? `by ${f.author}` : undefined),
@@ -884,16 +838,15 @@ export default function LibraryPage({
       }
     }
     const tagCards: BoardCard[] = [...tagCountMap.entries()].map(([tag, count]) => ({
-      id: tag,
-      type: 'tag' as const,
-      title: `#${tag}`,
+        id: tag,
+        type: 'tag' as const,
+        title: `#${tag}`,
       metadata: count === 1 ? '1 object' : `${count} objects`,
       tags: [tag],
       sortTimestamp: count,
     }))
 
     const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
-      if (!cardMatchesSearch(card, normalizedBoardFilter)) return false
       if (!effectiveVisibleObjectTypeSet.has(card.type)) return false
 
       if (showInbox) {
@@ -903,12 +856,45 @@ export default function LibraryPage({
       return itemMatchesTagFilters(card.tags, tagFilters)
     })
 
+    if (normalizedBoardFilter) {
+      const ranked = rankSearchCandidates(
+        normalizedBoardFilter,
+        cards.map((card, index) => ({
+          id: getBoardCardKey(card),
+          type: card.type,
+          title: card.title,
+          date: card.date,
+          author: card.author,
+          metadata: card.metadata,
+          snippet: card.snippet,
+          contentSearch: card.contentSearch,
+          tags: card.tags,
+          sourceOrder: index,
+          typeOrder: card.type === 'project'
+            ? 0
+            : card.type === 'ref-material'
+              ? 1
+              : card.type === 'topic-note'
+                ? 2
+                : card.type === 'habit'
+                  ? 3
+                  : card.type === 'daily-note'
+                    ? 4
+                    : card.type === 'scripture'
+                      ? 5
+                      : 6,
+          card,
+        })),
+      )
+      return ranked.map((entry) => entry.item.card)
+    }
+
     const compareByTitle = (a: BoardCard, b: BoardCard) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
     if (boardSort === 'title-asc') return cards.sort(compareByTitle)
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, boardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
 
   useEffect(() => {
     cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -958,9 +944,6 @@ export default function LibraryPage({
     [selectedRenderedCards],
   )
   const selectedCardCount = selectedCardKeys.length
-  const selectedCardLabel = selectedCardCount === 1 ? '1 card selected' : `${selectedCardCount} cards selected`
-  const canBulkEditTags = selectedEditableCards.length > 0
-  const canBulkDelete = selectedCardCount > 0 && selectedDeletableCards.length === selectedCardCount
 
   useEffect(() => {
     if (selectedCardKeys.length === 0) return
@@ -1002,24 +985,7 @@ export default function LibraryPage({
     selectionAnchorKeyRef.current = null
   }, [])
 
-  const openBulkTagEditor = useCallback(() => {
-    setBulkActionError(null)
-    setBulkTagError(null)
-    const normalizedCommonTags = selectedEditableCards.length > 0
-      ? selectedEditableCards.reduce<string[]>((commonTags, card, index) => {
-          const currentTags = parseBulkTags(card.tags?.join(', ') ?? '')
-          if (index === 0) return currentTags
-          return commonTags.filter((tag) => currentTags.includes(tag))
-        }, [])
-      : []
-    setBulkTagInput(normalizedCommonTags.join(', '))
-    setShowBulkTagDialog(true)
-  }, [selectedEditableCards])
 
-  const openBulkDeleteDialog = useCallback(() => {
-    setBulkActionError(null)
-    setShowBulkDeleteDialog(true)
-  }, [])
 
   const handleCardSelectionGesture = useCallback((card: BoardCard, event: React.MouseEvent<HTMLElement>) => {
     const key = getBoardCardKey(card)
@@ -1050,6 +1016,10 @@ export default function LibraryPage({
 
     await handleSelectItem(card.id, card.type as EditorObjectType)
   }, [clearCardSelection, handleCardSelectionGesture, handleSelectItem, selectedCardKeys.length])
+
+  const activeObjectType = activeObject?.type
+  const activeObjectId = activeObject?.objectId
+  const activeObjectIsDirty = activeObject?.isDirty
 
   const handleApplyBulkTags = useCallback(async () => {
     const nextTags = parseBulkTags(bulkTagInput)
@@ -1084,11 +1054,12 @@ export default function LibraryPage({
       })
 
       if (failures.length > 0) {
-        throw new Error(failures.length === 1 ? failures[0] : `${failures[0]} (+${failures.length - 1} more)`)
+        setBulkTagError(failures.length === 1 ? failures[0] : `${failures[0]} (+${failures.length - 1} more)`)
+        return
       }
 
-      if (activeObject && !activeObject.isDirty) {
-        const activeKey = `${activeObject.type}:${activeObject.objectId}`
+      if (activeObjectType && activeObjectId && !activeObjectIsDirty) {
+        const activeKey = `${activeObjectType}:${activeObjectId}`
         const updatedActive = savedByKey.get(activeKey)
         if (updatedActive) {
           setActiveObject((prev) => (prev ? { ...prev, object: { ...updatedActive, type: prev.type }, isDirty: false } : prev))
@@ -1104,7 +1075,7 @@ export default function LibraryPage({
     } finally {
       setIsBulkSaving(false)
     }
-  }, [activeObject?.isDirty, activeObject?.objectId, activeObject?.type, bulkTagInput, clearCardSelection, loadAll, onSaved, selectedEditableCards])
+  }, [activeObjectId, activeObjectIsDirty, activeObjectType, bulkTagInput, clearCardSelection, loadAll, onSaved, selectedEditableCards])
 
   const handleConfirmBulkDelete = useCallback(async () => {
     const selectedCards = selectedDeletableCards
@@ -1205,301 +1176,230 @@ export default function LibraryPage({
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden pl-1.5">
-      <div className="ui-toolbar-panel mb-2 flex flex-wrap items-center gap-2 px-4 pb-1.5 pt-0" style={{ borderBottom: 'none' }}>
-        <TooltipProvider>
-          <Tooltip>
-            <DropdownMenu>
-              <TooltipTrigger asChild>
+    <>
+      <LibraryLayout
+        isDetailOpen={Boolean(activeObject || isCreating)}
+        isGalleryMode={isGalleryMode}
+        fileListWidth={fileListWidth}
+        onFileListWidthChange={setFileListWidth}
+        listScrollerRef={listScrollerRef}
+        toolbarContent={
+          <>
+            <TooltipProvider>
+              <Tooltip>
+                <DropdownMenu>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="Create a new object"
+                        className="h-10 w-10 rounded-[10px]"
+                      >
+                        <SquarePen className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <NotebookPen className="h-4 w-4" />
+                          Topic Note
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a titled note</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4" />
+                          Daily Note
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <Repeat2 className="h-4 w-4" />
+                          Habit
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
+                      </span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <TooltipContent>Create a new object</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <Button
+              size="icon"
+              variant={showInbox ? 'outline' : 'ghost'}
+              onClick={() => setShowInbox((v) => !v)}
+              title={showInbox ? 'Show all notes' : 'Show Inbox only'}
+              className={showInbox ? 'h-10 w-10 rounded-[10px] border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : 'h-10 w-10 rounded-[10px]'}
+            >
+              <Inbox className="h-[18px] w-[18px]" />
+            </Button>
+
+            <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="Create a new object"
-                    className="h-10 w-10 rounded-[10px]"
-                  >
-                    <SquarePen className="h-4 w-4" />
-                  </Button>
+                  <FilterChip
+                    icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+                    label="Object type"
+                    showCaret
+                    selected={isObjectTypeFilterCustomized}
+                  />
                 </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                <DropdownMenuItem onSelect={() => handleStartCreate('topic-note')}>
-                  <span className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                      <NotebookPen className="h-4 w-4" />
-                      Topic Note
-                    </span>
-                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a titled note</span>
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleStartCreate('daily-note')}>
-                  <span className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4" />
-                      Daily Note
-                    </span>
-                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
-                  <span className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                      <Repeat2 className="h-4 w-4" />
-                      Habit
-                    </span>
-                    <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
-                  </span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <TooltipContent>Create a new object</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+                <DropdownMenuContent align="start" className="w-56">
+                  {LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => {
+                    const checked = visibleObjectTypeSet.has(option.value)
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={option.value}
+                        checked={checked}
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
+                      >
+                        {option.label}
+                      </DropdownMenuCheckboxItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-        <Button
-          size="icon"
-          variant={showInbox ? 'outline' : 'ghost'}
-          onClick={() => setShowInbox((v) => !v)}
-          title={showInbox ? 'Show all notes' : 'Show Inbox only'}
-          className={showInbox ? 'h-10 w-10 rounded-[10px] border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : 'h-10 w-10 rounded-[10px]'}
-        >
-          <Inbox className="h-[18px] w-[18px]" />
-        </Button>
+              <Select value={boardSort} onValueChange={(value) => setBoardSort(value as BoardSort)}>
+                <SelectTrigger aria-label="Sort notes" className="h-10 w-[168px] rounded-[10px] border-[var(--color-border-subtle)] bg-[var(--color-surface-control)]/88 text-xs text-[var(--color-text-primary)]">
+                  <span className="flex items-center gap-2">
+                    <ArrowUpDown className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
+                    <SelectValue />
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recent">{BOARD_SORT_LABELS.recent}</SelectItem>
+                  <SelectItem value="oldest">{BOARD_SORT_LABELS.oldest}</SelectItem>
+                  <SelectItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</SelectItem>
+                  <SelectItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <FilterChip
-                icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
-                label="Object type"
-                showCaret
-                selected={isObjectTypeFilterCustomized}
+            <div className="relative ml-auto w-[248px] max-w-full min-w-[220px] flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+              <Input
+                placeholder="Search"
+                value={boardFilter}
+                onChange={(e) => setBoardFilter(e.target.value)}
+                className="h-10 w-full rounded-[10px] pr-4 text-sm"
+                style={{ paddingLeft: '2.5rem' }}
               />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {LIBRARY_OBJECT_TYPE_OPTIONS.map((option) => {
-                const checked = visibleObjectTypeSet.has(option.value)
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={option.value}
-                    checked={checked}
-                    onSelect={(event) => event.preventDefault()}
-                    onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
-                  >
-                    {option.label}
-                  </DropdownMenuCheckboxItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Select value={boardSort} onValueChange={(value) => setBoardSort(value as BoardSort)}>
-            <SelectTrigger aria-label="Sort notes" className="h-10 w-[168px] rounded-[10px] border-[var(--color-border-subtle)] bg-[var(--color-surface-control)]/88 text-xs text-[var(--color-text-primary)]">
-              <span className="flex items-center gap-2">
-                <ArrowUpDown className="h-3.5 w-3.5 text-[var(--color-text-disabled)]" />
-                <SelectValue />
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="recent">{BOARD_SORT_LABELS.recent}</SelectItem>
-              <SelectItem value="oldest">{BOARD_SORT_LABELS.oldest}</SelectItem>
-              <SelectItem value="title-asc">{BOARD_SORT_LABELS['title-asc']}</SelectItem>
-              <SelectItem value="title-desc">{BOARD_SORT_LABELS['title-desc']}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="relative ml-auto w-[248px] max-w-full min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
-          <Input
-            placeholder="Search"
-            value={boardFilter}
-            onChange={(e) => setBoardFilter(e.target.value)}
-            className="h-10 w-full rounded-[10px] pr-4 text-sm"
-            style={{ paddingLeft: '2.5rem' }}
-          />
-        </div>
-      </div>
-
-      {selectedCardCount > 0 ? (
-        <div className="mb-2 flex flex-wrap items-center gap-2 px-4 pb-1 text-xs text-[var(--color-text-secondary)]">
-          <span className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-[var(--color-text-primary)]">
-            {selectedCardLabel}
-          </span>
-          <Button variant="ghost" size="sm" className="h-8 rounded-[10px] px-3" onClick={clearCardSelection}>
-            Clear selection
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-[10px] px-3"
-            onClick={openBulkTagEditor}
-            disabled={!canBulkEditTags || isBulkSaving}
-            title={canBulkEditTags ? 'Bulk edit tags for the selected cards' : 'Select at least one card that supports tags'}
-          >
-            Edit tags
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 rounded-[10px] px-3"
-            onClick={openBulkDeleteDialog}
-            disabled={!canBulkDelete || isBulkSaving}
-            title={canBulkDelete ? 'Delete the selected daily notes, topic notes, or habits' : 'Delete is only available for daily notes, topic notes, and habits'}
-          >
-            Delete selected
-          </Button>
-          {!canBulkDelete ? (
-            <span className="text-[11px] text-[var(--color-text-disabled)]">
-              Deletion is limited to daily notes, topic notes, and habits.
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div
-        ref={listRowRef}
-        className={`flex min-h-0 w-full min-w-0 gap-1.5 ${(activeObject || isCreating) && !isSmallScreen ? 'flex-row' : 'flex-col'}`}
-      >
-        <div
-          className="flex min-h-0 min-w-0 flex-col"
-          style={(activeObject || isCreating) && !isSmallScreen ? { width: fileListWidth, minWidth: LIBRARY_LIST_MIN_WIDTH, flex: '0 0 auto' } : undefined}
-        >
-          <div className="ui-shell-panel relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-surface-app)]">
-            {(activeObject || isCreating) && !isSmallScreen ? (
-              <div
-                onMouseDown={handleFileListResizeStart}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize file list"
-                className="absolute right-0 top-0 z-[2] h-full w-[6px] cursor-col-resize"
-              >
-                <div
-                  className="absolute right-[2px] top-0 h-full w-px transition-colors"
-                  style={{ backgroundColor: isResizingFileList ? 'rgba(243, 239, 231, 0.95)' : 'transparent' }}
-                />
+            </div>
+          </>
+        }
+        listContent={
+          loading && !hasLoadedOnce ? (
+            <div className="flex h-full min-h-[240px] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+            </div>
+          ) : renderedCards.length === 0 ? (
+            <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+              {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
+            </div>
+          ) : isGalleryMode ? (
+            renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
+          ) : (
+            renderedCards.map((entry) => renderBoardCard(entry))
+          )
+        }
+        resultsLabel={
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 pb-[3px] text-xs text-[var(--color-text-secondary)]">
+              <span>{resultsLabel}</span>
+              {isRefreshing ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Updating…
+                </span>
+              ) : null}
+            </div>
+            {showInbox && (
+              <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
+                Inbox only — imported items tagged Inbox
+              </div>
+            )}
+          </div>
+        }
+        detailContent={
+          <>
+            {!isCreating && activeObject ? (
+              <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
+                <div className="min-w-0 flex-1 px-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
+                    Open item
+                  </div>
+                  <div className={cn('mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]', activeObject.type === 'tag' || activeObject.type === 'habit' ? 'ui-tag-text' : undefined)}>
+                    {getObjectPanelLabel(activeObject)}
+                  </div>
+                </div>
+                {activeObject.isDirty ? (
+                  <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
+                    Unsaved
+                  </div>
+                ) : null}
+                <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
             ) : null}
-
-            <div ref={listScrollerRef} className="ui-scroller flex-1 overflow-auto px-3 py-2">
-              {loading && !hasLoadedOnce ? (
-                <div className="flex h-full min-h-[240px] items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
-                </div>
-              ) : renderedCards.length === 0 ? (
-                <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
-                  {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
-                </div>
-              ) : isGalleryMode ? (
-                <div
-                  className="mx-auto w-full"
-                  style={{
-                    columnWidth: '272px',
-                    columnGap: '12px',
-                    maxWidth: '100%',
-                  }}
-                >
-                  {renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))}
-                </div>
-              ) : (
-                <div className="mx-auto flex w-full max-w-[960px] flex-col" style={{ gap: '14px' }}>
-                  {renderedCards.map((entry) => renderBoardCard(entry))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="px-3 pb-1 pt-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2 pb-[3px] text-xs text-[var(--color-text-secondary)]">
-                <span>{resultsLabel}</span>
-                {isRefreshing ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Updating…
-                  </span>
-                ) : null}
-              </div>
-              {showInbox && (
-                <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                  <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
-                  Inbox only — imported items tagged Inbox
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {(activeObject || isCreating) && (
-          <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded-[18px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">
-            <>
-              {/* Panel header */}
-              {!isCreating && activeObject ? (
-                <div className="flex min-h-[72px] items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
-                  <div className="min-w-0 flex-1 px-2">
-                    <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-                      Open item
-                    </div>
-                    <div className={cn('mt-1 truncate text-lg font-semibold text-[var(--color-text-primary)] leading-[1.2]', activeObject.type === 'tag' || activeObject.type === 'habit' ? 'ui-tag-text' : undefined)}>
-                      {getObjectPanelLabel(activeObject)}
-                    </div>
-                  </div>
-                  {activeObject.isDirty ? (
-                    <div className="inline-flex items-center rounded-full border border-[rgba(242,203,99,0.22)] bg-[var(--color-selected-fill-soft)] px-2.5 py-1 text-xs leading-none text-[var(--color-text-secondary)]">
-                      Unsaved
-                    </div>
-                  ) : null}
-                  <Button variant="ghost" size="icon" onClick={handleCloseEditor} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+            <div className="flex min-h-0 flex-1 overflow-hidden p-0">
+              {isCreating ? (
+                <CreatePanel
+                  createType={createType}
+                  initialDate={createInitialDate}
+                  createKey={createKey}
+                  onSave={handleSaveNew}
+                  onClose={handleCloseEditor}
+                  onDirty={setCreateHasUnsavedChanges}
+                  onNavigateToObject={handleNavigateToObject}
+                  onCreateDateChange={handleCreateDateChange}
+                  showHeader
+                />
+              ) : activeObject ? (
+                <EditorErrorBoundary>
+                  {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
+                    <ObjectMetaDetailPanel
+                      object={activeObject.object}
+                      type={activeObject.type}
+                      flatTop
+                      onNavigateToObject={handleNavigateToObject}
+                    />
+                  ) : (
+                    <ObjectEditor
+                      key={`${activeObject.type}:${activeObject.objectId}`}
+                      object={activeObject.object}
+                      type={activeObject.type}
+                      flatTop
+                      onSave={handleSaveEdit}
+                      onSaveAndOpenPrevious={previousEditorNavigationTarget ? handleSaveAndOpenPrevious : undefined}
+                      onSaveAndOpenNext={nextEditorNavigationTarget ? handleSaveAndOpenNext : undefined}
+                      onCancel={handleCloseEditor}
+                      onDirty={(isDirty) => {
+                        setActiveObject((prev) => (prev ? { ...prev, isDirty } : prev))
+                      }}
+                      onNavigateToObject={handleNavigateToObject}
+                      initialBlockId={pendingBlockId}
+                    />
+                  )}
+                </EditorErrorBoundary>
               ) : null}
-              <div className="flex min-h-0 flex-1 overflow-hidden p-0">
-                {isCreating ? (
-                  <CreatePanel
-                    createType={createType}
-                    initialDate={createInitialDate}
-                    createKey={createKey}
-                    onSave={handleSaveNew}
-                    onClose={handleCloseEditor}
-                    onDirty={setCreateHasUnsavedChanges}
-                    onNavigateToObject={handleNavigateToObject}
-                    onCreateDateChange={handleCreateDateChange}
-                    showHeader
-                  />
-                ) : activeObject ? (
-                  <EditorErrorBoundary>
-                    {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
-                      <ObjectMetaDetailPanel
-                        object={activeObject.object}
-                        type={activeObject.type}
-                        flatTop
-                        onNavigateToObject={handleNavigateToObject}
-                      />
-                    ) : (
-                      <ObjectEditor
-                        key={`${activeObject.type}:${activeObject.objectId}`}
-                        object={activeObject.object}
-                        type={activeObject.type}
-                        flatTop
-                        onSave={handleSaveEdit}
-                        onSaveAndOpenPrevious={previousEditorNavigationTarget ? handleSaveAndOpenPrevious : undefined}
-                        onSaveAndOpenNext={nextEditorNavigationTarget ? handleSaveAndOpenNext : undefined}
-                        onCancel={handleCloseEditor}
-                        onDirty={(isDirty) => {
-                          setActiveObject((prev) => (prev ? { ...prev, isDirty } : prev))
-                        }}
-                        onNavigateToObject={handleNavigateToObject}
-                        initialBlockId={pendingBlockId}
-                      />
-                    )}
-                  </EditorErrorBoundary>
-                ) : null}
-              </div>
-            </>
-          </section>
-        )}
-      </div>
+            </div>
+          </>
+        }
+      />
 
 
       <Dialog open={showBulkTagDialog} onOpenChange={(open) => {
@@ -1601,6 +1501,6 @@ export default function LibraryPage({
           </DialogContent>
         ) : null}
       </Dialog>
-      </div>
-   )
+    </>
+  )
 }

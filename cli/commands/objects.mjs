@@ -85,11 +85,11 @@ export async function handleObjectsCommand(action, args, ctx) {
           });
         }
         case 'project': {
-          const id = input.id;
+          const id = input.id ?? ctx.randomUUID();
           const rootFolder = ctx.getSyncRootFolder();
-          const canonicalSyncPath = ctx.canonicalProjectSyncPath(rootFolder, input.name ?? 'Untitled');
-          if (id && ctx.getProject(db, id)) {
-            return ctx.updateProjectRecord(db, id, {
+          const canonicalSyncPath = ctx.canonicalProjectSyncPath(rootFolder, input.name ?? 'Untitled', id);
+          if (input.id && ctx.getProject(db, input.id)) {
+            return ctx.updateProjectRecord(db, input.id, {
               name: input.name,
               syncPath: canonicalSyncPath,
               startDate: input.startDate,
@@ -99,7 +99,7 @@ export async function handleObjectsCommand(action, args, ctx) {
             });
           }
           return ctx.createProjectRecord(db, {
-            id: id ?? ctx.randomUUID(),
+            id,
             name: input.name ?? 'Untitled',
             syncPath: canonicalSyncPath,
             startDate: input.startDate ?? null,
@@ -110,11 +110,11 @@ export async function handleObjectsCommand(action, args, ctx) {
           });
         }
         case 'ref-material': {
-          const id = input.id;
+          const id = input.id ?? ctx.randomUUID();
           const rootFolder = ctx.getSyncRootFolder();
-          const canonicalSyncPath = ctx.canonicalRefMaterialSyncPath(rootFolder, input.name ?? 'Untitled');
-          if (id && ctx.getRefMat(db, id)) {
-            return ctx.updateRefMatRecord(db, id, {
+          const canonicalSyncPath = ctx.canonicalRefMaterialSyncPath(rootFolder, input.name ?? 'Untitled', id);
+          if (input.id && ctx.getRefMat(db, input.id)) {
+            return ctx.updateRefMatRecord(db, input.id, {
               name: input.name,
               author: input.author,
               syncPath: canonicalSyncPath,
@@ -123,7 +123,7 @@ export async function handleObjectsCommand(action, args, ctx) {
             });
           }
           return ctx.createRefMatRecord(db, {
-            id: id ?? ctx.randomUUID(),
+            id,
             name: input.name ?? 'Untitled',
             author: input.author ?? '',
             syncPath: canonicalSyncPath,

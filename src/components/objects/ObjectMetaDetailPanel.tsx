@@ -1,7 +1,7 @@
+import { Button } from 'aslan-ui';
 import React, { useMemo } from 'react'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
-import { Button } from '../ui/button'
 
 interface ObjectMetaDetailPanelProps {
   object?: Record<string, unknown>

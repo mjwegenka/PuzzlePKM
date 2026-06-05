@@ -48,3 +48,6 @@ src-tauri/gen/
 *.mobileprovision
 *.asc
 
+# Exclude all markdown files except README.md from git tracking/commits
+*.md
+!README.md

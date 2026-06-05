@@ -1,34 +1,18 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { addDays, format, isSameDay, isSameMonth, isValid, parseISO, startOfMonth, startOfWeek } from 'date-fns'
+import { Button, FilterChip, Calendar, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, CalendarPage as SharedCalendarPage } from 'aslan-ui';
+import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
+import { format, isValid, parseISO } from 'date-fns'
 import * as Popover from '@radix-ui/react-popover'
-import { CalendarIcon, ChevronLeft, ChevronRight, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
+import { CalendarIcon, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
-import { Button } from '../ui/button'
-import FilterChip from '../ui/FilterChip'
-import { Calendar } from '../ui/calendar'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu'
-import { Input } from '../ui/input'
-import { listHabitMeta, listMetaBundle, getObject } from '../../lib/cliService'
+import MentionPopup, { type MentionOption } from '../common/MentionPopup'
+
+import { listHabitMeta, listMetaBundle, getObject, rankSearchCandidates } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
-import { cn } from '../../lib/utils'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
+import { useUnsavedChangesStore } from '../../lib/unsavedChangesStore'
 
 function normalizePathForLookup(path?: string): string {
   return String(path ?? '')
@@ -52,6 +36,23 @@ interface CalEvent {
   label: string
   type: CalObjectType
   tags: string[]
+}
+
+interface CalendarSearchCandidate {
+  id: string
+  type: CalObjectType
+  title: string
+  date?: string
+  metadata?: string
+  snippet?: string
+  contentSearch?: string
+  tags: string[]
+}
+
+interface CalendarSearchOption extends MentionOption {
+  objectId: string
+  objectType: CalObjectType
+  hasDate: boolean
 }
 
 interface CalendarPageProps {
@@ -101,7 +102,12 @@ function formatDateKey(date: Date): string {
 export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
+  const [searchCandidates, setSearchCandidates] = useState<CalendarSearchCandidate[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(0)
+  const [searchPopupPosition, setSearchPopupPosition] = useState<{ top: number; left: number } | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate())
   const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | undefined>()
   const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
@@ -109,18 +115,14 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const [showConfirmClose, setShowConfirmClose] = useState(false)
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<CalObjectType[]>(DEFAULT_VISIBLE_CAL_TYPES)
   const [jumpDateOpen, setJumpDateOpen] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
-  const today = useMemo(() => new Date(), [])
-  const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
-  const gridStart = useMemo(() => startOfWeek(monthStart, { weekStartsOn: 0 }), [monthStart])
-  const calendarDays = useMemo(
-    () => Array.from({ length: 42 }, (_, index) => addDays(gridStart, index)),
-    [gridStart],
-  )
-  const calendarWeeks = useMemo(
-    () => Array.from({ length: 6 }, (_, weekIndex) => calendarDays.slice(weekIndex * 7, weekIndex * 7 + 7)),
-    [calendarDays],
-  )
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setDirty('calendar', hasUnsavedChanges)
+  }, [hasUnsavedChanges])
+
+
+
   const createTargetDate = selectedDate || getTodayDate()
   const visibleObjectTypeSet = useMemo(() => new Set(visibleObjectTypes), [visibleObjectTypes])
   const isObjectTypeFilterCustomized = useMemo(
@@ -139,15 +141,46 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const loadEvents = useCallback(async () => {
     const bundle = await listMetaBundle()
     const evts: CalEvent[] = []
+    const candidates: CalendarSearchCandidate[] = []
     for (const n of bundle.dailyNotes) {
       if (n.date) evts.push({ id: n.id, date: n.date, label: 'Daily Note', type: 'daily-note', tags: n.tags ?? [] })
+      candidates.push({
+        id: n.id,
+        type: 'daily-note',
+        title: n.displayTitle || 'Daily Note',
+        date: n.date || undefined,
+        metadata: TYPE_LABELS['daily-note'],
+        snippet: n.preview,
+        contentSearch: n.contentSearch,
+        tags: n.tags ?? [],
+      })
     }
     for (const n of bundle.topicNotes) {
       const d = n.date
       if (d) evts.push({ id: n.id, date: d, label: n.displayTitle || d, type: 'topic-note', tags: n.tags ?? [] })
+      candidates.push({
+        id: n.id,
+        type: 'topic-note',
+        title: n.displayTitle || 'Topic Note',
+        date: d || undefined,
+        metadata: TYPE_LABELS['topic-note'],
+        snippet: n.preview,
+        contentSearch: n.contentSearch,
+        tags: n.tags ?? [],
+      })
     }
     for (const h of bundle.habits) {
       if (h.date) evts.push({ id: h.id, date: h.date, label: h.displayTitle || 'Habit', type: 'habit', tags: h.tags ?? [] })
+      candidates.push({
+        id: h.id,
+        type: 'habit',
+        title: h.displayTitle || 'Habit',
+        date: h.date || undefined,
+        metadata: TYPE_LABELS.habit,
+        snippet: h.text,
+        contentSearch: h.contentSearch,
+        tags: h.tags ?? [],
+      })
     }
     for (const p of bundle.files) {
       if (p.type === 'project' && p.startDate) {
@@ -157,8 +190,20 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
         const datedRef = p.startDate
         if (datedRef) evts.push({ id: p.id, date: datedRef, label: p.displayTitle, type: 'ref-material', tags: p.tags ?? [] })
       }
+      candidates.push({
+        id: p.id,
+        type: p.type,
+        title: p.displayTitle,
+        date: p.startDate || undefined,
+        metadata: p.type === 'project'
+          ? TYPE_LABELS.project
+          : (p.author ? `${TYPE_LABELS['ref-material']} by ${p.author}` : TYPE_LABELS['ref-material']),
+        contentSearch: p.author,
+        tags: p.tags ?? [],
+      })
     }
     setEvents(evts)
+    setSearchCandidates(candidates)
   }, [])
 
   useEffect(() => {
@@ -172,15 +217,75 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [loadEvents])
 
   const filteredEvents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
     return events.filter((event) => {
       if (!visibleObjectTypeSet.has(event.type)) return false
       if (!itemMatchesTagFilters(event.tags, tagFilters)) return false
-      if (!query) return true
-      const typeLabel = TYPE_LABELS[event.type].toLowerCase()
-      return event.label.toLowerCase().includes(query) || typeLabel.includes(query)
+      return true
     })
-  }, [events, searchQuery, tagFilters, visibleObjectTypeSet])
+  }, [events, tagFilters, visibleObjectTypeSet])
+
+  const searchOptions = useMemo<CalendarSearchOption[]>(() => {
+    const query = deferredSearchQuery.trim().toLowerCase()
+    if (!query) return []
+    const visible = searchCandidates.filter((candidate) => {
+      if (!visibleObjectTypeSet.has(candidate.type)) return false
+      if (!itemMatchesTagFilters(candidate.tags, tagFilters)) return false
+      return true
+    })
+    const ranked = rankSearchCandidates(
+      query,
+      visible.map((candidate, index) => ({
+        id: `${candidate.type}:${candidate.id}`,
+        type: candidate.type,
+        title: candidate.title,
+        date: candidate.date,
+        metadata: candidate.metadata,
+        snippet: candidate.snippet,
+        contentSearch: candidate.contentSearch,
+        tags: candidate.tags,
+        sourceOrder: index,
+        candidate,
+      })),
+    )
+    const datedFirst = ranked.filter((entry) => entry.item.candidate.date)
+    const undated = ranked.filter((entry) => !entry.item.candidate.date)
+    return [...datedFirst, ...undated].slice(0, 8).map((entry) => ({
+      id: entry.item.id,
+      objectId: entry.item.candidate.id,
+      objectType: entry.item.candidate.type,
+      type: entry.item.candidate.type,
+      title: entry.item.candidate.title,
+      date: entry.item.candidate.date,
+      blockPreview: entry.item.candidate.metadata,
+      hasDate: Boolean(entry.item.candidate.date),
+    }))
+  }, [deferredSearchQuery, searchCandidates, tagFilters, visibleObjectTypeSet])
+
+  const showSearchPopup = searchFocused && searchQuery.trim().length > 0
+
+  useEffect(() => {
+    if (!showSearchPopup) {
+      setSearchPopupPosition(null)
+      return
+    }
+    const updatePosition = () => {
+      const input = searchInputRef.current
+      if (!input) return
+      const rect = input.getBoundingClientRect()
+      setSearchPopupPosition({ top: rect.bottom + 6, left: rect.left })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [showSearchPopup])
+
+  useEffect(() => {
+    setSearchSelectedIndex(0)
+  }, [deferredSearchQuery])
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>()
@@ -222,6 +327,33 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
       )
     }
   }, [onOpenObjectTab])
+
+  const navigateToDate = useCallback((date: string) => {
+    setSelectedDate(date)
+    const parsed = parseISO(date)
+    if (isValid(parsed)) setCurrentMonth(parsed)
+  }, [])
+
+  const handleSelectSearchOption = useCallback(async (option: CalendarSearchOption) => {
+    setSearchQuery('')
+    setSearchSelectedIndex(0)
+    if (option.date) {
+      navigateToDate(option.date)
+      return
+    }
+    if (onOpenObjectTab) {
+      await Promise.resolve(onOpenObjectTab({ id: option.objectId, type: option.objectType, forceNewTab: true }))
+      return
+    }
+    try {
+      const full = await getObject(option.objectType, option.objectId)
+      setSelectedType(option.objectType)
+      setSelectedObject({ ...full, type: option.objectType })
+    } catch {
+      setSelectedType(option.objectType)
+      setSelectedObject({ id: option.objectId, type: option.objectType, tags: [] })
+    }
+  }, [navigateToDate, onOpenObjectTab])
 
   const handleDayClick = useCallback(
     async (dateValue: Date) => {
@@ -288,12 +420,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     setSelectedObject(undefined)
   }
 
-  const handleToday = useCallback(() => {
-    const next = new Date()
-    setCurrentMonth(next)
-    setSelectedDate(formatDateKey(next))
-  }, [])
-
   const selectedJumpDate = useMemo(() => {
     if (!selectedDate) return undefined
     const parsed = parseISO(selectedDate)
@@ -305,14 +431,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     setSelectedDate(formatDateKey(date))
     setCurrentMonth(date)
     setJumpDateOpen(false)
-  }, [])
-
-  const handlePrevMonth = useCallback(() => {
-    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
-  }, [])
-
-  const handleNextMonth = useCallback(() => {
-    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
   }, [])
 
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
@@ -351,195 +469,163 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     }
   }, [])
 
-  const monthLabel = format(currentMonth, 'MMMM')
-  const yearLabel = format(currentMonth, 'yyyy')
+
+
+  const calendarPageItems = useMemo(() => {
+    return filteredEvents.map((evt) => {
+      const colors = TYPE_COLORS[evt.type]
+      return {
+        id: evt.id,
+        date: evt.date,
+        label: evt.label,
+        type: evt.type,
+        color: colors,
+        originalObject: evt,
+      }
+    })
+  }, [filteredEvents])
 
   return (
     <div className="flex min-h-0 flex-1 gap-3">
       <div className="ui-shell-panel flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface-elevated)]">
-        <div className="ui-toolbar-panel flex min-h-[76px] flex-nowrap items-center gap-2 border-b border-[var(--color-border-subtle)] px-4 py-3">
-          <div className="mr-2 py-1">
-            <h2 className="calendar-filter-month-year font-semibold leading-none tracking-[-0.03em] text-[var(--color-text-primary)]">
-              {monthLabel}{' '}
-              <span className="text-[var(--color-accent-metadata)]">{yearLabel}</span>
-            </h2>
-          </div>
+        <SharedCalendarPage
+          items={calendarPageItems}
+          onItemClick={(item) => {
+            if (item.originalObject) {
+              void openEvent(item.originalObject as CalEvent)
+            }
+          }}
+          onDayClick={(dayVal: Date) => handleDayClick(dayVal)}
+          onStartCreate={(date, type) => startCreateForDate(date, type as CalObjectType)}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          toolbarFilters={
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground" aria-label="Create new item">
+                    <SquarePen className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'daily-note') }}>
+                    New Daily Note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
+                    New Topic Note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
+                    New Habit
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground" aria-label="Create new item">
-                <SquarePen className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'daily-note') }}>
-                New Daily Note
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
-                New Topic Note
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
-                New Habit
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <FilterChip
+                    icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+                    label="Object type"
+                    showCaret
+                    selected={isObjectTypeFilterCustomized}
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {CAL_OBJECT_TYPE_OPTIONS.map((option) => (
+                    <DropdownMenuCheckboxItem
+                      key={option.value}
+                      checked={visibleObjectTypeSet.has(option.value)}
+                      onSelect={(event) => event.preventDefault()}
+                      onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
+                    >
+                      {option.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-          <div className="ui-scroller flex min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden px-1 py-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <FilterChip
-                  icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
-                  label="Object type"
-                  showCaret
-                  selected={isObjectTypeFilterCustomized}
+              <div className="relative w-[248px] max-w-full min-w-0 flex-[1_1_120px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+                <Input
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setSearchFocused(false), 120)
+                  }}
+                  onKeyDown={(event) => {
+                    if (!showSearchPopup) return
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault()
+                      setSearchSelectedIndex((idx) => Math.min(idx + 1, Math.max(searchOptions.length - 1, 0)))
+                    } else if (event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      setSearchSelectedIndex((idx) => Math.max(idx - 1, 0))
+                    } else if (event.key === 'Enter') {
+                      const option = searchOptions[searchSelectedIndex]
+                      if (!option) return
+                      event.preventDefault()
+                      void handleSelectSearchOption(option)
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setSearchFocused(false)
+                    }
+                  }}
+                  placeholder="Search"
+                  className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
                 />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                {CAL_OBJECT_TYPE_OPTIONS.map((option) => (
-                  <DropdownMenuCheckboxItem
-                    key={option.value}
-                    checked={visibleObjectTypeSet.has(option.value)}
-                    onSelect={(event) => event.preventDefault()}
-                    onCheckedChange={() => toggleObjectTypeVisibility(option.value)}
-                  >
-                    {option.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <div className="relative w-[248px] max-w-full min-w-0 flex-[1_1_120px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-disabled)]" />
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search"
-              className="h-10 rounded-[10px] pl-10 pr-4 text-sm"
-            />
-          </div>
-
-          <Popover.Root open={jumpDateOpen} onOpenChange={setJumpDateOpen}>
-            <Popover.Trigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground"
-                aria-label="Jump to date"
-                title={selectedDate ? `Jump date: ${selectedDate}` : 'Jump to date'}
-              >
-                <CalendarIcon className="h-4 w-4" />
-              </Button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                sideOffset={8}
-                align="start"
-                className="z-50 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-0 text-[var(--color-text-primary)] shadow-xl outline-none"
-              >
-                <Calendar
-                  mode="single"
-                  selected={selectedJumpDate}
-                  defaultMonth={selectedJumpDate ?? currentMonth}
-                  onSelect={handleJumpDateSelect}
-                  captionLayout="dropdown"
-                  startMonth={new Date(2000, 0)}
-                  endMonth={new Date(2040, 11)}
+              </div>
+              {showSearchPopup && (
+                <MentionPopup
+                  query={searchQuery}
+                  options={searchOptions}
+                  selectedIndex={Math.min(searchSelectedIndex, Math.max(searchOptions.length - 1, 0))}
+                  onSelect={(option) => {
+                    const selected = searchOptions.find((entry) => entry.id === option.id && entry.type === option.type)
+                    if (!selected) return
+                    void handleSelectSearchOption(selected)
+                  }}
+                  onClose={() => setSearchFocused(false)}
+                  position={searchPopupPosition}
                 />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+              )}
 
-          <div className="ml-auto inline-flex shrink-0 items-center rounded-full border border-current bg-[var(--color-surface-control)]/88 p-1 text-[var(--color-text-disabled)] hover:bg-[var(--color-surface-hover)]">
-            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handlePrevMonth}>
-              <ChevronLeft className="h-4.5 w-4.5" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 px-4 text-sm text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleToday}>
-              Today
-            </Button>
-            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full border border-[var(--color-text-disabled)] bg-[var(--color-surface-control)]/88 text-[var(--color-text-disabled)] hover:border-[var(--color-border-strong)] hover:bg-transparent hover:text-foreground" onClick={handleNextMonth}>
-              <ChevronRight className="h-4.5 w-4.5" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-7 border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/85">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayLabel) => (
-            <div key={dayLabel} className="px-3 py-2 text-right text-sm font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
-              {dayLabel}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-1 flex-col overflow-auto bg-[var(--color-border-subtle)]/60">
-          {calendarWeeks.map((week, weekIndex) => (
-            <div key={`week-${weekIndex}`} className="grid grid-cols-7">
-              {week.map((dayValue) => {
-                const dateKey = formatDateKey(dayValue)
-                const dayEvents = eventsByDate.get(dateKey) ?? []
-                const selected = dateKey === selectedDate
-                const isCurrentMonthDay = isSameMonth(dayValue, currentMonth)
-                const isTodayDate = isSameDay(dayValue, today)
-
-                return (
-                  <div
-                    key={dateKey}
-                    onClick={() => { void handleDayClick(dayValue) }}
-                    className={cn(
-                      'flex min-h-[136px] min-w-0 cursor-pointer flex-col bg-[var(--color-surface-app)] px-2.5 py-2 transition-colors',
-                      isCurrentMonthDay ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-disabled)]',
-                    )}
-                    style={{
-                      boxShadow: selected ? 'inset 0 0 0 1px rgba(242, 203, 99, 0.28)' : 'none',
-                      backgroundColor: selected
-                        ? 'color-mix(in srgb, var(--color-selected-fill-soft) 55%, var(--color-surface-app))'
-                        : isCurrentMonthDay
-                          ? 'var(--color-surface-app)'
-                          : 'color-mix(in srgb, var(--color-surface-app) 82%, var(--color-surface-elevated))',
-                    }}
+              <Popover.Root open={jumpDateOpen} onOpenChange={setJumpDateOpen}>
+                <Popover.Trigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 rounded-[10px] text-[var(--color-text-disabled)] hover:text-foreground"
+                    aria-label="Jump to date"
+                    title={selectedDate ? `Jump date: ${selectedDate}` : 'Jump to date'}
                   >
-                    <div className="mb-2 flex items-center justify-end gap-2">
-                      <span
-                        className={cn(
-                          'inline-flex min-w-[28px] items-center justify-center rounded-full px-2 py-0.5 text-sm font-medium',
-                          isTodayDate ? 'bg-[var(--color-selected-fill-soft)] text-[var(--color-text-primary)]' : '',
-                        )}
-                      >
-                        {format(dayValue, 'd')}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      {dayEvents.map((event) => {
-                        const colors = TYPE_COLORS[event.type]
-                        return (
-                          <button
-                            key={event.id}
-                            type="button"
-                            onClick={(clickEvent) => {
-                              clickEvent.stopPropagation()
-                              void openEvent(event)
-                            }}
-                            className="rounded-[7px] border px-2 py-1 text-left text-sm font-medium break-words whitespace-normal leading-snug hover:brightness-110"
-                            style={{
-                              backgroundColor: colors.bg,
-                              borderColor: colors.border,
-                              color: colors.text,
-                            }}
-                          >
-                            {event.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
+                    <CalendarIcon className="h-4 w-4" />
+                  </Button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    sideOffset={8}
+                    align="start"
+                    className="z-50 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-0 text-[var(--color-text-primary)] shadow-xl outline-none"
+                  >
+                    <Calendar
+                      mode="single"
+                      selected={selectedJumpDate}
+                      defaultMonth={selectedJumpDate ?? currentMonth}
+                      onSelect={handleJumpDateSelect}
+                      captionLayout="dropdown"
+                      startMonth={new Date(2000, 0)}
+                      endMonth={new Date(2040, 11)}
+                    />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </>
+          }
+        />
       </div>
+
 
       {selectedObject && !onOpenObjectTab && (
         <div className="flex min-h-0 w-[520px] min-w-[400px] flex-col overflow-hidden rounded-[24px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)]">

@@ -1,5 +1,5 @@
+import { Alert } from 'aslan-ui';
 import React from 'react'
-import { Alert } from '@/components/ui/alert'
 
 interface EditorErrorBoundaryProps {
   children: React.ReactNode

@@ -201,7 +201,12 @@ async function githubRequest({ token, method, url, body }) {
 }
 
 main().catch((error) => {
-  console.error(`[publish-macos] ${error.message}`);
+  const message = String(error?.message ?? error);
+  console.error(`[publish-macos] ${message}`);
+  if (/Bad credentials/i.test(message) || /\b401\b/.test(message)) {
+    console.error('[publish-macos] GitHub token was rejected. Use a token with release write access and retry.');
+    process.exitCode = 2;
+    return;
+  }
   process.exitCode = 1;
 });
-

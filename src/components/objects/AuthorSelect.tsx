@@ -1,7 +1,7 @@
+import { cn } from 'aslan-ui';
 import * as React from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, Loader2, Plus, Trash2, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import type { AuthorSummary } from '@/lib/cliService';
 
 interface AuthorSelectProps {

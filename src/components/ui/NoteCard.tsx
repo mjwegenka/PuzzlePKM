@@ -1,10 +1,9 @@
+import { cn, Badge } from 'aslan-ui';
 import React from 'react'
 import { BookOpenText, CalendarDays, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
 import { getObjectColor } from '@/lib/objectColors'
 import { withAlpha } from '@/lib/colorUtils'
-import { Badge } from './badge'
-import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

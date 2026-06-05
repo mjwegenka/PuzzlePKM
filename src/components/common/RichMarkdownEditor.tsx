@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Textarea, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from 'aslan-ui';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Bold,
@@ -37,14 +38,6 @@ import { searchObjects } from '../../lib/cliService'
 import { fallbackBlockId } from '../../lib/noteBlocks'
 import type { NoteBlock } from '../../shared/types'
 import { cn } from '../../lib/utils'
-import { Textarea } from '../ui/textarea'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 
 interface RichMarkdownEditorProps {
   value: string
@@ -59,6 +52,8 @@ interface RichMarkdownEditorProps {
   onShiftClickLink?: (href: string, options?: { forceNewTab?: boolean }) => void | Promise<void>
   /** Block ID to scroll and focus after the editor loads (e.g. from a `objectId#blockId` link). */
   scrollToBlockId?: string
+  /** Called when a requested block target no longer exists in this note. */
+  onMissingLinkedBlock?: (blockId: string) => void
 }
 
 type AdmonitionType = 'note' | 'tip' | 'important' | 'warn' | 'caution'
@@ -101,6 +96,7 @@ turndown.addRule('highlightMark', {
 
 const ADMONITION_MARKER_RE = /^\[!([A-Za-z0-9_-]+)]([+-])?(?:\s+(.*))?$/
 const BLANK_LINE_MARKER = '<!--puzzlepkm-blank-line-->'
+const MENTION_CONTEXT_LOOKBACK = 512
 
 function escapeHtml(value: string): string {
   return String(value)
@@ -113,6 +109,12 @@ function escapeHtml(value: string): string {
 
 function escapeAttribute(value: string): string {
   return escapeHtml(value).replace(/`/g, '&#96;')
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const maybeName = (error as { name?: unknown }).name
+  return maybeName === 'AbortError'
 }
 
 function normalizeBlockquoteContent(content: string): string {
@@ -431,6 +433,7 @@ export default function RichMarkdownEditor({
   maxLength,
   onShiftClickLink,
   scrollToBlockId,
+  onMissingLinkedBlock,
 }: RichMarkdownEditorProps) {
   const lastMarkdownRef = useRef(value)
   const lastBlocksRef = useRef<NoteBlock[]>(blocks ?? reconcileBlocksWithMarkdown([], value))
@@ -442,6 +445,7 @@ export default function RichMarkdownEditor({
   const previousMarkdownViewRef = useRef(false)
   const [mentionActive, setMentionActive] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
+  const deferredMentionQuery = useDeferredValue(mentionQuery)
   const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([])
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
   const [mentionPosition, setMentionPosition] = useState<{ top: number; left: number } | null>(null)
@@ -529,15 +533,39 @@ export default function RichMarkdownEditor({
       return
     }
 
-    const textBeforeCursor = editor.state.doc.textBetween(0, from, '\n', '\0')
-    const match = textBeforeCursor.match(/(?:^|[\s(])@([^\s@()]*)$/)
+    const contextFrom = Math.max(0, from - MENTION_CONTEXT_LOOKBACK)
+    const textBeforeCursor = editor.state.doc.textBetween(contextFrom, from, '\n', '\0')
+    const match = textBeforeCursor.match(/(?:^|[\s(])@([^\n@()]*)$/)
 
     if (!match) {
       closeMention()
       return
     }
 
+    if (match.index === 0 && contextFrom > 0) {
+      const prevChar = editor.state.doc.textBetween(contextFrom - 1, contextFrom, '\n', '\0')
+      if (prevChar && !/[\s(]/.test(prevChar)) {
+        closeMention()
+        return
+      }
+    }
+
     const query = match[1] ?? ''
+    // Double-space exits mention mode and collapses the trailing double space to
+    // a single space so prose spacing stays natural after finishing a mention.
+    if (/ {2,}$/.test(query) && from > 0) {
+      editor.chain().focus().deleteRange({ from: from - 1, to: from }).run()
+      closeMention()
+      return
+    }
+
+    // Trailing punctuation ends mention mode.
+    const trimmedQuery = query.trimEnd()
+    if (/[.,!?;:()[\]{}"“”'`~#$%^&*=+\\|<>]$/.test(trimmedQuery)) {
+      closeMention()
+      return
+    }
+
     const start = from - query.length - 1
     const coords = editor.view.coordsAtPos(from)
     mentionRangeRef.current = { from: start, to: from }
@@ -721,23 +749,26 @@ export default function RichMarkdownEditor({
     }
 
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       try {
-        const results = await searchObjects(mentionQuery, 8)
+        const results = await searchObjects(deferredMentionQuery, 8, { signal: controller.signal })
         if (!cancelled) {
           setMentionOptions(results)
           setMentionSelectedIdx(0)
         }
-      } catch {
+      } catch (error) {
+        if (isAbortError(error)) return
         if (!cancelled) setMentionOptions([])
       }
-    }, 150)
+    }, 90)
 
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
-  }, [mentionActive, mentionQuery])
+  }, [mentionActive, deferredMentionQuery])
 
   useEffect(() => {
     editorRef.current = editor ?? null
@@ -747,15 +778,27 @@ export default function RichMarkdownEditor({
   // This handles the `objectId#blockId` link navigation flow.
   useEffect(() => {
     if (!scrollToBlockId || !editor) return
+    let frameId = -1
+    let attempts = 0
+    const maxAttempts = 5
 
-    const currentBlocks = lastBlocksRef.current
-    const sortedBlocks = currentBlocks.slice().sort((a, b) => a.position - b.position)
-    const targetIdx = sortedBlocks.findIndex((b) => b.blockId === scrollToBlockId)
-    if (targetIdx < 0) return
-
-    const frameId = window.requestAnimationFrame(() => {
+    const navigateToBlock = () => {
       const activeEditor = editorRef.current
       if (!activeEditor) return
+
+      const currentBlocks = lastBlocksRef.current
+      const sortedBlocks = currentBlocks.slice().sort((a, b) => a.position - b.position)
+      const targetIdx = sortedBlocks.findIndex((b) => b.blockId === scrollToBlockId)
+      if (targetIdx < 0) {
+        if (attempts < maxAttempts) {
+          attempts += 1
+          frameId = window.requestAnimationFrame(navigateToBlock)
+          return
+        }
+        onMissingLinkedBlock?.(scrollToBlockId)
+        activeEditor.commands.setTextSelection(1)
+        return
+      }
 
       // Scroll the target paragraph into view via the DOM.
       const editorDom = activeEditor.view.dom
@@ -763,6 +806,10 @@ export default function RichMarkdownEditor({
       const targetElement = blockElements[targetIdx] as HTMLElement | undefined
       if (targetElement) {
         targetElement.scrollIntoView({ block: 'nearest' })
+      } else if (attempts < maxAttempts) {
+        attempts += 1
+        frameId = window.requestAnimationFrame(navigateToBlock)
+        return
       }
 
       // Move the cursor to the start of the target block so keyboard navigation
@@ -774,10 +821,12 @@ export default function RichMarkdownEditor({
       }
       const pos = Math.min(offset + 1, doc.content.size)
       activeEditor.commands.setTextSelection(pos)
-    })
+    }
+
+    frameId = window.requestAnimationFrame(navigateToBlock)
 
     return () => window.cancelAnimationFrame(frameId)
-  }, [scrollToBlockId, editor])
+  }, [scrollToBlockId, editor, onMissingLinkedBlock])
 
   useEffect(() => {
     if (blocks) {
@@ -920,7 +969,7 @@ export default function RichMarkdownEditor({
     // Empty list item / quote line → exit formatting (double-Enter equivalent)
     const isEmptyBullet = /^[ \t]*([-*+])\s*$/.test(currentLine)
     const isEmptyOrdered = /^[ \t]*\d+\.\s*$/.test(currentLine)
-    const isEmptyTask = /^[ \t]*([-*+])\s\[([ xX])\]\s*$/.test(currentLine)
+    const isEmptyTask = /^[ \t]*([-*+])\s\[([ xX])]\s*$/.test(currentLine)
     const isEmptyQuote = /^>+\s*$/.test(currentLine)
 
     if (isEmptyBullet || isEmptyOrdered || isEmptyTask || isEmptyQuote) {
@@ -938,7 +987,7 @@ export default function RichMarkdownEditor({
     }
 
     // Task list continuation: - [ ] or - [x]
-    const taskMatch = currentLine.match(/^([ \t]*)([-*+])\s\[([ xX])\]\s/)
+    const taskMatch = currentLine.match(/^([ \t]*)([-*+])\s\[([ xX])]\s/)
     if (taskMatch) {
       event.preventDefault()
       const prefix = `${taskMatch[1]}${taskMatch[2]} [ ] `

@@ -44,6 +44,9 @@ export interface MentionSearchResult {
   author?: string;
   date?: string;
   syncPath?: string;
+  blockId?: string;
+  matchType?: 'object' | 'block';
+  blockPreview?: string;
   /** True for synthetic "create new" options that don't yet exist in the DB. */
   isNew?: boolean;
 }
@@ -55,6 +58,7 @@ export interface TopicNoteMeta {
   date?: string;
   preview: string;
   contentSearch?: string;
+  firstBlockId?: string;
   tags: string[];
   displayTitle: string;
   type: 'topic-note';
@@ -65,6 +69,7 @@ export interface DailyNoteMeta {
   date: string;
   preview: string;
   contentSearch?: string;
+  firstBlockId?: string;
   tags: string[];
   displayTitle: string;
   type: 'daily-note';
@@ -102,6 +107,14 @@ export interface ScriptureMeta {
   type: 'scripture';
 }
 
+export interface NoteBlockMeta {
+  noteId: string;
+  noteType: 'topic-note' | 'daily-note';
+  blockId: string;
+  position: number;
+  preview: string;
+}
+
 export interface MetaBundle {
   topicNotes: TopicNoteMeta[];
   dailyNotes: DailyNoteMeta[];
@@ -110,9 +123,89 @@ export interface MetaBundle {
   scriptures: ScriptureMeta[];
   tags: TagSummary[];
   objectLinks: Array<{ sourceId: string; targetId: string }>;
+  noteBlocks: NoteBlockMeta[];
+}
+
+interface MentionIndexEntry {
+  id: string;
+  type: MentionSearchResult['type'];
+  title: string;
+  titleSearch: string;
+  author?: string;
+  authorSearch?: string;
+  date?: string;
+  dateSearch?: string;
+  syncPath?: string;
+  blockId?: string;
+  matchType: 'object' | 'block';
+  blockPreview?: string;
+  blockPreviewSearch?: string;
+  tags: string[];
+  tagsSearch: string[];
+  searchableText: string;
+  prettyDateSearch?: string;
+  sourceOrder: number;
+  typeOrder: number;
+}
+
+interface RankedMentionMatch {
+  entry: MentionIndexEntry;
+  rank: MentionRank;
+}
+
+interface SearchObjectsOptions {
+  signal?: AbortSignal;
+}
+
+export interface SearchRankingCandidate {
+  id: string;
+  type: string;
+  title: string;
+  author?: string;
+  date?: string;
+  metadata?: string;
+  snippet?: string;
+  contentSearch?: string;
+  syncPath?: string;
+  blockId?: string;
+  matchType?: 'object' | 'block';
+  blockPreview?: string;
+  tags?: string[];
+  sourceOrder?: number;
+  typeOrder?: number;
+}
+
+export interface RankedSearchCandidate<T extends SearchRankingCandidate> {
+  item: T;
+  rank: MentionRank;
 }
 
 let metaBundleInFlight: Promise<MetaBundle> | null = null;
+let metaBundleCache: MetaBundle | null = null;
+let mentionIndexInFlight: Promise<MentionIndexEntry[]> | null = null;
+let mentionIndexCache: MentionIndexEntry[] | null = null;
+let mentionIndexKnownTagsCache: Set<string> | null = null;
+let mentionSearchCache = new Map<string, MentionSearchResult[]>();
+
+function invalidateMetaCaches(): void {
+  metaBundleCache = null;
+  metaBundleInFlight = null;
+  mentionIndexCache = null;
+  mentionIndexInFlight = null;
+  mentionIndexKnownTagsCache = null;
+  mentionSearchCache = new Map<string, MentionSearchResult[]>();
+}
+
+if (typeof window !== 'undefined') {
+  const flag = '__puzzlepkmMentionIndexInvalidationBound__';
+  const runtimeWindow = window as unknown as Record<string, unknown>;
+  if (runtimeWindow[flag] !== true) {
+    window.addEventListener('puzzlepkm:objects-updated', () => {
+      invalidateMetaCaches();
+    });
+    runtimeWindow[flag] = true;
+  }
+}
 
 export interface ResolvedObjectRef {
   id: string;
@@ -380,6 +473,7 @@ export async function writeObject(
   const result = await runPuzzlePKMCli(['write', type, JSON.stringify(data)]);
   if (result.exitCode !== 0) throw new Error(result.stderr || `write ${type} failed`);
   const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+  invalidateMetaCaches();
   if (type === 'topic-note' || type === 'daily-note') {
     return normalizeNotePayload(parsed as unknown as TopicNote | DailyNote) as unknown as Record<string, unknown>;
   }
@@ -391,6 +485,7 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || `delete ${type} ${id} failed`);
   }
+  invalidateMetaCaches();
   return true;
 }
 
@@ -400,157 +495,594 @@ export async function runSync(): Promise<void> {
   if (result.status.lastError) throw new Error(result.status.lastError);
 }
 
+const MENTION_TYPE_ORDER: Record<string, number> = {
+  'topic-note': 0,
+  'daily-note': 1,
+  habit: 2,
+  project: 3,
+  'ref-material': 4,
+};
+
+const MENTION_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then',
+  'of', 'to', 'in', 'on', 'at', 'by', 'for', 'from', 'with', 'without', 'as',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'do', 'does', 'did', 'have', 'has', 'had',
+  'this', 'that', 'these', 'those',
+]);
+
+const MENTION_TIER_BASE = {
+  projectTitle: 700,
+  refTitle: 620,
+  refAuthor: 560,
+  otherTitle: 500,
+  date: 380,
+  tag: 320,
+  block: 120,
+} as const;
+
+function normalizeForSearch(value: string | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function tokenizeForSearch(value: string): string[] {
+  return normalizeForSearch(value)
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^\p{L}\p{N}#]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter(Boolean);
+}
+
+function uniqueTokens(value: string[]): string[] {
+  return Array.from(new Set(value));
+}
+
+function parseMentionQuery(query: string, knownTags: Set<string>) {
+  const normalized = normalizeForSearch(query);
+  const queryTokens = tokenizeForSearch(query);
+  const hashtagTokens = uniqueTokens(
+    queryTokens
+      .filter((token) => token.startsWith('#'))
+      .map((token) => token.slice(1))
+      .filter(Boolean),
+  );
+  const plainTokens = queryTokens
+    .map((token) => token.replace(/^#/, ''))
+    .filter(Boolean);
+  const nonStopTokens = plainTokens.filter((token) => !MENTION_STOP_WORDS.has(token));
+  const effectiveTokens = nonStopTokens.length >= 2 ? nonStopTokens : plainTokens;
+  const inferredTagTokens = hashtagTokens.length > 0
+    ? []
+    : effectiveTokens.filter((token) => knownTags.has(token));
+  const dateIntent = parseDateQueryToISO(normalized);
+  return {
+    normalized,
+    phrase: normalized,
+    tokens: uniqueTokens(effectiveTokens),
+    hashtagTokens,
+    inferredTagTokens: uniqueTokens(inferredTagTokens),
+    dateIntent,
+  };
+}
+
+interface TokenFieldScore {
+  matched: boolean;
+  score: number;
+  textQuality: number;
+}
+
+function scoreFieldMatch(
+  haystack: string,
+  phrase: string,
+  tokens: string[],
+): TokenFieldScore {
+  const text = normalizeForSearch(haystack);
+  if (!text) return { matched: false, score: 0, textQuality: 0 };
+
+  if (!tokens.length && !phrase) return { matched: true, score: 1, textQuality: 0 };
+
+  const phraseMatch = Boolean(phrase) && text.includes(phrase);
+  const startsMatch = Boolean(phrase) && text.startsWith(phrase);
+  const tokenPositions: number[] = [];
+  let matchedTokens = 0;
+
+  for (const token of tokens) {
+    const idx = text.indexOf(token);
+    if (idx >= 0) {
+      matchedTokens += 1;
+      tokenPositions.push(idx);
+    }
+  }
+
+  const coverage = tokens.length > 0 ? matchedTokens / tokens.length : (phraseMatch ? 1 : 0);
+  const allTokensPresent = tokens.length > 0 && matchedTokens === tokens.length;
+
+  let orderedTokens = 0;
+  if (tokens.length > 0) {
+    let cursor = -1;
+    for (const token of tokens) {
+      const idx = text.indexOf(token, cursor + 1);
+      if (idx < 0) break;
+      orderedTokens += 1;
+      cursor = idx;
+    }
+  }
+  const orderedTokenBonus = tokens.length > 1 && orderedTokens === tokens.length ? 15 : 0;
+
+  let proximityBonus = 0;
+  if (allTokensPresent && tokenPositions.length > 1) {
+    const span = Math.max(...tokenPositions) - Math.min(...tokenPositions);
+    proximityBonus = Math.max(0, 20 - Math.floor(span / 12));
+  }
+
+  const extraNoisePenalty = allTokensPresent
+    ? Math.max(0, Math.floor(text.split(/\s+/).length - tokens.length * 3))
+    : 0;
+
+  const score = (phraseMatch ? 100 : 0)
+    + (startsMatch ? 70 : 0)
+    + (allTokensPresent ? 50 : 0)
+    + Math.round(30 * coverage)
+    + orderedTokenBonus
+    + proximityBonus
+    - Math.min(20, extraNoisePenalty);
+
+  const matched = phraseMatch || matchedTokens > 0;
+  const textQuality = Math.round(coverage * 100) + orderedTokenBonus + proximityBonus;
+  return { matched, score, textQuality };
+}
+
+interface MentionRank {
+  tier: number;
+  tierBase: number;
+  fieldScore: number;
+  intentScore: number;
+  textQuality: number;
+  recencyScore: number;
+  totalScore: number;
+}
+
+function rankMentionEntry(
+  entry: MentionIndexEntry,
+  query: ReturnType<typeof parseMentionQuery>,
+): MentionRank {
+  if (!query.normalized) {
+    const defaultTier = entry.matchType === 'block' ? 1 : 4;
+    const defaultTierBase = entry.matchType === 'block' ? MENTION_TIER_BASE.block : MENTION_TIER_BASE.otherTitle;
+    const recencyScore = Math.max(0, 240 - entry.sourceOrder);
+    const totalScore = defaultTierBase + recencyScore - Math.round(entry.typeOrder * 5);
+    return {
+      tier: defaultTier,
+      tierBase: defaultTierBase,
+      fieldScore: 0,
+      intentScore: 0,
+      textQuality: 0,
+      recencyScore,
+      totalScore,
+    };
+  }
+
+  const titleSignal = scoreFieldMatch(entry.titleSearch, query.phrase, query.tokens);
+  const authorSignal = entry.authorSearch
+    ? scoreFieldMatch(entry.authorSearch, query.phrase, query.tokens)
+    : { matched: false, score: 0, textQuality: 0 };
+  const blockSignal = entry.blockPreviewSearch
+    ? scoreFieldMatch(entry.blockPreviewSearch, query.phrase, query.tokens)
+    : { matched: false, score: 0, textQuality: 0 };
+  const dateSignal = entry.dateSearch
+    ? scoreFieldMatch(`${entry.dateSearch} ${entry.prettyDateSearch ?? ''}`, query.phrase, query.tokens)
+    : { matched: false, score: 0, textQuality: 0 };
+
+  const exactTagHits = query.hashtagTokens.filter((tag) => entry.tagsSearch.includes(tag)).length;
+  const inferredTagHits = query.inferredTagTokens.filter((tag) => entry.tagsSearch.includes(tag)).length;
+  const tagHitCount = exactTagHits + inferredTagHits;
+  const tagScore = tagHitCount > 0
+    ? exactTagHits * 90 + inferredTagHits * 50 + Math.max(0, tagHitCount - 1) * 15
+    : 0;
+
+  let dateIntentScore = dateSignal.score;
+  if (query.dateIntent && entry.dateSearch) {
+    if (entry.dateSearch === query.dateIntent) {
+      dateIntentScore += 120;
+    } else if (entry.dateSearch.startsWith(query.dateIntent.slice(0, 7))) {
+      dateIntentScore += 40;
+    }
+  }
+
+  let tier = 0;
+  let tierBase = 0;
+  let fieldScore = 0;
+  if (entry.type === 'project' && titleSignal.matched) {
+    tier = 7;
+    tierBase = MENTION_TIER_BASE.projectTitle;
+    fieldScore = titleSignal.score;
+  } else if (entry.type === 'ref-material' && titleSignal.matched) {
+    tier = 6;
+    tierBase = MENTION_TIER_BASE.refTitle;
+    fieldScore = titleSignal.score;
+  } else if (entry.type === 'ref-material' && authorSignal.matched) {
+    tier = 5;
+    tierBase = MENTION_TIER_BASE.refAuthor;
+    fieldScore = authorSignal.score;
+  } else if (titleSignal.matched && entry.matchType === 'object') {
+    tier = 4;
+    tierBase = MENTION_TIER_BASE.otherTitle;
+    fieldScore = titleSignal.score;
+  } else if (dateIntentScore > 0) {
+    tier = 3;
+    tierBase = MENTION_TIER_BASE.date;
+    fieldScore = dateIntentScore;
+  } else if (tagScore > 0) {
+    tier = 2;
+    tierBase = MENTION_TIER_BASE.tag;
+    fieldScore = tagScore;
+  } else if (entry.matchType === 'block' && blockSignal.matched) {
+    tier = 1;
+    tierBase = MENTION_TIER_BASE.block;
+    fieldScore = blockSignal.score;
+  }
+
+  if (tier === 0) {
+    return {
+      tier,
+      tierBase,
+      fieldScore: 0,
+      intentScore: 0,
+      textQuality: 0,
+      recencyScore: 0,
+      totalScore: 0,
+    };
+  }
+
+  const intentScore = Math.min(120, dateIntentScore) + Math.min(120, tagScore);
+  const textQuality = Math.max(titleSignal.textQuality, authorSignal.textQuality, blockSignal.textQuality, dateSignal.textQuality);
+  const recencyScore = Math.max(0, 240 - entry.sourceOrder);
+  const totalScore = tierBase + fieldScore + intentScore + textQuality + recencyScore - Math.round(entry.typeOrder * 5);
+
+  return { tier, tierBase, fieldScore, intentScore, textQuality, recencyScore, totalScore };
+}
+
+function compareRankedMentionMatches(a: RankedMentionMatch, b: RankedMentionMatch): number {
+  if (a.rank.tier !== b.rank.tier) return b.rank.tier - a.rank.tier;
+  if (a.rank.fieldScore !== b.rank.fieldScore) return b.rank.fieldScore - a.rank.fieldScore;
+  if (a.rank.intentScore !== b.rank.intentScore) return b.rank.intentScore - a.rank.intentScore;
+  if (a.rank.textQuality !== b.rank.textQuality) return b.rank.textQuality - a.rank.textQuality;
+  if (a.rank.recencyScore !== b.rank.recencyScore) return b.rank.recencyScore - a.rank.recencyScore;
+  if (a.rank.totalScore !== b.rank.totalScore) return b.rank.totalScore - a.rank.totalScore;
+  if (a.entry.matchType !== b.entry.matchType) return a.entry.matchType === 'object' ? -1 : 1;
+  return a.entry.sourceOrder - b.entry.sourceOrder;
+}
+
+function compareRankedSearchCandidates<T extends SearchRankingCandidate>(
+  a: RankedSearchCandidate<T>,
+  b: RankedSearchCandidate<T>,
+): number {
+  if (a.rank.tier !== b.rank.tier) return b.rank.tier - a.rank.tier;
+  if (a.rank.fieldScore !== b.rank.fieldScore) return b.rank.fieldScore - a.rank.fieldScore;
+  if (a.rank.intentScore !== b.rank.intentScore) return b.rank.intentScore - a.rank.intentScore;
+  if (a.rank.textQuality !== b.rank.textQuality) return b.rank.textQuality - a.rank.textQuality;
+  if (a.rank.recencyScore !== b.rank.recencyScore) return b.rank.recencyScore - a.rank.recencyScore;
+  if (a.rank.totalScore !== b.rank.totalScore) return b.rank.totalScore - a.rank.totalScore;
+  if ((a.item.matchType ?? 'object') !== (b.item.matchType ?? 'object')) {
+    return (a.item.matchType ?? 'object') === 'object' ? -1 : 1;
+  }
+  return (a.item.sourceOrder ?? 0) - (b.item.sourceOrder ?? 0);
+}
+
+function typeOrderForSearch(type: string): number {
+  switch (type) {
+    case 'topic-note': return MENTION_TYPE_ORDER['topic-note'];
+    case 'daily-note': return MENTION_TYPE_ORDER['daily-note'];
+    case 'habit': return MENTION_TYPE_ORDER.habit;
+    case 'project': return MENTION_TYPE_ORDER.project;
+    case 'ref-material': return MENTION_TYPE_ORDER['ref-material'];
+    default: return 99;
+  }
+}
+
+function candidateToMentionEntry(candidate: SearchRankingCandidate, sourceOrder: number): MentionIndexEntry {
+  return createMentionEntry({
+    id: candidate.id,
+    type: candidate.type,
+    title: candidate.title,
+    author: candidate.author,
+    date: candidate.date,
+    syncPath: candidate.syncPath,
+    blockId: candidate.blockId,
+    matchType: candidate.matchType ?? 'object',
+    blockPreview: candidate.blockPreview,
+    tags: candidate.tags ?? [],
+    sourceOrder: candidate.sourceOrder ?? sourceOrder,
+    typeOrder: candidate.typeOrder ?? typeOrderForSearch(candidate.type),
+    searchFields: [
+      candidate.title,
+      candidate.author,
+      candidate.date,
+      candidate.metadata,
+      candidate.snippet,
+      candidate.contentSearch,
+      candidate.blockPreview,
+      (candidate.tags ?? []).join(' '),
+    ],
+  });
+}
+
+export function rankSearchCandidates<T extends SearchRankingCandidate>(
+  query: string,
+  candidates: T[],
+): RankedSearchCandidate<T>[] {
+  const knownTags = new Set(
+    candidates
+      .flatMap((candidate) => candidate.tags ?? [])
+      .map((tag) => normalizeForSearch(tag))
+      .filter(Boolean),
+  );
+  const parsedQuery = parseMentionQuery(query, knownTags);
+  return candidates
+    .map((item, index) => {
+      const rank = rankMentionEntry(candidateToMentionEntry(item, index), parsedQuery);
+      return { item, rank };
+    })
+    .filter((candidate) => candidate.rank.tier > 0)
+    .sort(compareRankedSearchCandidates);
+}
+
+function yieldToEventLoop(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function selectTopRankedMentions(
+  mentionIndex: MentionIndexEntry[],
+  parsedQuery: ReturnType<typeof parseMentionQuery>,
+  maxCandidates: number,
+  options: SearchObjectsOptions = {},
+): Promise<RankedMentionMatch[]> {
+  const top: RankedMentionMatch[] = [];
+  const chunkSize = 160;
+  for (let index = 0; index < mentionIndex.length; index += 1) {
+    if (options.signal?.aborted) return top;
+    const entry = mentionIndex[index];
+    const rank = rankMentionEntry(entry, parsedQuery);
+    if (rank.tier <= 0) continue;
+    const candidate: RankedMentionMatch = { entry, rank };
+
+    let insertAt = top.length;
+    for (let i = 0; i < top.length; i += 1) {
+      if (compareRankedMentionMatches(candidate, top[i]) < 0) {
+        insertAt = i;
+        break;
+      }
+    }
+
+    if (insertAt === top.length && top.length >= maxCandidates) continue;
+    top.splice(insertAt, 0, candidate);
+    if (top.length > maxCandidates) top.pop();
+
+    if (index > 0 && index % chunkSize === 0) {
+      await yieldToEventLoop();
+    }
+  }
+  return top;
+}
+
+function createMentionEntry(
+  value: Omit<
+    MentionIndexEntry,
+    'searchableText' | 'prettyDateSearch' | 'titleSearch' | 'authorSearch' | 'dateSearch' | 'blockPreviewSearch' | 'tagsSearch'
+  > & {
+    searchFields: Array<string | undefined>;
+  },
+): MentionIndexEntry {
+  const searchableText = value.searchFields
+    .map((field) => normalizeForSearch(field))
+    .filter(Boolean)
+    .join('\n');
+  const prettyDateSearch = value.date ? normalizeForSearch(formatDatePretty(value.date)) : undefined;
+  return {
+    id: value.id,
+    type: value.type,
+    title: value.title,
+    titleSearch: normalizeForSearch(value.title),
+    author: value.author,
+    authorSearch: normalizeForSearch(value.author),
+    date: value.date,
+    dateSearch: normalizeForSearch(value.date),
+    syncPath: value.syncPath,
+    blockId: value.blockId,
+    matchType: value.matchType,
+    blockPreview: value.blockPreview,
+    blockPreviewSearch: normalizeForSearch(value.blockPreview),
+    tags: value.tags,
+    tagsSearch: value.tags.map((tag) => normalizeForSearch(tag)),
+    searchableText,
+    prettyDateSearch,
+    sourceOrder: value.sourceOrder,
+    typeOrder: value.typeOrder,
+  };
+}
+
+async function ensureMentionIndex(options: { force?: boolean } = {}): Promise<MentionIndexEntry[]> {
+  if (options.force) {
+    mentionIndexCache = null;
+    mentionIndexInFlight = null;
+    mentionIndexKnownTagsCache = null;
+    mentionSearchCache = new Map<string, MentionSearchResult[]>();
+  }
+  if (mentionIndexCache) return mentionIndexCache;
+  if (mentionIndexInFlight) return mentionIndexInFlight;
+
+  mentionIndexInFlight = (async () => {
+    const bundle = await listMetaBundle(options.force ? { force: true } : {});
+    const entries: MentionIndexEntry[] = [];
+    const topicById = new Map(bundle.topicNotes.map((item) => [item.id, item]));
+    const dailyById = new Map(bundle.dailyNotes.map((item) => [item.id, item]));
+    let sourceOrder = 0;
+
+    for (const item of bundle.topicNotes) {
+      entries.push(createMentionEntry({
+        id: item.id,
+        type: 'topic-note',
+        title: item.displayTitle,
+        date: item.date,
+        blockId: item.firstBlockId,
+        matchType: 'object',
+        tags: item.tags,
+        sourceOrder: sourceOrder++,
+        typeOrder: MENTION_TYPE_ORDER['topic-note'],
+        searchFields: [item.displayTitle, item.date, item.preview, item.contentSearch, item.tags.join(' ')],
+      }));
+    }
+
+    for (const item of bundle.dailyNotes) {
+      entries.push(createMentionEntry({
+        id: item.id,
+        type: 'daily-note',
+        title: item.displayTitle,
+        date: item.date,
+        blockId: item.firstBlockId,
+        matchType: 'object',
+        tags: item.tags,
+        sourceOrder: sourceOrder++,
+        typeOrder: MENTION_TYPE_ORDER['daily-note'],
+        searchFields: [item.displayTitle, item.date, item.preview, item.contentSearch, item.tags.join(' ')],
+      }));
+    }
+
+    for (const item of bundle.habits) {
+      entries.push(createMentionEntry({
+        id: item.id,
+        type: 'habit',
+        title: item.displayTitle,
+        date: item.date,
+        syncPath: item.syncPath,
+        matchType: 'object',
+        tags: item.tags,
+        sourceOrder: sourceOrder++,
+        typeOrder: MENTION_TYPE_ORDER.habit,
+        searchFields: [item.displayTitle, item.date, item.text, item.contentSearch, item.tags.join(' ')],
+      }));
+    }
+
+    for (const item of bundle.files) {
+      entries.push(createMentionEntry({
+        id: item.id,
+        type: item.type,
+        title: item.displayTitle,
+        author: item.author,
+        date: item.startDate,
+        syncPath: item.syncPath,
+        matchType: 'object',
+        tags: item.tags,
+        sourceOrder: sourceOrder++,
+        typeOrder: MENTION_TYPE_ORDER[item.type] ?? 99,
+        searchFields: [item.displayTitle, item.author, item.startDate, item.tags.join(' ')],
+      }));
+    }
+
+    for (const block of bundle.noteBlocks) {
+      const parent = block.noteType === 'topic-note'
+        ? topicById.get(block.noteId)
+        : dailyById.get(block.noteId);
+      if (!parent || !block.blockId) continue;
+      const blockPreview = normalizeForSearch(block.preview) ? block.preview : '(empty block)';
+      entries.push(createMentionEntry({
+        id: parent.id,
+        type: parent.type,
+        title: parent.displayTitle,
+        date: parent.date,
+        blockId: block.blockId,
+        matchType: 'block',
+        blockPreview,
+        tags: parent.tags,
+        sourceOrder: sourceOrder++,
+        typeOrder: (MENTION_TYPE_ORDER[parent.type] ?? 99) + 0.2,
+        searchFields: [parent.displayTitle, parent.date, parent.preview, parent.contentSearch, blockPreview, parent.tags.join(' ')],
+      }));
+    }
+
+    mentionIndexCache = entries;
+    mentionIndexKnownTagsCache = new Set(
+      entries
+        .flatMap((entry) => entry.tagsSearch)
+        .filter(Boolean),
+    );
+    mentionSearchCache = new Map<string, MentionSearchResult[]>();
+    return entries;
+  })();
+
+  try {
+    return await mentionIndexInFlight;
+  } finally {
+    mentionIndexInFlight = null;
+  }
+}
+
 /**
  * Search all objects (daily-note, topic-note, project, ref-material, habit)
- * by title or date. Returns up to `limit` results.
- * Optimized: Only format dates for items that match the query.
+ * by title or date. Uses a cached in-memory mention index built from list-meta.
  */
 export async function searchObjects(
   query: string,
   limit = 10,
+  options: SearchObjectsOptions = {},
 ): Promise<MentionSearchResult[]> {
-  const q = query.toLowerCase();
+  if (options.signal?.aborted) return [];
+  const mentionIndex = await ensureMentionIndex();
+  if (options.signal?.aborted) return [];
+  const normalizedQuery = normalizeForSearch(query);
+  const cacheKey = `${limit}:${normalizedQuery}`;
+  const cached = mentionSearchCache.get(cacheKey);
+  if (cached) return cached.slice(0, limit);
+
+  const knownTags = mentionIndexKnownTagsCache ?? new Set<string>();
+  const parsedQuery = parseMentionQuery(query, knownTags);
+  const matched = selectTopRankedMentions(
+    mentionIndex,
+    parsedQuery,
+    Math.max(96, limit * 12),
+    options,
+  );
+  const ranked = await matched;
+  if (options.signal?.aborted) return [];
+
   const results: MentionSearchResult[] = [];
-
-  const [topicsRes, dailiesRes, habitsRes, filesRes] = await Promise.allSettled([
-    listTopicNoteMeta(),
-    listDailyNoteMeta(),
-    listHabitMeta(),
-    listFileMeta(),
-  ]);
-
-  if (topicsRes.status === 'fulfilled') {
-    for (const item of topicsRes.value) {
-      if (results.length >= limit) break;
-      const title = item.displayTitle;
-      const titleMatch = !q || title.toLowerCase().includes(q);
-      const rawDateMatch = !q || (item.date ?? '').includes(q);
-
-      if (titleMatch || rawDateMatch) {
-        results.push({
-          id: item.id,
-          type: 'topic-note',
-          title,
-          date: item.date,
-        });
-      } else if (item.date) {
-        // Only format pretty date if there's a date and cheaper checks didn't match
-        const prettyDate = formatDatePretty(item.date).toLowerCase();
-        if (prettyDate.includes(q)) {
-          results.push({
-            id: item.id,
-            type: 'topic-note',
-            title,
-            date: item.date,
-          });
-        }
-      }
+  const blockResultCountByNote = new Map<string, number>();
+  for (const { entry } of ranked) {
+    if (options.signal?.aborted) return [];
+    if (results.length >= limit) break;
+    if (entry.matchType === 'block') {
+      const key = `${entry.type}:${entry.id}`;
+      const current = blockResultCountByNote.get(key) ?? 0;
+      if (current >= 2) continue;
+      blockResultCountByNote.set(key, current + 1);
     }
-  }
-
-  if (dailiesRes.status === 'fulfilled' && results.length < limit) {
-    for (const item of dailiesRes.value) {
-      if (results.length >= limit) break;
-      const title = item.displayTitle;
-      const titleMatch = !q || title.toLowerCase().includes(q);
-      const previewMatch = !q || item.preview.toLowerCase().includes(q);
-      const rawDateMatch = !q || item.date.toLowerCase().includes(q);
-
-      if (titleMatch || previewMatch || rawDateMatch) {
-        results.push({
-          id: item.id,
-          type: 'daily-note',
-          title,
-          date: item.date,
-        });
-      } else {
-        // Only format pretty date if none of the cheaper checks matched
-        const prettyDate = formatDatePretty(item.date).toLowerCase();
-        if (prettyDate.includes(q)) {
-          results.push({
-            id: item.id,
-            type: 'daily-note',
-            title,
-            date: item.date,
-          });
-        }
-      }
-    }
-  }
-
-  if (habitsRes.status === 'fulfilled' && results.length < limit) {
-    for (const item of habitsRes.value) {
-      if (results.length >= limit) break;
-      const title = item.displayTitle;
-      const titleMatch = !q || title.toLowerCase().includes(q);
-      const textMatch = !q || item.text.toLowerCase().includes(q);
-      const rawDateMatch = !q || item.date.toLowerCase().includes(q);
-
-      if (titleMatch || textMatch || rawDateMatch) {
-        results.push({
-          id: item.id,
-          type: 'habit',
-          title,
-          date: item.date,
-        });
-      } else {
-        // Only format pretty date if none of the cheaper checks matched
-        const prettyDate = formatDatePretty(item.date).toLowerCase();
-        if (prettyDate.includes(q)) {
-          results.push({
-            id: item.id,
-            type: 'habit',
-            title,
-            date: item.date,
-          });
-        }
-      }
-    }
-  }
-
-  if (filesRes.status === 'fulfilled' && results.length < limit) {
-    for (const item of filesRes.value) {
-      if (results.length >= limit) break;
-      const title = item.displayTitle;
-      const titleMatch = !q || title.toLowerCase().includes(q);
-      const authorMatch = !q || (item.author ?? '').toLowerCase().includes(q);
-      const rawDateMatch = !q || (item.startDate ?? '').includes(q);
-
-      if (titleMatch || authorMatch || rawDateMatch) {
-        results.push({
-          id: item.id,
-          type: item.type,
-          title,
-          author: item.author,
-          date: item.startDate,
-          syncPath: item.syncPath,
-        });
-      } else if (item.startDate) {
-        // Only format pretty date if there's a date and cheaper checks didn't match
-        const prettyDate = formatDatePretty(item.startDate).toLowerCase();
-        if (prettyDate.includes(q)) {
-          results.push({
-            id: item.id,
-            type: item.type,
-            title,
-            author: item.author,
-            date: item.startDate,
-            syncPath: item.syncPath,
-          });
-        }
-      }
-    }
+    results.push({
+      id: entry.id,
+      type: entry.type,
+      title: entry.title,
+      author: entry.author,
+      date: entry.date,
+      syncPath: entry.syncPath,
+      blockId: entry.blockId,
+      matchType: entry.matchType,
+      blockPreview: entry.blockPreview,
+    });
   }
 
   // If the query looks like a date and no existing daily note covers it exactly,
   // add a synthetic "create new daily note" option at the top of results.
-  if (q) {
-    const parsedDate = parseDateQueryToISO(q);
+  if (parsedQuery.normalized) {
+    const parsedDate = parsedQuery.dateIntent;
     if (parsedDate) {
       const alreadyListed = results.some(
         (r) => r.type === 'daily-note' && r.date === parsedDate,
       );
-      if (!alreadyListed) {
+      const existsInIndex = mentionIndex.some((entry) => entry.type === 'daily-note' && entry.date === parsedDate);
+      if (!alreadyListed && !existsInIndex) {
         const prettyDate = formatDatePretty(parsedDate);
         results.unshift({
           id: `${DATE_MENTION_HREF_PREFIX}${parsedDate}`,
@@ -563,7 +1095,11 @@ export async function searchObjects(
     }
   }
 
-  return results.slice(0, limit);
+  const finalResults = results.slice(0, limit);
+  if (!options.signal?.aborted) {
+    mentionSearchCache.set(cacheKey, finalResults);
+  }
+  return finalResults;
 }
 
 /**
@@ -573,6 +1109,9 @@ export async function searchObjects(
 export const DATE_MENTION_HREF_PREFIX = 'date:';
 
 export async function listMetaBundle(options: { force?: boolean } = {}): Promise<MetaBundle> {
+  if (!options.force && metaBundleCache) {
+    return metaBundleCache;
+  }
   if (!options.force && metaBundleInFlight) {
     return metaBundleInFlight;
   }
@@ -590,6 +1129,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       scriptures?: Array<Record<string, unknown>>;
       tags?: Array<Record<string, unknown>>;
       objectLinks?: Array<Record<string, unknown>>;
+      noteBlocks?: Array<Record<string, unknown>>;
     };
 
     const syncRootFolder = typeof raw.syncRootFolder === 'string' ? raw.syncRootFolder : null;
@@ -600,6 +1140,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
         const date = String(row.date ?? '').trim() || undefined;
         const preview = String(row.preview ?? '');
         const contentSearch = String(row.contentSearch ?? row.content_search ?? '').trim() || undefined;
+        const firstBlockId = String(row.firstBlockId ?? row.first_block_id ?? '').trim() || undefined;
         const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
         return {
           id: String(row.id ?? ''),
@@ -608,6 +1149,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
           date,
           preview,
           contentSearch,
+          firstBlockId,
           tags,
           displayTitle: getObjectDisplayTitle('topic-note', { title, date, preview }),
           type: 'topic-note' as const,
@@ -620,12 +1162,14 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
         const date = String(row.date ?? '');
         const preview = String(row.preview ?? '');
         const contentSearch = String(row.contentSearch ?? row.content_search ?? '').trim() || undefined;
+        const firstBlockId = String(row.firstBlockId ?? row.first_block_id ?? '').trim() || undefined;
         const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
         return {
           id: String(row.id ?? ''),
           date,
           preview,
           contentSearch,
+          firstBlockId,
           tags,
           displayTitle: getObjectDisplayTitle('daily-note', { date }),
           type: 'daily-note' as const,
@@ -707,7 +1251,24 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       }))
       .filter((row) => row.sourceId && row.targetId);
 
-    return { topicNotes, dailyNotes, habits, files, scriptures, tags, objectLinks };
+    const noteBlocks: NoteBlockMeta[] = (Array.isArray(raw.noteBlocks) ? raw.noteBlocks : [])
+      .map((row) => {
+        const noteType: NoteBlockMeta['noteType'] = row.noteType === 'daily-note' ? 'daily-note' : 'topic-note';
+        const position = Number.parseInt(String(row.position ?? '0'), 10);
+        return {
+          noteId: String(row.noteId ?? ''),
+          noteType,
+          blockId: String(row.blockId ?? ''),
+          position: Number.isFinite(position) ? position : 0,
+          preview: String(row.preview ?? ''),
+        };
+      })
+      .filter((row) => row.noteId && row.blockId);
+
+    const bundle = { topicNotes, dailyNotes, habits, files, scriptures, tags, objectLinks, noteBlocks };
+    metaBundleCache = bundle;
+    mentionIndexCache = null;
+    return bundle;
   })();
 
   try {
@@ -835,7 +1396,7 @@ export async function listFileMeta(): Promise<
   FileMeta[]
 > {
   const results: Array<{ id: string; name: string; author?: string; syncPath: string; startDate?: string; tags: string[]; displayTitle: string; type: 'project' | 'ref-material' }> = [];
-  let syncRootFolder: string | null = null;
+  let syncRootFolder: string | null;
   try {
     syncRootFolder = await getSyncRootFolder();
   } catch {
@@ -1179,4 +1740,3 @@ function slugifyForPath(text: string): string {
     .replace(/^-|-$/g, '')
     .slice(0, 60) || 'untitled';
 }
-

@@ -53,9 +53,6 @@ const TOPIC_NOTES_SUBFOLDER = 'topic-notes';
 const PROJECTS_SUBFOLDER = 'projects';
 const REF_MATERIALS_SUBFOLDER = 'ref-materials';
 const HABITS_SUBFOLDER = 'habits';
-const MOBILE_INBOX_SUBFOLDER = 'mobile-inbox';
-const MOBILE_INBOX_DAILY_NOTES_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/daily-notes`;
-const MOBILE_INBOX_HABITS_SUBFOLDER = `${MOBILE_INBOX_SUBFOLDER}/habits`;
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -1123,36 +1120,50 @@ function backfillMissingSyncPaths(db) {
 
   const missingProject = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingProject) {
-    db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(canonicalProjectSyncPath(rootFolder, row.name || row.id), row.id);
+    db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(canonicalProjectSyncPath(rootFolder, row.name || row.id, row.id), row.id);
   }
 
   const missingRefMat = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingRefMat) {
-    db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(canonicalRefMaterialSyncPath(rootFolder, row.name || row.id), row.id);
+    db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(canonicalRefMaterialSyncPath(rootFolder, row.name || row.id, row.id), row.id);
   }
 
   // Repair legacy file-object rows that store stale human-readable folder paths
   // instead of the canonical slug-backed sync directory (README / DEC-10).
   const projectRows = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of projectRows) {
-    const canonicalPath = canonicalProjectSyncPath(rootFolder, row.name || row.id);
+    const legacyPath = projectDirectoryPath(rootFolder, slugify(row.name || row.id));
+    const canonicalPath = canonicalProjectSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
-    if (!currentPath || currentPath === canonicalPath) continue;
-    const currentLocalPath = resolveLocalSyncPath(currentPath);
-    const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
-    if (!existsSync(currentLocalPath) && existsSync(canonicalLocalPath)) {
+    if (currentPath === legacyPath && currentPath !== canonicalPath) {
+      const currentLocalPath = resolveLocalSyncPath(currentPath);
+      const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
+      if (existsSync(currentLocalPath) && !existsSync(canonicalLocalPath)) {
+        try {
+          renameSync(currentLocalPath, canonicalLocalPath);
+        } catch (err) {
+          // Ignore rename failures
+        }
+      }
       db.prepare('UPDATE projects SET sync_path = ? WHERE id = ?').run(canonicalPath, row.id);
     }
   }
 
   const refMatRows = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of refMatRows) {
-    const canonicalPath = canonicalRefMaterialSyncPath(rootFolder, row.name || row.id);
+    const legacyPath = refMaterialDirectoryPath(rootFolder, slugify(row.name || row.id));
+    const canonicalPath = canonicalRefMaterialSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
-    if (!currentPath || currentPath === canonicalPath) continue;
-    const currentLocalPath = resolveLocalSyncPath(currentPath);
-    const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
-    if (!existsSync(currentLocalPath) && existsSync(canonicalLocalPath)) {
+    if (currentPath === legacyPath && currentPath !== canonicalPath) {
+      const currentLocalPath = resolveLocalSyncPath(currentPath);
+      const canonicalLocalPath = resolveLocalSyncPath(canonicalPath);
+      if (existsSync(currentLocalPath) && !existsSync(canonicalLocalPath)) {
+        try {
+          renameSync(currentLocalPath, canonicalLocalPath);
+        } catch (err) {
+          // Ignore rename failures
+        }
+      }
       db.prepare('UPDATE ref_materials SET sync_path = ? WHERE id = ?').run(canonicalPath, row.id);
     }
   }
@@ -2405,8 +2416,38 @@ function listObjects(type) {
 function listMetaBundle() {
   return withDb((db) => {
     cleanupOrphanedTags(db, undefined, { fullSweep: true });
+    const noteBlocks = db.prepare(`
+      SELECT
+        nb.note_id AS note_id,
+        nb.note_type AS note_type,
+        nb.block_id AS block_id,
+        nb.position AS position,
+        nb.content_markdown AS content_markdown
+      FROM note_blocks nb
+      WHERE nb.note_type IN ('topic-note', 'daily-note')
+      ORDER BY nb.note_type ASC, nb.note_id ASC, nb.position ASC
+    `).all().map((row) => ({
+      noteId: row.note_id,
+      noteType: row.note_type,
+      blockId: row.block_id,
+      position: Number.isInteger(row.position) ? row.position : Number.parseInt(String(row.position ?? '0'), 10) || 0,
+      preview: listField(String(row.content_markdown ?? '')).slice(0, 140),
+    }));
+    const firstBlockByNoteId = new Map();
+    for (const block of noteBlocks) {
+      if (!block.noteId || !block.blockId || firstBlockByNoteId.has(block.noteId)) continue;
+      firstBlockByNoteId.set(block.noteId, block.blockId);
+    }
     const projects = listProjects(db).map((row) => ({ ...row, type: 'project' }));
     const refMaterials = listRefMats(db).map((row) => ({ ...row, type: 'ref-material' }));
+    const topicNotes = listTopicNotes(db).map((row) => ({
+      ...row,
+      firstBlockId: firstBlockByNoteId.get(row.id) || undefined,
+    }));
+    const dailyNotes = listDailyNotes(db).map((row) => ({
+      ...row,
+      firstBlockId: firstBlockByNoteId.get(row.id) || undefined,
+    }));
     // Bulk fetch all object-link edges in a single query to avoid N+1 per-note gets
     const objectLinks = db
       .prepare('SELECT source_id, target_id FROM object_links')
@@ -2414,13 +2455,14 @@ function listMetaBundle() {
       .map((row) => ({ sourceId: row.source_id, targetId: row.target_id }));
     return {
       syncRootFolder: getSyncRootFolder(),
-      topicNotes: listTopicNotes(db),
-      dailyNotes: listDailyNotes(db),
+      topicNotes,
+      dailyNotes,
       habits: listHabits(db),
       files: [...projects, ...refMaterials],
       scriptures: listScriptures(db),
       tags: listTags(db),
       objectLinks,
+      noteBlocks,
     };
   });
 }
@@ -2760,8 +2802,10 @@ function projectDirectoryPath(rootFolder, slug) {
   return `${projectsFolderPath(rootFolder)}/${slug}`;
 }
 
-function canonicalProjectSyncPath(rootFolder, name) {
-  return projectDirectoryPath(rootFolder, slugify(name || 'untitled'));
+function canonicalProjectSyncPath(rootFolder, name, id) {
+  const slug = slugify(name || 'untitled');
+  const suffix = id ? `-${id.slice(0, 8)}` : '';
+  return projectDirectoryPath(rootFolder, `${slug}${suffix}`);
 }
 
 function projectMetaPath(rootFolder, slug) {
@@ -2772,8 +2816,10 @@ function refMaterialDirectoryPath(rootFolder, slug) {
   return `${refMaterialsFolderPath(rootFolder)}/${slug}`;
 }
 
-function canonicalRefMaterialSyncPath(rootFolder, name) {
-  return refMaterialDirectoryPath(rootFolder, slugify(name || 'untitled'));
+function canonicalRefMaterialSyncPath(rootFolder, name, id) {
+  const slug = slugify(name || 'untitled');
+  const suffix = id ? `-${id.slice(0, 8)}` : '';
+  return refMaterialDirectoryPath(rootFolder, `${slug}${suffix}`);
 }
 
 function refMaterialMetaPath(rootFolder, slug) {
@@ -2792,16 +2838,6 @@ function habitSyncPath(rootFolder, id, date, tagNames) {
   return `${habitsFolderPath(rootFolder)}/${filename}`;
 }
 
-function mobileInboxDailyNotesFolderPath(rootFolder) {
-  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
-  return `${root}/${MOBILE_INBOX_DAILY_NOTES_SUBFOLDER}`;
-}
-
-function mobileInboxHabitsFolderPath(rootFolder) {
-  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
-  return `${root}/${MOBILE_INBOX_HABITS_SUBFOLDER}`;
-}
-
 function allSyncFolderPaths(rootFolder) {
   const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
   return [
@@ -2811,8 +2847,6 @@ function allSyncFolderPaths(rootFolder) {
     projectsFolderPath(rootFolder),
     refMaterialsFolderPath(rootFolder),
     habitsFolderPath(rootFolder),
-    mobileInboxDailyNotesFolderPath(rootFolder),
-    mobileInboxHabitsFolderPath(rootFolder),
   ].filter((path) => path && path !== '/');
 }
 
@@ -3042,34 +3076,7 @@ function normalizeStringArray(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
-// ── Mobile inbox: parsers ─────────────────────────────────────────────────────
 
-/** Parse a mobile-inbox daily note written by the iOS app. Returns null for unrecognized files. */
-function parseMobileDailyNoteMarkdown(content) {
-  const { data, body } = parseFrontMatter(content);
-  if (data.source !== 'mobile') return null;
-  if (typeof data.date !== 'string' || !LOCAL_DATE_PATTERN.test(data.date)) return null;
-  return {
-    date: data.date,
-    contentMarkdown: body.trim(),
-    writtenAt: typeof data.writtenAt === 'string' ? data.writtenAt : getIsoNow(),
-  };
-}
-
-/** Parse a mobile-inbox habit written by the iOS app. Returns null for unrecognized files. */
-function parseMobileHabitMarkdown(content) {
-  const { data } = parseFrontMatter(content);
-  if (data.source !== 'mobile') return null;
-  if (typeof data.date !== 'string' || !LOCAL_DATE_PATTERN.test(data.date)) return null;
-  if (typeof data.text !== 'string' || !data.text.trim()) return null;
-  return {
-    date: data.date,
-    text: data.text.trim().slice(0, MAX_HABIT_TEXT_LENGTH),
-    tag: typeof data.tag === 'string' ? data.tag.trim() : '',
-    status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
-    writtenAt: typeof data.writtenAt === 'string' ? data.writtenAt : getIsoNow(),
-  };
-}
 
 function sameStringArrayAsSet(left, right) {
   const a = normalizeStringArray(left);
@@ -3694,8 +3701,8 @@ async function reconcileProjectsDb(db, token, rootFolder) {
             result.deleted++;
           }
         } else {
-          const slug = slugify(item.name);
-          const syncPath = canonicalProjectSyncPath(rootFolder, item.name);
+          const syncPath = canonicalProjectSyncPath(rootFolder, item.name, item.id);
+          const slug = `${slugify(item.name)}-${item.id.slice(0, 8)}`;
           await ensureSyncFolder(projectDirectoryPath(rootFolder, slug));
           await syncUploadText(projectMetaPath(rootFolder, slug), projectToMetaYaml({ ...item, syncPath }));
           if (item.syncPath !== syncPath) {
@@ -3714,7 +3721,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
         const localTime = new Date(item.updatedAt ?? 0).getTime();
         if (localTime > remoteTime) {
           try {
-            const newSlug = slugify(item.name);
+            const newSlug = `${slugify(item.name)}-${item.id.slice(0, 8)}`;
             const remoteSlug = remoteItem.slug;
             const newSyncPath = projectDirectoryPath(rootFolder, newSlug);
             if (newSlug !== remoteSlug) {
@@ -3828,8 +3835,8 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
             result.deleted++;
           }
         } else {
-          const slug = slugify(item.name);
-          const syncPath = canonicalRefMaterialSyncPath(rootFolder, item.name);
+          const syncPath = canonicalRefMaterialSyncPath(rootFolder, item.name, item.id);
+          const slug = `${slugify(item.name)}-${item.id.slice(0, 8)}`;
           await ensureSyncFolder(refMaterialDirectoryPath(rootFolder, slug));
           await syncUploadText(refMaterialMetaPath(rootFolder, slug), refMaterialToMetaYaml({ ...item, syncPath }));
           if (item.syncPath !== syncPath) {
@@ -3848,7 +3855,7 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
         const localTime = new Date(item.updatedAt ?? 0).getTime();
         if (localTime > remoteTime) {
           try {
-            const newSlug = slugify(item.name);
+            const newSlug = `${slugify(item.name)}-${item.id.slice(0, 8)}`;
             const remoteSlug = remoteItem.slug;
             const newSyncPath = refMaterialDirectoryPath(rootFolder, newSlug);
             if (newSlug !== remoteSlug) {
@@ -3953,107 +3960,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
   return result;
 }
 
-// ── Mobile inbox reconciliation (DEC-55) ──────────────────────────────────────
 
-/**
- * Process daily notes written by the iOS mobile app from the mobile-inbox folder.
- * If a daily note for the same date already exists locally, the mobile content is
- * appended below a section divider (append semantics per the mobile feature spec).
- * If no daily note exists for that date, a new one is created.
- * Mobile inbox files are deleted from the sync folder after successful processing.
- */
-async function reconcileMobileInboxDailyNotes(db, rootFolder) {
-  const result = { imported: 0, appended: 0, errors: [] };
-  const { files, folderFound } = await listSyncMdFiles(mobileInboxDailyNotesFolderPath(rootFolder));
-  if (!folderFound || files.length === 0) return result;
-
-  for (const file of files) {
-    try {
-      const content = await syncDownloadText(file.path);
-      if (!content) continue;
-      const parsed = parseMobileDailyNoteMarkdown(content);
-      if (!parsed) continue;
-      if (!parsed.contentMarkdown) continue;
-
-      const existing = getDailyNote(db, parsed.date);
-      if (existing) {
-        // Append mobile content below a divider to preserve desktop content (DEC-55).
-        const existingMarkdown = existing.contentMarkdown ?? '';
-        const separator = existingMarkdown.trim() ? '\n\n---\n\n' : '';
-        const mobileSection = `*Written from mobile at ${parsed.writtenAt}*\n\n${parsed.contentMarkdown}`;
-        const merged = `${existingMarkdown.trimEnd()}${separator}${mobileSection}`;
-        updateDailyNoteRecord(db, existing.id, { contentMarkdown: merged });
-        // Re-upload the merged note so the sync folder reflects the appended content.
-        const updated = getDailyNote(db, parsed.date);
-        if (updated) {
-          await syncUploadText(dailyNoteSyncPath(rootFolder, parsed.date), dailyNoteToMarkdown(updated, { db, rootFolder }));
-        }
-        result.appended++;
-      } else {
-        createDailyNoteRecord(db, {
-          id: randomUUID(),
-          date: parsed.date,
-          content: {},
-          contentMarkdown: parsed.contentMarkdown,
-          linkedObjectIds: [],
-          syncPath: dailyNoteSyncPath(rootFolder, parsed.date),
-          tags: [],
-          createdAt: parsed.writtenAt,
-          updatedAt: parsed.writtenAt,
-        });
-        result.imported++;
-      }
-
-      // Remove the processed mobile inbox file.
-      await deleteSyncPath(file.path);
-    } catch (e) {
-      result.errors.push(`mobile-inbox daily-note ${file.name}: ${String(e)}`);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Process habits written by the iOS mobile app from the mobile-inbox folder.
- * Each file creates a new habit in the local DB. Mobile inbox files are deleted
- * from the sync folder after successful processing.
- */
-async function reconcileMobileInboxHabits(db, rootFolder) {
-  const result = { imported: 0, errors: [] };
-  const { files, folderFound } = await listSyncMdFiles(mobileInboxHabitsFolderPath(rootFolder));
-  if (!folderFound || files.length === 0) return result;
-
-  for (const file of files) {
-    try {
-      const content = await syncDownloadText(file.path);
-      if (!content) continue;
-      const parsed = parseMobileHabitMarkdown(content);
-      if (!parsed) continue;
-
-      const newId = randomUUID();
-      const tagNames = parsed.tag ? [parsed.tag] : [];
-      createHabitRecord(db, {
-        id: newId,
-        text: parsed.text,
-        date: parsed.date,
-        status: parsed.status,
-        syncPath: habitSyncPath(rootFolder, newId, parsed.date, tagNames),
-        tags: tagNames,
-        createdAt: parsed.writtenAt,
-        updatedAt: parsed.writtenAt,
-      });
-
-      // Remove the processed mobile inbox file.
-      await deleteSyncPath(file.path);
-      result.imported++;
-    } catch (e) {
-      result.errors.push(`mobile-inbox habit ${file.name}: ${String(e)}`);
-    }
-  }
-
-  return result;
-}
 
 const DAILY_NOTE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastDailyNoteCleanupAt = 0;
@@ -4082,21 +3989,15 @@ async function runSync() {
     const projectResult = await reconcileProjectsDb(db, token, rootFolder);
     const refMaterialResult = await reconcileRefMaterialsDb(db, token, rootFolder);
     const habitResult = await reconcileHabitsDb(db, token, rootFolder);
-    // DEC-55: Process the mobile inbox sequentially after the main sync so that
-    // newly imported desktop notes are already present before appending mobile content.
-    const [mobileNoteResult, mobileHabitResult] = await Promise.all([
-      reconcileMobileInboxDailyNotes(db, rootFolder),
-      reconcileMobileInboxHabits(db, rootFolder),
-    ]);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
     return {
-      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + mobileNoteResult.imported + mobileHabitResult.imported,
-      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + mobileNoteResult.appended,
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated,
       uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
       deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + staleDailyNoteCleanupResult,
       warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...mobileNoteResult.errors, ...mobileHabitResult.errors, ...metadataCleanupResult.errors],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...metadataCleanupResult.errors],
     };
   });
 }

@@ -52,12 +52,16 @@ async function main() {
   tauriJson.version = packageVersion;
   const updatedTauri = `${JSON.stringify(tauriJson, null, 2)}\n`;
 
+  let cargoVersionMatched = false;
   const updatedCargo = cargoRaw.replace(
     /(\[package\][\s\S]*?\nversion\s*=\s*")[^"]+("\s*\n)/,
-    `$1${packageVersion}$2`
+    (_, prefix, suffix) => {
+      cargoVersionMatched = true;
+      return `${prefix}${packageVersion}${suffix}`;
+    }
   );
 
-  if (updatedCargo === cargoRaw) {
+  if (!cargoVersionMatched) {
     throw new Error('Could not update [package] version in src-tauri/Cargo.toml');
   }
 
@@ -91,4 +95,3 @@ function assertSemver(version) {
     );
   }
 }
-

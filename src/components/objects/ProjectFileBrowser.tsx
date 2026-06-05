@@ -1,3 +1,4 @@
+import { Alert, Button } from 'aslan-ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Archive,
@@ -14,8 +15,6 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { browseDirectory, openPathInDefaultApp } from '../../lib/cliService'
-import { Alert } from '../ui/alert'
-import { Button } from '../ui/button'
 
 type FileObjectType = 'project' | 'ref-material'
 

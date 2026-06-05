@@ -1,9 +1,7 @@
+import { Alert, Button, Input } from 'aslan-ui';
 import React, { useState, useEffect } from 'react'
 import { AlertCircle, CheckCircle2, Cloud, HardDrive, Info, Loader2, Settings } from 'lucide-react'
 import { runPuzzlePKMCli } from '../../lib/cliService'
-import { Alert } from '../ui/alert'
-import { Button } from '../ui/button'
-import { Input } from '../ui/input'
 
 interface ConfigState {
   dbPath?: string

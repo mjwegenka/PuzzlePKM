@@ -1,4 +1,9 @@
 @import 'tailwindcss';
+@source "../node_modules/aslan-ui";
+@import "aslan-ui/theme.css";
+@custom-variant dark (&:is(.dark *));
+
+@import 'tailwindcss';
 @custom-variant dark (&:is(.dark *));
 
 :root {

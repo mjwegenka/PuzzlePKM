@@ -1,7 +1,7 @@
+import { Input } from 'aslan-ui';
 import React, { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { getObjectColor } from '../../lib/objectColors'
-import { Input } from '../ui/input'
 
 interface ObjectListItem {
   id: string

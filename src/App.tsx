@@ -1,3 +1,4 @@
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle, Button, cn } from 'aslan-ui';
 import React, { useCallback, useEffect, useState, type ReactNode } from 'react'
 import NavigationSidebar from './components/app-shell/NavigationSidebar'
 import TitleBarHandler from './components/app-shell/TitleBarHandler'
@@ -5,8 +6,40 @@ import CalendarPage from './components/calendar/CalendarPage'
 import LibraryPage from './components/notes/LibraryPage'
 import GraphPage from './components/graph/GraphPage'
 import SettingsPage from './components/app-shell/SettingsPage'
-import { cn } from './lib/utils'
+
 import { cycleTagFilterState, type TagFilterState } from './lib/tagFilters'
+import { useUnsavedChangesStore } from './lib/unsavedChangesStore'
+
+
+
+function GlobalCloseConfirmDialog() {
+  const { showCloseConfirm, setShowCloseConfirm } = useUnsavedChangesStore()
+
+  return (
+    <Dialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle>Unsaved Changes</DialogTitle>
+        <DialogDescription>
+          You have unsaved changes. Are you sure you want to quit without saving?
+        </DialogDescription>
+        <DialogFooter className="mt-4 flex justify-end space-x-2">
+          <Button variant="outline" onClick={() => setShowCloseConfirm(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={async () => {
+              const { getCurrentWindow } = await import('@tauri-apps/api/window')
+              await getCurrentWindow().destroy()
+            }}
+          >
+            Quit without saving
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 // Simple error boundary for graph to prevent white screen
 class GraphErrorBoundary extends React.Component<{ children: ReactNode }, { hasError: boolean; error?: Error }> {
@@ -89,6 +122,22 @@ export default function App() {
     ))
   }, [sidebarSection])
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        const unlistenPromise = getCurrentWindow().onCloseRequested(async (event) => {
+          if (useUnsavedChangesStore.getState().hasUnsavedChanges()) {
+            event.preventDefault()
+            useUnsavedChangesStore.getState().setShowCloseConfirm(true)
+          }
+        })
+        return () => {
+          unlistenPromise.then((fn) => fn())
+        }
+      }).catch(console.error)
+    }
+  }, [])
+
   const openLibrarySelection = useCallback((target: { id: string; type: LibraryObjectType }) => {
     setSidebarSection('library')
     setLibraryPendingSelection((prev) => ({
@@ -138,6 +187,7 @@ export default function App() {
   return (
     <>
       <TitleBarHandler />
+      <GlobalCloseConfirmDialog />
       <div className="flex h-screen overflow-hidden bg-[var(--color-surface-app)] text-foreground">
         <NavigationSidebar
           currentSection={sidebarSection}

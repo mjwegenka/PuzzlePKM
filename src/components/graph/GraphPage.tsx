@@ -1,13 +1,7 @@
+import { Input, FilterChip, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from 'aslan-ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Maximize2, Network, Search, SlidersHorizontal } from 'lucide-react'
-import { Input } from '../ui/input'
-import FilterChip from '../ui/FilterChip'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu'
+
 import { listMetaBundle } from '@/lib/cliService'
 import { getObjectDisplayTitle } from '@/lib/objectTypeDefinitions'
 import { getObjectColor } from '@/lib/objectColors'

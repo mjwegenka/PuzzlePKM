@@ -1,3 +1,4 @@
+import { Button, Sidebar } from 'aslan-ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDown,
@@ -9,15 +10,10 @@ import {
   Hash,
   Loader2,
   Network,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pin,
-  RefreshCw,
   Repeat,
   X,
 } from 'lucide-react';
-import { Button } from '../ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
 import { useSyncStatus } from '../../lib/syncContext';
 import { getObjectDisplayTitle } from '../../lib/objectTypeDefinitions';
@@ -60,32 +56,9 @@ const navItems: NavigationItem[] = [
   { id: 'graph', label: 'Graph', icon: <Network className="h-[21px] w-[21px]" /> },
 ];
 
-function withAlpha(color: string, opacity: number): string {
-  const hex = color.trim();
-  if (/^#([\da-fA-F]{6})$/.test(hex)) {
-    const value = hex.slice(1);
-    const r = Number.parseInt(value.slice(0, 2), 16);
-    const g = Number.parseInt(value.slice(2, 4), 16);
-    const b = Number.parseInt(value.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-  }
 
-  const rgb = hex.match(/^rgb\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)\)$/);
-  if (rgb) {
-    return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${opacity})`;
-  }
 
-  return color;
-}
 
-function formatLastSynced(date: Date | null): string {
-  if (!date) return 'Never synced';
-  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diff < 5) return 'Synced just now';
-  if (diff < 60) return `Synced ${diff}s ago`;
-  if (diff < 3600) return `Synced ${Math.floor(diff / 60)}m ago`;
-  return `Synced ${Math.floor(diff / 3600)}h ago`;
-}
 
 function formatSyncStatusCompact(date: Date | null): string {
   if (!date) return 'Never';
@@ -118,7 +91,6 @@ function objectIcon(type: PinnedType): React.ReactNode {
 export default function NavigationSidebar({ onNavigate, currentSection, onNavigateToPinned, tagFilters, onToggleTagFilter }: NavigationSidebarProps) {
   const { syncing, lastSyncedAt, syncError, triggerSync } = useSyncStatus();
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const [isResizing, setIsResizing] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedNavItem[]>([]);
   const [tags, setTags] = useState<TagSummary[]>([]);
@@ -138,31 +110,6 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
   }, [sidebarWidth]);
-
-  const handleResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsResizing(true);
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, moveEvent.clientX));
-      setSidebarWidth(next);
-    };
-
-    const handleMouseUp = () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      setIsResizing(false);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  }, []);
 
   const readPinnedOrder = useCallback((): string[] => {
     if (typeof window === 'undefined') return [];
@@ -289,285 +236,172 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
     window.dispatchEvent(new Event('puzzlepkm:objects-updated'));
   }, [persistPinnedOrder]);
 
-  const syncTooltip = syncError ?? (syncing ? 'Syncing…' : formatLastSynced(lastSyncedAt));
   const hasActiveTagSelection = Object.values(tagFilters).some(Boolean);
 
   return (
-    <TooltipProvider>
-      <>
-      <aside
-        className="relative flex shrink-0 flex-col overflow-hidden bg-[var(--color-surface-app)] transition-[width,padding] duration-200 ease-out"
-        style={{
-          width: isCollapsed ? 0 : sidebarWidth,
-          paddingTop: isCollapsed ? '0px' : '12px',
-        }}
-        aria-hidden={isCollapsed}
-      >
-        <div
-          className={cn(
-            'flex h-full min-w-0 flex-col transition-[transform,opacity] duration-200 ease-out',
-            isCollapsed ? '-translate-x-8 opacity-0 pointer-events-none' : 'translate-x-0 opacity-100',
-          )}
-        >
-        <div
-          aria-hidden={isCollapsed}
-          onMouseDown={handleResizeStart}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize navigation sidebar"
-          className={cn('absolute right-[-2px] top-0 z-[2] h-full w-[6px] cursor-col-resize', isCollapsed ? 'pointer-events-none opacity-0' : undefined)}
-        >
-          <div
-            className="absolute right-[2px] top-0 h-full w-px transition-colors"
-            style={{ backgroundColor: isResizing ? withAlpha('#f3efe7', 0.95) : 'transparent' }}
-          />
-        </div>
-
-        <div className="ui-scroller flex flex-1 flex-col overflow-auto px-0.5 pb-2">
-          <div className="mb-4 px-1 pb-2">
-          {navItems.map((item) => {
-            const selected = currentSection === item.id;
-            return (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                onClick={() => onNavigate(item.id)}
+    <Sidebar
+      isCollapsed={isCollapsed}
+      onCollapseChange={setIsCollapsed}
+      width={sidebarWidth}
+      onWidthChange={setSidebarWidth}
+      minWidth={SIDEBAR_MIN_WIDTH}
+      maxWidth={SIDEBAR_MAX_WIDTH}
+      onSync={triggerSync}
+      syncing={syncing}
+      syncError={syncError}
+      lastSyncedLabel={syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last Sync ${formatSyncStatusCompact(lastSyncedAt)}`}
+    >
+      <div className="ui-scroller flex flex-1 flex-col overflow-auto px-0.5 pb-2">
+        <div className="mb-4 px-1 pb-2">
+        {navItems.map((item) => {
+          const selected = currentSection === item.id;
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              variant="ghost"
+              onClick={() => onNavigate(item.id)}
+              className={cn(
+                'mb-1 h-10 w-full justify-start gap-3 rounded-[12px] border px-3 py-2 text-sm font-semibold transition-[background-color,border-color,color]',
+                selected
+                  ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+              )}
+            >
+              <span
                 className={cn(
-                  'mb-1 h-10 w-full justify-start gap-3 rounded-[12px] border px-3 py-2 text-sm font-semibold transition-[background-color,border-color,color]',
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-transparent bg-[var(--color-surface-sunken)]/60',
                   selected
-                    ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-surface-control)] text-[var(--color-text-primary)]'
-                    : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                    ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
+                    : 'text-[var(--color-text-disabled)]',
                 )}
               >
-                <span
-                  className={cn(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-transparent bg-[var(--color-surface-sunken)]/60',
-                    selected
-                      ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
-                      : 'text-[var(--color-text-disabled)]',
-                  )}
-                >
-                  {item.icon}
-                </span>
-                <span className="truncate">{item.label}</span>
-              </Button>
-            );
-          })}
-          </div>
+                {item.icon}
+              </span>
+              <span className="truncate">{item.label}</span>
+            </Button>
+          );
+        })}
+        </div>
 
-          {pinnedItems.length > 0 ? (
-          <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
-          <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
+        {pinnedItems.length > 0 ? (
+        <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
+        <StackedPinnedHeader loadingPinned={loadingPinned} count={pinnedItems.length} />
 
-          {pinnedItems.map((item) => {
-            const itemKey = makePinnedKey(item);
-            const idx = keyToIndex.get(itemKey) ?? -1;
-            return (
-              <div
-                key={itemKey}
-                className="group"
-                draggable
-                onDragStart={() => setDraggingKey(itemKey)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const sourceIdx = draggingKey ? (keyToIndex.get(draggingKey) ?? -1) : -1;
-                  movePinned(sourceIdx, idx);
-                  setDraggingKey(null);
-                }}
-                onDragEnd={() => setDraggingKey(null)}
+        {pinnedItems.map((item) => {
+          const itemKey = makePinnedKey(item);
+          const idx = keyToIndex.get(itemKey) ?? -1;
+          return (
+            <div
+              key={itemKey}
+              className="group"
+              draggable
+              onDragStart={() => setDraggingKey(itemKey)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceIdx = draggingKey ? (keyToIndex.get(draggingKey) ?? -1) : -1;
+                movePinned(sourceIdx, idx);
+                setDraggingKey(null);
+              }}
+              onDragEnd={() => setDraggingKey(null)}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
+                className="relative mb-0.5 h-7.5 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => onNavigateToPinned({ id: item.id, type: item.type })}
-                  className="relative mb-0.5 h-7.5 w-full justify-start gap-2 rounded-[8px] border border-transparent px-2.5 py-1 text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
-                >
-                  <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
-                    {objectIcon(item.type)}
-                  </span>
-                  <span className={cn('min-w-0 flex-1 truncate pr-2 text-left text-sm leading-[1.25]', item.type === 'habit' ? 'ui-tag-text' : undefined)}>{item.title}</span>
-                  <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Move pinned item up"
-                      disabled={idx <= 0}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        movePinned(idx, idx - 1);
-                      }}
-                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
-                    >
-                      <ArrowUp className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Move pinned item down"
-                      disabled={idx < 0 || idx >= pinnedItems.length - 1}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        movePinned(idx, idx + 1);
-                      }}
-                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
-                    >
-                      <ArrowDown className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Unpin item"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleUnpin(item);
-                      }}
-                      className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </span>
-                </Button>
-              </div>
-            );
-          })}
-          </div>
-          ) : null}
-
-          <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
-            <StackedTagsHeader loadingTags={loadingTags} count={tags.length} hasActiveFilters={hasActiveTagSelection} />
-            {tags.length === 0 && !loadingTags ? (
-              <div className="px-2.5 py-2 text-sm text-[var(--color-text-disabled)]">No tags yet</div>
-            ) : null}
-            <div className="flex flex-wrap gap-1.5 px-2 py-2">
-              {tags.map((tag) => {
-                const label = tag.displayName || tag.name;
-                const value = normalizeTagFilterValue(label);
-                const mode = tagFilters[value];
-                const displayLabel = label.startsWith('#') ? label : `#${label}`;
-                return (
+                <span className="flex h-4 w-4 items-center justify-center text-[var(--color-text-disabled)]">
+                  {objectIcon(item.type)}
+                </span>
+                <span className={cn('min-w-0 flex-1 truncate pr-2 text-left text-sm leading-[1.25]', item.type === 'habit' ? 'ui-tag-text' : undefined)}>{item.title}</span>
+                <span className="pin-actions absolute right-2 top-1/2 flex -translate-y-1/2 items-center rounded-[8px] bg-[var(--color-surface-app)] px-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   <Button
-                    key={tag.id}
                     type="button"
                     variant="ghost"
-                    onClick={() => onToggleTagFilter(value)}
-                    aria-pressed={Boolean(mode)}
-                    className={cn(
-                      'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-xs font-semibold leading-none transition-[background-color,border-color,color]',
-                      mode === 'include'
-                        ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
-                        : mode === 'exclude'
-                          ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
-                          : 'border-transparent bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
-                    )}
-                    title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
+                    size="icon"
+                    aria-label="Move pinned item up"
+                    disabled={idx <= 0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      movePinned(idx, idx - 1);
+                    }}
+                    className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
                   >
-                    <span className="ui-tag-text truncate leading-none">{displayLabel}</span>
+                    <ArrowUp className="h-3 w-3" />
                   </Button>
-                );
-              })}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Move pinned item down"
+                    disabled={idx < 0 || idx >= pinnedItems.length - 1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      movePinned(idx, idx + 1);
+                    }}
+                    className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <ArrowDown className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Unpin item"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleUnpin(item);
+                    }}
+                    className="h-7 w-7 rounded-[8px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </span>
+              </Button>
             </div>
+          );
+        })}
+        </div>
+        ) : null}
+
+        <div className="mb-3 border-t border-[var(--color-border-subtle)]/70 px-0.5 pb-2 pt-2">
+          <StackedTagsHeader loadingTags={loadingTags} count={tags.length} hasActiveFilters={hasActiveTagSelection} />
+          {tags.length === 0 && !loadingTags ? (
+            <div className="px-2.5 py-2 text-sm text-[var(--color-text-disabled)]">No tags yet</div>
+          ) : null}
+          <div className="flex flex-wrap gap-1.5 px-2 py-2">
+            {tags.map((tag) => {
+              const label = tag.displayName || tag.name;
+              const value = normalizeTagFilterValue(label);
+              const mode = tagFilters[value];
+              const displayLabel = label.startsWith('#') ? label : `#${label}`;
+              return (
+                <Button
+                  key={tag.id}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onToggleTagFilter(value)}
+                  aria-pressed={Boolean(mode)}
+                  className={cn(
+                    'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-xs font-semibold leading-none transition-[background-color,border-color,color]',
+                    mode === 'include'
+                      ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
+                      : mode === 'exclude'
+                        ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
+                        : 'border-transparent bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                  )}
+                  title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
+                >
+                  <span className="ui-tag-text truncate leading-none">{displayLabel}</span>
+                </Button>
+              );
+            })}
           </div>
         </div>
-
-        <div className="mb-2 border-t border-[var(--color-border-subtle)]/80 px-2 py-2.5">
-          <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsCollapsed(true)}
-                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
-                  aria-label="Hide navigation"
-                >
-                  <PanelLeftClose className="h-[17px] w-[17px]" />
-                </Button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">Hide navigation</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={triggerSync}
-                  disabled={syncing}
-                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
-                  style={{ color: syncError ? 'var(--destructive)' : undefined }}
-                >
-                  {syncing ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <RefreshCw className="h-[17px] w-[17px]" />}
-                </Button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">{syncTooltip}</TooltipContent>
-          </Tooltip>
-          <div className="min-w-0 flex-1">
-             <span
-                className="block truncate whitespace-nowrap text-xs font-medium leading-[1.35]"
-                style={{ color: syncError ? 'var(--destructive)' : 'var(--color-text-secondary)' }}
-             >
-               {syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last Sync ${formatSyncStatusCompact(lastSyncedAt)}`}
-            </span>
-          </div>
-          </div>
-        </div>
-
-        </div>
-
-      </aside>
-      {isCollapsed ? (
-        <div className="fixed bottom-9 left-3 z-40 flex items-center gap-2 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)]/95 p-2 shadow-lg backdrop-blur">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsCollapsed(false)}
-                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
-                  aria-label="Show navigation"
-                >
-                  <PanelLeftOpen className="h-[17px] w-[17px]" />
-                </Button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">Show navigation</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={triggerSync}
-                  disabled={syncing}
-                  className="h-10 w-10 rounded-[12px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
-                  style={{ color: syncError ? 'var(--destructive)' : undefined }}
-                  aria-label="Sync now"
-                >
-                  {syncing ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <RefreshCw className="h-[17px] w-[17px]" />}
-                </Button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">{syncTooltip}</TooltipContent>
-          </Tooltip>
-        </div>
-      ) : null}
-      </>
-    </TooltipProvider>
+      </div>
+    </Sidebar>
   );
 }
 
