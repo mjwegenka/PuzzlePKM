@@ -388,11 +388,25 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
                     'h-auto min-h-[24px] max-w-full justify-start rounded-[10px] border px-2 py-0.5 text-xs font-semibold leading-none transition-[background-color,border-color,color]',
                     mode === 'include'
                       ? 'border-[rgba(242,203,99,0.18)] bg-[var(--color-selected-fill-soft)] text-[var(--color-accent-metadata)]'
-                      : mode === 'exclude'
-                        ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
-                        : 'border-transparent bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
+                      : mode === 'show-hidden'
+                        ? 'border-[rgba(242,203,99,0.18)]/40 bg-[var(--color-surface-hover)] text-[var(--color-text-primary)]'
+                        : (mode === 'exclude' || (value === 'hidden' && !mode))
+                          ? 'border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] text-[var(--color-text-disabled)] line-through decoration-[var(--color-accent-metadata)] decoration-2'
+                          : 'border-transparent bg-[var(--color-surface-control)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]',
                   )}
-                  title={mode === 'include' ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.` : mode === 'exclude' ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.` : `${tag.objectCount} objects. Click to include this tag.`}
+                  title={
+                    value === 'hidden'
+                      ? mode === 'show-hidden'
+                        ? `Visible • ${tag.objectCount} objects. Click to make only this tag visible.`
+                        : mode === 'include'
+                          ? `Only this tag visible • ${tag.objectCount} objects. Click to hide again.`
+                          : `Hidden by default • ${tag.objectCount} objects. Click to make visible.`
+                      : mode === 'include'
+                        ? `Included in current filter • ${tag.objectCount} objects. Click to exclude.`
+                        : mode === 'exclude'
+                          ? `Excluded from current filter • ${tag.objectCount} objects. Click to clear.`
+                          : `${tag.objectCount} objects. Click to include this tag.`
+                  }
                 >
                   <span className="ui-tag-text truncate leading-none">{displayLabel}</span>
                 </Button>

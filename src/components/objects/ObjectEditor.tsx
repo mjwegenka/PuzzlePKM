@@ -1,12 +1,12 @@
 import { Button, DatePicker, Alert, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input } from 'aslan-ui';
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2, FolderPlus } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ProjectFileBrowser from './ProjectFileBrowser';
 
 import { AuthorSelect } from './AuthorSelect'
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary, DATE_MENTION_HREF_PREFIX } from '../../lib/cliService'
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary, DATE_MENTION_HREF_PREFIX, convertTopicNoteToProject } from '../../lib/cliService'
 import { normalizeNoteBlocks, joinBlockMarkdown } from '../../lib/noteBlocks'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
@@ -190,6 +190,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const [navigationDialogError, setNavigationDialogError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const [showConvertDialog, setShowConvertDialog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ target: ResolvedObjectRef; options?: { forceNewTab?: boolean } } | null>(null);
@@ -643,6 +645,50 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       setSaveError(String(err));
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleConvert = async () => {
+    const id = (object?.id as string | undefined) ?? '';
+    if (!id || type !== 'topic-note') return;
+
+    setConverting(true);
+    setSaveError(null);
+    try {
+      let blocksForSave = noteBlocks;
+      let contentForSave = content;
+      if (isDirty) {
+        const resolved = await resolvePendingDateHrefs(noteBlocks, content);
+        if (resolved) {
+          blocksForSave = resolved.blocks;
+          contentForSave = resolved.content;
+          setNoteBlocks(resolved.blocks);
+          setContent(resolved.content);
+        }
+        const { data, tagsToPersist } = buildPersistPayload(tags, blocksForSave, contentForSave);
+        await writeObject(type, data);
+        commitSavedSnapshot(tagsToPersist);
+      }
+
+      const project = await convertTopicNoteToProject(id);
+      setShowConvertDialog(false);
+      setIsDirty(false);
+      onDirty?.(false);
+      triggerSyncInBackground();
+
+      if (onNavigateToObject) {
+        await onNavigateToObject({
+          id: String(project.id),
+          type: 'project',
+          syncPath: String(project.syncPath),
+        });
+      } else {
+        onCancel?.();
+      }
+    } catch (err) {
+      setSaveError(String(err));
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -1128,12 +1174,25 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {isPinned ? 'Unpin' : 'Pin'}
                   </Button>
                 )}
+                {type === 'topic-note' && Boolean(object?.id) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowConvertDialog(true)}
+                    disabled={saving || deleting || converting}
+                    size="sm"
+                    title="Convert this topic note to a project"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                    Convert to Project
+                  </Button>
+                )}
                 {canDelete && (
                   <Button
                     type="button"
                     variant="destructive"
                     onClick={() => { void handleDelete(); }}
-                    disabled={saving || deleting}
+                    disabled={saving || deleting || converting}
                     size="sm"
                     title="Delete this object"
                   >
@@ -1299,6 +1358,28 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               </Button>
               <Button onClick={() => { void handleSaveAndNavigate(); }} disabled={saving}>
                 Save &amp; Open
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
+      <Dialog open={showConvertDialog} onOpenChange={(open) => { if (!open) setShowConvertDialog(false); }}>
+        {showConvertDialog ? (
+          <DialogContent className="max-w-sm" aria-label="Convert to Project">
+            <DialogHeader>
+              <DialogTitle>Convert to Project</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to convert this topic note to a project? This is a one-way process that will delete the topic note and create a new project directory with its content.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowConvertDialog(false)} disabled={converting}>
+                Cancel
+              </Button>
+              <Button onClick={() => { void handleConvert(); }} disabled={converting}>
+                {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Convert
               </Button>
             </DialogFooter>
           </DialogContent>

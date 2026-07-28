@@ -101,20 +101,20 @@ Habits represent simple recurring tasks. They support a status of `planned` or `
 * **Via Desktop UI**: In the **Library** or **Calendar** tab, click **New** and choose **Habit**. Set its name, date, state, and tag in the fields provided.
 
 #### 4. Projects
-Projects are local-folder-backed directories containing user files and a managed `meta.yaml` file.
+Projects are folder-backed workspaces designed to hold your local project files (source code, assets, documents) alongside PKM notes.
+* **Filesystem-First Creation (Recommended)**: Simply create a subdirectory under `projects/` in your configured sync root (e.g., `projects/my-new-project/`). PuzzlePKM's sync engine will automatically discover the folder, initialize a managed `meta.yaml` metadata file, and integrate it into your Library.
 * **Via CLI (Interactive)**:
   ```bash
   npm run cli -- create project
   ```
-* **Via Desktop UI**: In the sidebar or library view, choose **New Project**, specify its name, optional start/end dates, and tags.
 
 #### 5. Reference Materials
-Reference Materials represent books, articles, or resources. They support a single author selection from a database-backed catalog.
+Reference Materials are folder-backed resource records (books, articles, PDFs) integrated with a database-backed author catalog.
+* **Filesystem-First Creation (Recommended)**: Simply create a subdirectory under `ref-materials/` in your configured sync root (e.g., `ref-materials/book-title/`). PuzzlePKM's sync engine will automatically discover the folder, initialize a managed `meta.yaml` metadata file, and integrate it into your Library.
 * **Via CLI (Interactive)**:
   ```bash
   npm run cli -- create ref-material
   ```
-* **Via Desktop UI**: Select **New Reference Material**, enter the title, select or type a new author, and add tags.
 
 #### 6. Scriptures
 You do not manually create scriptures! PuzzlePKM automatically scans your topic and daily note bodies for RSVCE Bible citations (e.g. `Romans 3:16`, `1 Corinthians 13:4-8`).

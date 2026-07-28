@@ -489,6 +489,15 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
   return true;
 }
 
+export async function convertTopicNoteToProject(id: string): Promise<Record<string, unknown>> {
+  const result = await runPuzzlePKMCli(['convert-to-project', id]);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || `convert-to-project ${id} failed`);
+  }
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
 /** DEC-19: One-shot local-folder sync triggered from the desktop UI. */
 export async function runSync(): Promise<void> {
   const result = await startBackgroundSync();

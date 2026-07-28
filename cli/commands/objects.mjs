@@ -280,6 +280,14 @@ export async function handleObjectsCommand(action, args, ctx) {
     return true;
   }
 
+  if (action === 'convert-to-project') {
+    const id = args[0];
+    if (!id) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} convert-to-project <id>`);
+    const result = ctx.convertTopicNoteToProject(id);
+    console.log(ctx.formatCompact(result));
+    return true;
+  }
+
   if (action === 'browse') {
     ctx.browseTarget(args[0] ?? 'all', args[1]);
     return true;

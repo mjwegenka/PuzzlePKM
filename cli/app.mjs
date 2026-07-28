@@ -4002,6 +4002,74 @@ async function runSync() {
   });
 }
 
+function convertTopicNoteToProject(id) {
+  return withDb((db) => {
+    const note = getTopicNote(db, id);
+    if (!note) {
+      throw new Error(`Topic note not found: ${id}`);
+    }
+
+    const rootFolder = getSyncRootFolder();
+    const projectSyncPath = canonicalProjectSyncPath(rootFolder, note.title, note.id);
+    const projectDirResolved = resolveLocalSyncPath(projectSyncPath);
+    const projectMdFileResolved = join(projectDirResolved, `${slugify(note.title)}.md`);
+    const projectMetaFileResolved = join(projectDirResolved, 'meta.yaml');
+
+    // 1. Delete old topic note file if it exists
+    const oldNotePath = note.syncPath || topicNoteSyncPath(rootFolder, note.title, note.id);
+    const oldNoteLocalPath = resolveLocalSyncPath(oldNotePath);
+    try {
+      rmSync(oldNoteLocalPath, { recursive: true, force: true });
+    } catch (e) {
+      // ignore
+    }
+
+    // 2. Create the new project directory
+    mkdirSync(projectDirResolved, { recursive: true });
+
+    // 3. Database operations in a transaction
+    withTransaction(db, () => {
+      // Insert new project record using direct INSERT to avoid nested transaction
+      db.prepare(`
+        INSERT INTO projects (id, name, sync_path, start_date, end_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(note.id, note.title, projectSyncPath, note.date || null, null, note.createdAt, getIsoNow());
+
+      // Update links
+      db.prepare("UPDATE object_links SET source_type = 'project' WHERE source_id = ? AND source_type = 'topic-note'").run(note.id);
+      db.prepare("UPDATE object_links SET target_type = 'project' WHERE target_id = ? AND target_type = 'topic-note'").run(note.id);
+
+      // Update tags
+      db.prepare("UPDATE object_tags SET object_type = 'project' WHERE object_id = ? AND object_type = 'topic-note'").run(note.id);
+
+      // Delete old blocks and topic note record
+      db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(note.id);
+      db.prepare('DELETE FROM topic_notes WHERE id = ?').run(note.id);
+      clearSyncState(db, 'topic-note', note.id);
+    });
+
+    // 4. Write project files
+    const metaYamlContent = projectToMetaYaml({
+      id: note.id,
+      name: note.title,
+      syncPath: projectSyncPath,
+      startDate: note.date || '',
+      endDate: '',
+      tagNames: note.tags || [],
+      createdAt: note.createdAt,
+      updatedAt: getIsoNow(),
+    });
+
+    writeFileSync(projectMetaFileResolved, metaYamlContent, 'utf8');
+    writeFileSync(projectMdFileResolved, note.contentMarkdown ?? '', 'utf8');
+
+    // Mark remote presence for project so it doesn't get swept/deleted on next sync
+    markRemotePresence(db, 'project', note.id, getIsoNow());
+
+    return getProject(db, note.id);
+  });
+}
+
 function runLegacyLinkMigration(options = {}) {
   const apply = Boolean(options.apply);
   const mode = apply ? 'apply' : 'dry-run';
@@ -4376,6 +4444,7 @@ function createCommandContext(rl) {
     listAuthors,
     createAuthor,
     deleteAuthor,
+    convertTopicNoteToProject,
   };
 }
 
