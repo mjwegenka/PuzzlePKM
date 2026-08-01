@@ -4555,3 +4555,72 @@ export const __testing = {
   hasKnownRemoteCopy,
   getSyncState,
 };
+
+// DEC-52: Stable surface consumed by the MCP server (cli/mcp/server.mjs).
+// The MCP server must go through the same repositories and services the CLI
+// uses so that block persistence, reciprocal backlinks, scripture extraction,
+// and folder sync paths stay identical no matter which client wrote the data.
+// Treat this object as a public contract: additive changes only.
+export const mcpInternals = {
+  // Product metadata
+  PRIMARY_PRODUCT_NAME,
+  HABIT_STATUS_PLANNED,
+  HABIT_STATUS_ACCOMPLISHED,
+  SCRIPTURE_TYPE,
+  dbFile,
+
+  // Database access
+  openDb,
+  withDb,
+  withDbAsync,
+
+  // Shared helpers
+  getIsoNow,
+  localDateString,
+  normalize,
+  resolveType,
+  getSyncRootFolder,
+  objectTypeAliasMap,
+
+  // Generic object access
+  listObjects,
+  getObject,
+  getRelatedObjects,
+  getSyncState,
+
+  // Topic notes
+  createTopicNoteRecord,
+  updateTopicNoteRecord,
+  deleteTopicNoteRecord,
+  getTopicNote,
+  listTopicNotes,
+
+  // Daily notes
+  ensureDailyNoteForDate,
+  updateDailyNoteRecord,
+  getDailyNote,
+  listDailyNotes,
+
+  // Habits
+  createHabitRecord,
+  updateHabitRecord,
+  getHabit,
+  listHabits,
+
+  // Tags and links
+  createTagRecord,
+  getTag,
+  listTags,
+  getLinks,
+  syncObjectTags,
+  getTagDisplayNames,
+
+  // Other object types
+  listProjects,
+  listRefMats,
+  listScriptures,
+  getScripture,
+
+  // Sync
+  runSync,
+};

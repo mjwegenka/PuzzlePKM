@@ -156,6 +156,68 @@ npm run cli -- sync --watch            # Run background sync watcher daemon
 
 ---
 
+## MCP Server
+
+PuzzlePKM ships an MCP server so an AI assistant can search and reason over your knowledge base. It reads the same local SQLite database and goes through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths behave identically no matter which client wrote the data. Nothing leaves your machine.
+
+The database lives in the platform application data directory (`~/Library/Application Support/puzzlepkm/puzzlepkm.sqlite` on macOS), not in this repository, so the MCP server sees the same knowledge base as an installed copy of the desktop app regardless of where its code is loaded from.
+
+**Writes are disabled by default.** Read tools are always available; the write tools refuse until you explicitly enable them.
+
+### Tools
+
+| Tool | What it does |
+| :--- | :--- |
+| `search_knowledge_base` | Substring search across note titles, individual note blocks, projects, reference materials, habits, scriptures, and tags. |
+| `list_objects` | List every object of one kind, with paging. |
+| `get_object` | Fetch one object in full by kind and id. |
+| `get_note_context` | A note plus its blocks, tags, outbound links, backlinks, and cited scriptures in one call. |
+| `get_daily_note` | Read a day's daily note, defaulting to today. |
+| `get_backlinks` | What links to and from an object. |
+| `get_graph_neighborhood` | Walk the link graph outward from an object, up to 3 hops. |
+| `list_scripture_references` | Extracted scripture references with the notes citing each one. |
+| `get_habit_log` | Habit history with completion rates and current streaks. |
+| `list_tags` | Tags with usage counts broken down by object kind. |
+| `find_stale_notes` | Topic notes not updated in a while, for resurfacing. |
+| `get_status` | Counts, sync root, and what needs attention (unlinked notes, Inbox backlog, habits still due). |
+| `create_topic_note` | Create a topic note from markdown. *Requires writes.* |
+| `update_topic_note` | Update a note's title, body, or tags. *Requires writes.* |
+| `append_to_daily_note` | Append to a day's daily note, creating it if needed. Never overwrites. *Requires writes.* |
+| `set_habit` | Create a habit or mark an existing one accomplished. *Requires writes.* |
+| `sync_now` | Reconcile the database with the sync folder. *Requires writes.* |
+
+### Install into Claude Desktop
+
+Build the bundle and open it:
+
+```bash
+npm run mcp:build-bundle   # writes dist/puzzlepkm.mcpb
+open dist/puzzlepkm.mcpb   # installs it into Claude Desktop
+```
+
+In the extension's settings, set:
+
+- **PuzzlePKM folder or app** — either this checkout (the folder containing `cli.mjs`) or an installed `PuzzlePKM.app`. The Tauri bundle ships `cli.mjs` and `cli/` as app resources, so the launcher resolves the server inside `Contents/Resources` and no source tree is required. An installed app must have been built from a version that includes the MCP server.
+- **Node executable** — an absolute path to Node 22+. An absolute path is required because apps launched from the Dock do not inherit your shell `PATH`, so a bare `node` will not resolve under nvm.
+- **Allow writing to the knowledge base** — leave off for read-only.
+
+The bundle is a thin launcher that delegates to `cli/mcp/server.mjs` in this checkout, so repository changes take effect on the next restart with no repacking.
+
+### Run it manually
+
+```bash
+npm run mcp                                    # read-only, stdio transport
+PUZZLEPKM_MCP_ALLOW_WRITES=true npm run mcp    # writes enabled
+```
+
+| Environment variable | Purpose |
+| :--- | :--- |
+| `PUZZLEPKM_MCP_ALLOW_WRITES` | `true` to enable the write tools. Anything else keeps the server read-only. |
+| `PUZZLEPKM_DB_PATH` | Override the database location. |
+| `PUZZLEPKM_SECRETS_PATH` | Override the settings/secrets file location. |
+
+---
+
 ## Development
 
 ### Local builds and checks

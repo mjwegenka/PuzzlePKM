@@ -1,0 +1,141 @@
+{
+  "manifest_version": "0.3",
+  "name": "puzzlepkm",
+  "display_name": "PuzzlePKM",
+  "version": "1.4.0",
+  "description": "Search, traverse, and extend your local PuzzlePKM knowledge base.",
+  "long_description": "Gives Claude read access to the PuzzlePKM knowledge base on this machine: full-text search down to the individual note block, the link graph between notes, projects, reference materials, habits and tags, the scripture references PuzzlePKM extracts from note bodies, habit streaks, and a health report covering unlinked notes and Inbox backlog. Optional write tools can create topic notes, append to the day's daily note, set habits, and run a folder sync. Reads and writes go through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths stay correct. Everything runs against the local SQLite database; nothing leaves your machine. Writes are disabled unless you turn them on below.",
+  "author": {
+    "name": "PuzzlePKM"
+  },
+  "icon": "icon.png",
+  "keywords": [
+    "pkm",
+    "notes",
+    "knowledge-management",
+    "local-first",
+    "sqlite"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "user_config": {
+    "repo_path": {
+      "type": "directory",
+      "title": "PuzzlePKM folder or app",
+      "description": "Either your PuzzlePKM checkout (the folder containing cli.mjs) or an installed PuzzlePKM.app — the app bundles the same CLI code, and the launcher resolves it inside Contents/Resources. An installed app must be built from a version that includes the MCP server.",
+      "required": true,
+      "default": "/Users/michael/WebProjects/PuzzlePKM"
+    },
+    "node_path": {
+      "type": "file",
+      "title": "Node executable",
+      "description": "Absolute path to Node 22 or newer, which PuzzlePKM requires for its built-in node:sqlite support. An absolute path is required because apps launched from the Dock do not inherit your shell PATH, so a bare 'node' will not resolve when Node is installed via nvm.",
+      "required": true,
+      "default": "/Users/michael/.nvm/versions/node/v22.14.0/bin/node"
+    },
+    "allow_writes": {
+      "type": "boolean",
+      "title": "Allow writing to the knowledge base",
+      "description": "Leave off to keep Claude read-only. When on, Claude can create topic notes, append to daily notes, set habits, and run a folder sync. Reading is always available.",
+      "required": false,
+      "default": false
+    },
+    "database_path": {
+      "type": "file",
+      "title": "Database file (optional)",
+      "description": "Only needed if you run PuzzlePKM against a non-default database. Leave blank to use the standard location for this platform.",
+      "required": false
+    }
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.mjs",
+    "mcp_config": {
+      "command": "${user_config.node_path}",
+      "args": [
+        "${__dirname}/server/index.mjs"
+      ],
+      "env": {
+        "PUZZLEPKM_REPO_PATH": "${user_config.repo_path}",
+        "PUZZLEPKM_MCP_ALLOW_WRITES": "${user_config.allow_writes}",
+        "PUZZLEPKM_DB_PATH": "${user_config.database_path}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "search_knowledge_base",
+      "description": "Substring search across notes, blocks, projects, materials, habits, scriptures, and tags"
+    },
+    {
+      "name": "list_objects",
+      "description": "List objects of one kind, with paging"
+    },
+    {
+      "name": "get_object",
+      "description": "Fetch one object in full by kind and id"
+    },
+    {
+      "name": "get_note_context",
+      "description": "A note plus its blocks, tags, links, backlinks, and cited scriptures"
+    },
+    {
+      "name": "get_daily_note",
+      "description": "Read a day's daily note, defaulting to today"
+    },
+    {
+      "name": "get_backlinks",
+      "description": "What links to and from an object"
+    },
+    {
+      "name": "get_graph_neighborhood",
+      "description": "Walk the link graph outward from an object"
+    },
+    {
+      "name": "list_scripture_references",
+      "description": "Extracted scripture references and the notes citing them"
+    },
+    {
+      "name": "get_habit_log",
+      "description": "Habit history with completion rates and current streaks"
+    },
+    {
+      "name": "list_tags",
+      "description": "Tags with usage counts by object kind"
+    },
+    {
+      "name": "find_stale_notes",
+      "description": "Topic notes not touched in a while, for resurfacing"
+    },
+    {
+      "name": "get_status",
+      "description": "Counts, sync root, and what needs attention"
+    },
+    {
+      "name": "create_topic_note",
+      "description": "Create a topic note from markdown (requires writes)"
+    },
+    {
+      "name": "update_topic_note",
+      "description": "Update a topic note's title, body, or tags (requires writes)"
+    },
+    {
+      "name": "append_to_daily_note",
+      "description": "Append markdown to a day's daily note (requires writes)"
+    },
+    {
+      "name": "set_habit",
+      "description": "Create or update a habit, including marking it accomplished (requires writes)"
+    },
+    {
+      "name": "sync_now",
+      "description": "Reconcile the database with the sync folder (requires writes)"
+    }
+  ]
+}

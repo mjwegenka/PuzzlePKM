@@ -36,6 +36,9 @@ out
 release/
 dist/
 
+# MCP bundle icon is copied from public/icons at build time
+mcpb/icon.png
+
 # Tauri / Rust desktop wrapper
 src-tauri/target/
 src-tauri/gen/
