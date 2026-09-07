@@ -21,6 +21,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import process, { stdin, stdout, stderr } from 'node:process';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -71,6 +72,11 @@ const MAX_GRAPH_DEPTH = 3;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const ALLOW_WRITES = /^(1|true|yes|on)$/i.test(String(process.env.PUZZLEPKM_MCP_ALLOW_WRITES ?? '').trim());
+
+// Checked once, before anything opens a handle: node:sqlite creates the file on
+// open, so after the first query a wrong path is indistinguishable from an
+// empty knowledge base.
+const databaseExistedAtStartup = existsSync(dbFile);
 
 // The repositories and sync routines log progress with console.log. On an stdio
 // transport stdout is the protocol channel, so anything printed there corrupts
@@ -588,6 +594,9 @@ function getStatus() {
     return {
       product: PRIMARY_PRODUCT_NAME,
       databasePath: dbFile,
+      // Opening a database creates it when absent, so an empty knowledge base
+      // and a misconfigured path look identical without this flag.
+      databaseExistedBeforeThisSession: databaseExistedAtStartup,
       syncRootFolder: getSyncRootFolder(),
       writesEnabled: ALLOW_WRITES,
       today: localDateString(),
@@ -1065,6 +1074,9 @@ async function handleRequest(message) {
 export async function startServer() {
   redirectConsoleToStderr();
   stderr.write(`[${SERVER_NAME}] ready — database ${dbFile}, writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}\n`);
+  if (!databaseExistedAtStartup) {
+    stderr.write(`[${SERVER_NAME}] WARNING: no database file at ${dbFile}. An empty one will be created, so every tool will report an empty knowledge base. If ${PRIMARY_PRODUCT_NAME} already has data, either clear the "Database file" setting to use the default location, or point it at the real file.\n`);
+  }
 
   const reader = createInterface({ input: stdin });
   // Requests are handled in arrival order. The SQLite handle is opened and

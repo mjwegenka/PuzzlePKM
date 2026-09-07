@@ -191,8 +191,8 @@ The database lives in the platform application data directory (`~/Library/Applic
 Build the bundle and open it:
 
 ```bash
-npm run mcp:build-bundle   # writes dist/puzzlepkm.mcpb
-open dist/puzzlepkm.mcpb   # installs it into Claude Desktop
+npm run mcp:build-bundle      # writes release/puzzlepkm.mcpb
+open release/puzzlepkm.mcpb   # installs it into Claude Desktop
 ```
 
 In the extension's settings, set:

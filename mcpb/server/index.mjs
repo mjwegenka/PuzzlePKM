@@ -20,11 +20,19 @@ function fail(message) {
   process.exit(1);
 }
 
-// Optional user_config fields are substituted as empty strings when left blank.
-// app.mjs resolves paths with `??`, which treats '' as a real value, so an empty
-// override would point the server at a nonexistent database. Strip them first.
+// Optional user_config fields are unreliable when left blank: depending on the
+// host they arrive as an empty string or as the literal, unsubstituted
+// "${user_config.database_path}" template. app.mjs resolves paths with `??`,
+// which treats both as real values, so either one silently points the server at
+// a database that does not exist — and node:sqlite happily creates an empty file
+// there, so the failure looks like an empty knowledge base rather than an error.
+// Drop anything that is not a usable absolute path.
 for (const name of ['PUZZLEPKM_DB_PATH', 'PUZZLEPKM_SECRETS_PATH']) {
-  if (String(process.env[name] ?? '').trim() === '') delete process.env[name];
+  const value = String(process.env[name] ?? '').trim();
+  if (value === '' || value.includes('${')) {
+    if (value) process.stderr.write(`${LOG_PREFIX} Ignoring unresolved ${name}=${value}\n`);
+    delete process.env[name];
+  }
 }
 
 const repoPath = String(process.env.PUZZLEPKM_REPO_PATH || '').trim();

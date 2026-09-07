@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * Packs mcpb/ into dist/puzzlepkm.mcpb (a zip archive) for installation into
+ * Packs mcpb/ into release/puzzlepkm.mcpb (a zip archive) for installation into
  * Claude Desktop. Keeps the manifest version in step with package.json and
  * copies the app icon in so the bundle has no checked-in binary duplicates.
+ *
+ * Output goes to release/ rather than dist/ because vite empties dist/ on every
+ * frontend build, which would silently delete an already-built bundle.
  */
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,8 +19,8 @@ const bundleDir = join(repoRoot, 'mcpb');
 const manifestPath = join(bundleDir, 'manifest.json');
 const iconSource = join(repoRoot, 'public', 'icons', 'icon-128.png');
 const iconTarget = join(bundleDir, 'icon.png');
-const distDir = join(repoRoot, 'dist');
-const outputPath = join(distDir, 'puzzlepkm.mcpb');
+const outputDir = join(repoRoot, 'release');
+const outputPath = join(outputDir, 'puzzlepkm.mcpb');
 
 function fail(message) {
   console.error(`[build-mcpb] ${message}`);
@@ -37,8 +40,7 @@ if (manifest.version !== packageVersion) {
 }
 
 copyFileSync(iconSource, iconTarget);
-mkdirSync(distDir, { recursive: true });
-rmSync(outputPath, { force: true });
+mkdirSync(outputDir, { recursive: true });
 
 // zip ships with macOS and every mainstream Linux distro; using it avoids
 // adding an archiving dependency for a build step that runs once per release.
