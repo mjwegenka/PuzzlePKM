@@ -73,7 +73,7 @@ class GraphErrorBoundary extends React.Component<{ children: ReactNode }, { hasE
 type Section = 'calendar' | 'library' | 'graph'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
-type MetaObjType = 'scripture' | 'tag'
+type MetaObjType = 'scripture' | 'scripture-chapter' | 'tag'
 type LibraryObjectType = NotesObjType | FileObjType | MetaObjType
 type PinnedObjType = NotesObjType | FileObjType
 
@@ -123,6 +123,9 @@ export default function App() {
   }, [sidebarSection])
 
   useEffect(() => {
+    // The settings window renders an early-return tree without GlobalCloseConfirmDialog,
+    // so blocking its close here would leave it unclosable with no way to confirm.
+    if (isSettingsWindow) return
     if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__) {
       import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
         const unlistenPromise = getCurrentWindow().onCloseRequested(async (event) => {
@@ -136,7 +139,7 @@ export default function App() {
         }
       }).catch(console.error)
     }
-  }, [])
+  }, [isSettingsWindow])
 
   const openLibrarySelection = useCallback((target: { id: string; type: LibraryObjectType }) => {
     setSidebarSection('library')

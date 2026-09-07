@@ -3,7 +3,9 @@ import NoteCard from "../ui/NoteCard";
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import {
   ArrowUpDown,
+  BookOpen,
   CalendarDays,
+  FolderKanban,
   Inbox,
   Loader2,
   NotebookPen,
@@ -15,6 +17,7 @@ import {
 } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
+import ScriptureChapterPanel from '../objects/ScriptureChapterPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 
 import type { NoteCardData } from '../ui/NoteCard'
@@ -22,6 +25,7 @@ import type { NoteCardData } from '../ui/NoteCard'
 import {
   deleteObject,
   getObject,
+  linkDirectoryViaPicker,
   listHabitMeta,
   listMetaBundle,
   rankSearchCandidates,
@@ -43,8 +47,8 @@ function normalizePathForLookup(path?: string): string {
 }
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
-type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'tag'
-type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'tag'>
+type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'scripture-chapter' | 'tag'
+type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'scripture-chapter' | 'tag'>
 
 interface LibraryPageProps {
   onSaved?: () => void
@@ -109,6 +113,19 @@ interface ScriptureItem {
   type: 'scripture'
 }
 
+interface ScriptureChapterItem {
+  id: string
+  reference: string
+  bookName: string
+  bookOrder: number
+  chapter: number
+  passageUrl: string
+  referenceCount: number
+  noteCount: number
+  displayTitle: string
+  type: 'scripture-chapter'
+}
+
 interface ActiveLibraryObject {
   objectId: string
   type: EditorObjectType
@@ -134,7 +151,7 @@ interface RenderedBoardCard {
 }
 
 type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
-type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture'
+type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture' | 'scripture-chapter'
 
 const LIBRARY_OBJECT_TYPE_OPTIONS: Array<{ value: LibraryObjectFilterType; label: string; checkedByDefault: boolean }> = [
   { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
@@ -143,7 +160,8 @@ const LIBRARY_OBJECT_TYPE_OPTIONS: Array<{ value: LibraryObjectFilterType; label
   { value: 'project', label: 'Projects', checkedByDefault: true },
   { value: 'ref-material', label: 'Reference Materials', checkedByDefault: true },
   { value: 'tag', label: 'Tags', checkedByDefault: false },
-  { value: 'scripture', label: 'Scripture', checkedByDefault: false },
+  { value: 'scripture-chapter', label: 'Scripture Chapters', checkedByDefault: false },
+  { value: 'scripture', label: 'Scripture References', checkedByDefault: false },
 ]
 
 const DEFAULT_VISIBLE_LIBRARY_TYPES = LIBRARY_OBJECT_TYPE_OPTIONS
@@ -330,6 +348,7 @@ export default function LibraryPage({
   const [habits, setHabits] = useState<HabitItem[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
   const [scriptures, setScriptures] = useState<ScriptureItem[]>([])
+  const [scriptureChapters, setScriptureChapters] = useState<ScriptureChapterItem[]>([])
   const [loading, setLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -456,6 +475,7 @@ export default function LibraryPage({
       setHabits(bundle.habits as HabitItem[])
       setFiles(bundle.files as FileItem[])
       setScriptures(bundle.scriptures as ScriptureItem[])
+      setScriptureChapters(bundle.scriptureChapters as ScriptureChapterItem[])
       setHasLoadedOnce(true)
     } finally {
       if (latestLoadRequestRef.current === requestId) {
@@ -565,6 +585,11 @@ export default function LibraryPage({
     }
   }, [handleSelectItem, onPendingSelectionHandled, pendingSelection])
 
+  // DEC-77: stepping between adjacent chapters from inside the chapter panel.
+  const handleOpenChapter = useCallback(async (chapterId: string) => {
+    await openObjectInPanel(chapterId, 'scripture-chapter')
+  }, [openObjectInPanel])
+
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
     setPendingBlockId(target.blockId)
     const opened = await openObjectInPanel(target.id, target.type)
@@ -588,6 +613,24 @@ export default function LibraryPage({
     setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
   }, [])
+
+  // DEC-71: projects and reference materials are added by linking a folder that already
+  // exists on disk. Nothing is copied, moved, or written into it.
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  const handleLinkDirectory = useCallback(async (
+    objectType: 'project' | 'ref-material',
+    label: string,
+  ) => {
+    try {
+      const created = await linkDirectoryViaPicker(objectType, label)
+      if (!created) return
+      await loadAll()
+      await openObjectInPanel(created.id, objectType)
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : String(e))
+    }
+  }, [loadAll, openObjectInPanel])
 
   useEffect(() => {
     if (!pendingCreate) return
@@ -829,6 +872,19 @@ export default function LibraryPage({
         sortTimestamp: 0,
       }))
 
+    // DEC-77: chapters read as "N notes across N references" — the rollup is the
+    // point, so both numbers belong on the card.
+    const scriptureChapterCards: BoardCard[] = scriptureChapters
+      .map((c) => ({
+        id: c.id,
+        type: 'scripture-chapter' as const,
+        title: c.reference,
+        metadata: `${c.noteCount === 1 ? '1 note' : `${c.noteCount} notes`} · ${c.referenceCount === 1 ? '1 reference' : `${c.referenceCount} references`}`,
+        snippet: undefined,
+        tags: [],
+        sortTimestamp: c.noteCount,
+      }))
+
     const tagCountMap = new Map<string, number>()
     for (const card of [...topicCards, ...dailyCards, ...habitCards, ...fileCards]) {
       for (const tag of card.tags ?? []) {
@@ -846,7 +902,7 @@ export default function LibraryPage({
       sortTimestamp: count,
     }))
 
-    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
+    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureChapterCards, ...scriptureCards, ...tagCards].filter((card) => {
       if (!effectiveVisibleObjectTypeSet.has(card.type)) return false
 
       if (showInbox) {
@@ -880,9 +936,11 @@ export default function LibraryPage({
                   ? 3
                   : card.type === 'daily-note'
                     ? 4
-                    : card.type === 'scripture'
+                    : card.type === 'scripture-chapter'
                       ? 5
-                      : 6,
+                      : card.type === 'scripture'
+                        ? 6
+                        : 7,
           card,
         })),
       )
@@ -894,7 +952,7 @@ export default function LibraryPage({
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, scriptures, scriptureChapters, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
 
   useEffect(() => {
     cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -1121,7 +1179,7 @@ export default function LibraryPage({
   ), [allCards])
   const activeEditorNavigationIndex = useMemo(() => {
     if (!activeObject) return -1
-    if (activeObject.type === 'scripture' || activeObject.type === 'tag') return -1
+    if (activeObject.type === 'scripture' || activeObject.type === 'scripture-chapter' || activeObject.type === 'tag') return -1
     return editorNavigationCards.findIndex((card) => card.id === activeObject.objectId && card.type === activeObject.type)
   }, [activeObject, editorNavigationCards])
   const previousEditorNavigationTarget = activeEditorNavigationIndex > 0
@@ -1149,6 +1207,7 @@ export default function LibraryPage({
     || cardType === 'project'
     || cardType === 'ref-material'
     || cardType === 'scripture'
+    || cardType === 'scripture-chapter'
     || cardType === 'tag'
   )
 
@@ -1226,6 +1285,24 @@ export default function LibraryPage({
                           Habit
                         </span>
                         <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void handleLinkDirectory('project', 'Project')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <FolderKanban className="h-4 w-4" />
+                          Project
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Choose a folder to add as a project</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void handleLinkDirectory('ref-material', 'Reference Material')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <BookOpen className="h-4 w-4" />
+                          Reference Material
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Choose a folder to add as reference material</span>
                       </span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -1370,7 +1447,15 @@ export default function LibraryPage({
                 />
               ) : activeObject ? (
                 <EditorErrorBoundary>
-                  {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
+                  {activeObject.type === 'scripture-chapter' ? (
+                    <ScriptureChapterPanel
+                      key={activeObject.objectId}
+                      object={activeObject.object}
+                      flatTop
+                      onNavigateToObject={handleNavigateToObject}
+                      onOpenChapter={handleOpenChapter}
+                    />
+                  ) : activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
                     <ObjectMetaDetailPanel
                       object={activeObject.object}
                       type={activeObject.type}
@@ -1401,6 +1486,18 @@ export default function LibraryPage({
         }
       />
 
+
+      <Dialog open={linkError !== null} onOpenChange={(open) => { if (!open) setLinkError(null) }}>
+        <DialogContent className="max-w-lg" aria-label="Could not add folder">
+          <DialogHeader>
+            <DialogTitle>Could not add that folder</DialogTitle>
+            <DialogDescription>{linkError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkError(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showBulkTagDialog} onOpenChange={(open) => {
         setShowBulkTagDialog(open)

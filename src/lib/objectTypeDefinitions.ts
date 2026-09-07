@@ -73,6 +73,11 @@ function scriptureTitle(data: Record<string, unknown>): string {
   return reference || 'Scripture'
 }
 
+function scriptureChapterTitle(data: Record<string, unknown>): string {
+  const reference = sanitizeDisplayText(String(data.reference ?? data.title ?? ''))
+  return reference || 'Chapter'
+}
+
 function tagTitle(data: Record<string, unknown>): string {
   const displayName = sanitizeDisplayText(String(data.displayName ?? data.name ?? data.title ?? ''))
   if (!displayName) return '#Tag'
@@ -90,6 +95,7 @@ export const OBJECT_TYPE_DEFINITIONS: Record<ObjectType, ObjectTypeDefinition> =
   project: { getDisplayTitle: projectTitle },
   'ref-material': { getDisplayTitle: refMaterialTitle },
   scripture: { getDisplayTitle: scriptureTitle },
+  'scripture-chapter': { getDisplayTitle: scriptureChapterTitle },
   tag: { getDisplayTitle: tagTitle },
 }
 
