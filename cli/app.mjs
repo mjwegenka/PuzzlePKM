@@ -13,6 +13,7 @@ import { URL } from 'node:url';
 import { handleNotesCommand } from './commands/notes.mjs';
 import { handleObjectsCommand } from './commands/objects.mjs';
 import { handleSettingsCommand } from './commands/settings.mjs';
+import { handleSourcesCommand } from './commands/sources.mjs';
 import { handleSyncCommand } from './commands/sync.mjs';
 import { createDailyNoteRepository } from './objects/daily-note/repository.mjs';
 import { createDailyNoteService } from './objects/daily-note/service.mjs';
@@ -217,6 +218,18 @@ const schema = `
     name TEXT PRIMARY KEY
   );
 
+  CREATE TABLE IF NOT EXISTS sync_sources (
+    id TEXT PRIMARY KEY,
+    object_type TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    read_only INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    UNIQUE(object_type, object_id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
@@ -235,6 +248,8 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_note_blocks_note_id ON note_blocks(note_id);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_position ON note_blocks(note_id, position);
   CREATE INDEX IF NOT EXISTS idx_scriptures_book_order ON scriptures(book_order, reference);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_sources_path ON sync_sources(lower(path));
+  CREATE INDEX IF NOT EXISTS idx_sync_sources_object ON sync_sources(object_type, object_id);
  `;
 
  // DEC-20: Ensure schema is migrated for new sync_path columns (DEC-21)
@@ -1107,6 +1122,9 @@ function isMissingSyncPath(path) {
 
 function backfillMissingSyncPaths(db) {
   const rootFolder = getSyncRootFolder();
+  // DEC-70: linked directories keep their own absolute path and are never renamed.
+  const linkedProjectIds = linkedObjectIdSet(db, 'project');
+  const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
 
   const missingDaily = db.prepare("SELECT id, date, sync_path FROM daily_notes WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingDaily) {
@@ -1132,6 +1150,7 @@ function backfillMissingSyncPaths(db) {
   // instead of the canonical slug-backed sync directory (README / DEC-10).
   const projectRows = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of projectRows) {
+    if (linkedProjectIds.has(row.id)) continue;
     const legacyPath = projectDirectoryPath(rootFolder, slugify(row.name || row.id));
     const canonicalPath = canonicalProjectSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
@@ -1151,6 +1170,7 @@ function backfillMissingSyncPaths(db) {
 
   const refMatRows = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of refMatRows) {
+    if (linkedRefMaterialIds.has(row.id)) continue;
     const legacyPath = refMaterialDirectoryPath(rootFolder, slugify(row.name || row.id));
     const canonicalPath = canonicalRefMaterialSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
@@ -2736,6 +2756,12 @@ function getSettingsState() {
   const store = readSecretStore();
   const configuredRootFolder = decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? undefined;
   const effectiveRootFolder = getSyncRootFolder();
+  let linkedSources = [];
+  try {
+    linkedSources = listLinkedSourcesWithStatus();
+  } catch {
+    // Settings stay readable even when the database is unavailable.
+  }
   return {
     dbPath: dbFile,
     secretsPath: secretsFilePath(),
@@ -2743,8 +2769,188 @@ function getSettingsState() {
       rootFolder: configuredRootFolder,
       effectiveRootFolder,
       resolvedRootFolder: resolveLocalSyncPath(effectiveRootFolder),
+      linkedSources: linkedSources.map((source) => ({
+        objectType: source.objectType,
+        objectId: source.objectId,
+        name: source.name,
+        path: source.path,
+        readOnly: source.readOnly,
+        available: source.available,
+      })),
     },
   };
+}
+
+// ── Linked sync sources ───────────────────────────────────────────────────────
+// DEC-70: A linked source is a directory that lives outside the managed sync
+// root and backs exactly one project or ref-material. Its metadata is kept in
+// SQLite only — nothing is ever written into the directory — and sync treats it
+// as read-only: no renames, no moves, no deletions of its contents.
+
+const LINKED_SOURCE_TYPES = new Set(['project', 'ref-material']);
+
+function normalizeLinkedSourcePath(inputPath) {
+  const raw = normalize(inputPath).replace(/\\/g, '/');
+  if (!raw) return '';
+  const expanded = raw === '~' || raw.startsWith('~/') ? join(homedir(), raw.slice(1)) : raw;
+  const absolute = resolve(expanded).replace(/\\/g, '/');
+  return absolute === '/' ? '/' : absolute.replace(/\/+$/, '');
+}
+
+function validateLinkedSourcePath(inputPath) {
+  const normalized = normalizeLinkedSourcePath(inputPath);
+  if (!normalized) throw new Error('Directory path is required.');
+  if (normalized === '/') throw new Error('Cannot link "/". Choose a specific directory.');
+  if (!existsSync(normalized)) throw new Error(`Directory not found: ${normalized}`);
+  if (!statSync(normalized).isDirectory()) throw new Error(`Not a directory: ${normalized}`);
+  return normalized;
+}
+
+/** Case-insensitive containment test for local filesystem paths. */
+function isPathInside(childPath, parentPath) {
+  const child = String(childPath ?? '').replace(/\/+$/, '').toLowerCase();
+  const parent = String(parentPath ?? '').replace(/\/+$/, '').toLowerCase();
+  if (!child || !parent) return false;
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+function mapLinkedSourceRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    objectType: row.object_type,
+    objectId: row.object_id,
+    path: row.path,
+    readOnly: row.read_only !== 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastSeenAt: row.last_seen_at ?? '',
+  };
+}
+
+function listLinkedSources(db) {
+  return db.prepare('SELECT * FROM sync_sources ORDER BY path ASC').all().map(mapLinkedSourceRow);
+}
+
+function getLinkedSourceForObject(db, objectType, objectId) {
+  if (!objectId) return null;
+  return mapLinkedSourceRow(
+    db.prepare('SELECT * FROM sync_sources WHERE object_type = ? AND object_id = ?').get(objectType, objectId),
+  );
+}
+
+function getLinkedSourceByPath(db, path) {
+  const normalized = normalizeLinkedSourcePath(path);
+  if (!normalized) return null;
+  return mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE lower(path) = lower(?)').get(normalized));
+}
+
+function linkedObjectIdSet(db, objectType) {
+  const rows = db.prepare('SELECT object_id FROM sync_sources WHERE object_type = ?').all(objectType);
+  return new Set(rows.map((row) => row.object_id));
+}
+
+function isLinkedObject(db, objectType, objectId) {
+  return Boolean(getLinkedSourceForObject(db, objectType, objectId));
+}
+
+function markLinkedSourceSeen(db, id, seenAt = getIsoNow()) {
+  db.prepare('UPDATE sync_sources SET last_seen_at = ?, updated_at = ? WHERE id = ?').run(seenAt, seenAt, id);
+}
+
+function removeLinkedSourceRow(db, objectType, objectId) {
+  const result = db.prepare('DELETE FROM sync_sources WHERE object_type = ? AND object_id = ?').run(objectType, objectId);
+  return result.changes > 0;
+}
+
+function removeLinkedSourceForObject(objectType, objectId) {
+  return withDb((db) => removeLinkedSourceRow(db, objectType, objectId));
+}
+
+function getLinkedSourceRecord(db, source) {
+  return source.objectType === 'project' ? getProject(db, source.objectId) : getRefMat(db, source.objectId);
+}
+
+/** Register an existing directory as a project or ref-material, leaving it in place. */
+function attachLinkedDirectory({ path, objectType, name, tags = [] } = {}) {
+  const type = normalize(objectType).toLowerCase() || 'project';
+  if (!LINKED_SOURCE_TYPES.has(type)) {
+    throw new Error(`Linked directories support these types: ${[...LINKED_SOURCE_TYPES].join(', ')}.`);
+  }
+
+  const directoryPath = validateLinkedSourcePath(path);
+  const managedRootPath = resolveLocalSyncPath(getSyncRootFolder());
+  if (isPathInside(directoryPath, managedRootPath)) {
+    throw new Error(`${directoryPath} is inside the sync root (${managedRootPath}); it is scanned automatically.`);
+  }
+
+  return withDb((db) => {
+    for (const existing of listLinkedSources(db)) {
+      if (isPathInside(directoryPath, existing.path) || isPathInside(existing.path, directoryPath)) {
+        throw new Error(`${directoryPath} overlaps the linked directory ${existing.path}.`);
+      }
+    }
+
+    const now = getIsoNow();
+    const displayName = normalize(name) || folderNameToTitle(basename(directoryPath));
+    const objectId = randomUUID();
+    const record = type === 'project'
+      ? createProjectRecord(db, {
+        id: objectId,
+        name: displayName,
+        syncPath: directoryPath,
+        startDate: null,
+        endDate: null,
+        tags,
+        createdAt: now,
+        updatedAt: now,
+      })
+      : createRefMatRecord(db, {
+        id: objectId,
+        name: displayName,
+        author: '',
+        syncPath: directoryPath,
+        tags,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    db.prepare(`
+      INSERT INTO sync_sources (id, object_type, object_id, path, read_only, created_at, updated_at, last_seen_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(randomUUID(), type, objectId, directoryPath, now, now, now);
+    markRemotePresence(db, type, objectId, now);
+
+    return { source: getLinkedSourceForObject(db, type, objectId), record };
+  });
+}
+
+/** Unregister a linked directory. Deletes the record only; the directory is untouched. */
+function detachLinkedDirectory(reference) {
+  const lookup = normalize(reference);
+  if (!lookup) throw new Error('A linked directory path or id is required.');
+
+  return withDb((db) => {
+    const source = getLinkedSourceByPath(db, lookup)
+      ?? mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE id = ? OR object_id = ?').get(lookup, lookup));
+    if (!source) throw new Error(`Linked directory not found: ${lookup}`);
+
+    removeLinkedSourceRow(db, source.objectType, source.objectId);
+    if (source.objectType === 'project') deleteProjectRecord(db, source.objectId);
+    else deleteRefMatRecord(db, source.objectId);
+    return source;
+  });
+}
+
+function listLinkedSourcesWithStatus() {
+  return withDb((db) => listLinkedSources(db).map((source) => {
+    const record = getLinkedSourceRecord(db, source);
+    return {
+      ...source,
+      name: record?.name ?? '(missing record)',
+      available: existsSync(source.path) && statSync(source.path).isDirectory(),
+    };
+  }));
 }
 
 // ── Note sync: path helpers ───────────────────────────────────────────────────
@@ -3264,6 +3470,11 @@ async function moveSyncFolder(fromPath, toPath) {
 
 async function deleteSyncPath(path) {
   const target = resolveLocalSyncPath(path);
+  // DEC-70: linked directories are read-only; unlinking must go through `sources remove`.
+  const linkedSource = withDb((db) => getLinkedSourceByPath(db, target));
+  if (linkedSource) {
+    throw new Error(`Refusing to delete linked directory ${target}. Use "${PRIMARY_CLI_COMMAND} sources remove ${target}" to unlink it.`);
+  }
   rmSync(target, { recursive: true, force: true });
 }
 
@@ -3684,7 +3895,10 @@ async function reconcileProjectsDb(db, token, rootFolder) {
     }
   }
 
-  const localItems = listProjectsForSync(db);
+  // DEC-70: records backed by a linked directory are reconciled separately and must
+  // never be uploaded into, renamed within, or deleted by the managed root pass.
+  const linkedProjectIds = linkedObjectIdSet(db, 'project');
+  const localItems = listProjectsForSync(db).filter((item) => !linkedProjectIds.has(item.id));
   if (!folderFound) {
     await ensureSyncFolder(projectsFolderPath(rootFolder));
     if (localItems.length > 0) {
@@ -3818,7 +4032,9 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
     }
   }
 
-  const localItems = listRefMaterialsForSync(db);
+  // DEC-70: see reconcileProjectsDb — linked directories are handled read-only elsewhere.
+  const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
+  const localItems = listRefMaterialsForSync(db).filter((item) => !linkedRefMaterialIds.has(item.id));
   if (!folderFound) {
     await ensureSyncFolder(refMaterialsFolderPath(rootFolder));
     if (localItems.length > 0) {
@@ -3965,6 +4181,42 @@ async function reconcileHabitsDb(db, token, rootFolder) {
 const DAILY_NOTE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastDailyNoteCleanupAt = 0;
 
+// DEC-70: Linked directories are read-only. Reconciliation only confirms they are
+// still reachable — an unavailable path (unmounted volume, moved folder) is reported
+// and skipped, never treated as a remote deletion.
+async function reconcileLinkedSourcesDb(db) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  for (const source of listLinkedSources(db)) {
+    try {
+      const record = getLinkedSourceRecord(db, source);
+      if (!record) {
+        // The object was deleted in the app; drop the registration, leave the directory alone.
+        removeLinkedSourceRow(db, source.objectType, source.objectId);
+        continue;
+      }
+
+      if (!existsSync(source.path) || !statSync(source.path).isDirectory()) {
+        result.warnings.push(`Linked directory unavailable, skipped (record kept): ${source.path}`);
+        continue;
+      }
+
+      if (record.syncPath !== source.path) {
+        const updateRecord = source.objectType === 'project' ? updateProjectRecord : updateRefMatRecord;
+        updateRecord(db, source.objectId, { syncPath: source.path, updatedAt: record.updatedAt });
+        result.updated++;
+      }
+
+      markLinkedSourceSeen(db, source.id);
+      markRemotePresence(db, source.objectType, source.objectId, getIsoNow());
+    } catch (e) {
+      result.errors.push(`linked source ${source.path}: ${String(e)}`);
+    }
+  }
+
+  return result;
+}
+
 async function maybeCleanupStaleDailyNotes(db) {
   const now = Date.now();
   if (now - lastDailyNoteCleanupAt < DAILY_NOTE_CLEANUP_INTERVAL_MS) return 0;
@@ -3989,15 +4241,16 @@ async function runSync() {
     const projectResult = await reconcileProjectsDb(db, token, rootFolder);
     const refMaterialResult = await reconcileRefMaterialsDb(db, token, rootFolder);
     const habitResult = await reconcileHabitsDb(db, token, rootFolder);
+    const linkedSourceResult = await reconcileLinkedSourcesDb(db);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
     return {
-      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported,
-      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated,
-      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
-      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + staleDailyNoteCleanupResult,
-      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...metadataCleanupResult.errors],
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + linkedSourceResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + linkedSourceResult.updated,
+      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded + linkedSourceResult.uploaded,
+      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + linkedSourceResult.deleted + staleDailyNoteCleanupResult,
+      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...metadataCleanupResult.errors],
     };
   });
 }
@@ -4365,6 +4618,13 @@ Settings:
   ${PRIMARY_CLI_COMMAND} settings set root-folder [path]
                              Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/PuzzlePKM)
 
+Linked directories (kept in place, scanned on every sync, never written to):
+  ${PRIMARY_CLI_COMMAND} sources list    List linked directories and their availability
+  ${PRIMARY_CLI_COMMAND} sources add <path> [--type project|ref-material] [--name "Name"] [--tags a,b]
+                             Link an existing directory as one project or ref-material
+  ${PRIMARY_CLI_COMMAND} sources remove <path-or-id>
+                             Unlink a directory (the directory itself is left untouched)
+
 Object types:
   topic-note, daily-note, project, ref-material, habit, scripture, tag, link
 
@@ -4437,6 +4697,11 @@ function createCommandContext(rl) {
     browseTarget,
     getSettingsState,
     saveSyncRootFolder,
+    attachLinkedDirectory,
+    detachLinkedDirectory,
+    listLinkedSourcesWithStatus,
+    removeLinkedSourceForObject,
+    isLinkedObject,
     prompt,
     runSync,
     runSyncWatch,
@@ -4472,6 +4737,7 @@ async function executeTokens(tokens, context = {}) {
   if (await handleNotesCommand(action, args, commandContext)) return;
   if (await handleObjectsCommand(action, args, commandContext)) return;
   if (await handleSettingsCommand(action, args, commandContext)) return;
+  if (await handleSourcesCommand(action, args, commandContext)) return;
   if (await handleSyncCommand(action, args, commandContext)) return;
 
   throw new Error(`Unknown command: ${command}`);

@@ -16,6 +16,7 @@
     "test:sync-parser": "node --no-warnings --test ./scripts/sync_parser.test.mjs",
     "test:smoke": "node --no-warnings --test ./scripts/cli_smoke.test.mjs",
     "test:mcp": "node --no-warnings --test ./scripts/mcp_server.test.mjs",
+    "test:linked-sources": "node --no-warnings --test ./scripts/linked_sources.test.mjs",
     "benchmark:sqlite": "node ./scripts/sqlite_benchmark.mjs",
     "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
     "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",
