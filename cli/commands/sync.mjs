@@ -14,7 +14,7 @@ export async function handleSyncCommand(action, args, ctx) {
 
   console.log('Syncing with local folder...');
   const result = await ctx.runSync();
-  console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+  console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, documents indexed: ${result.documentsIndexed ?? 0}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
       console.warn(`  [warning] ${warning}`);

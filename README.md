@@ -15,6 +15,7 @@ PuzzlePKM is a local-first personal knowledge management (PKM) app with a fast C
 - **Unified Graph**: Visualizes relations between notes, tags, habits, and scriptures.
 - **Automatic Backlinks**: Links between notes stay reciprocal.
 - **Scripture Integration**: Automatic Bible reference extraction and linking.
+- **Searchable Documents**: The text inside PDFs, Word files (`.docx` and `.doc`), PowerPoint decks, Pages documents, Markdown, and plain text in project and reference-material folders is indexed on every sync, so search reaches into the files themselves.
 
 ---
 
@@ -116,6 +117,31 @@ Reference Materials are folder-backed resource records (books, articles, PDFs) i
   npm run cli -- create ref-material
   ```
 
+##### Document search inside project and reference-material folders
+
+Every sync walks these folders recursively and extracts the text of the files it can read into a full-text index:
+
+| Format | Read from |
+| :--- | :--- |
+| `.pdf` | Page content streams, with each font's `/ToUnicode` map applied |
+| `.docx` / `.docm` | Document body, headers, footers, footnotes, endnotes, comments |
+| `.doc` | Word 97-2004 piece table, including fast-saved documents |
+| `.pptx` / `.pptm` | Slides in presentation order, plus speaker notes |
+| `.pages` | Pages '09 XML, or the PDF preview saved inside a newer document |
+| `.md` / `.markdown` / `.txt` | As written, with byte-order marks and legacy code pages honored |
+
+Searching the Library then matches file contents as well as object names, and a match appears as its own **Document** card that opens the file in whatever application the system uses for it.
+
+Extraction is keyed on file size and modification time, so a file is parsed once per version and later syncs cost one `stat` per file. `.pages` documents saved as package directories are indexed as a single document, and their fingerprint comes from the package contents.
+
+Some files hold pictures rather than text and index as empty with the reason recorded: scanned PDFs, image-only slide decks, and Pages 5+ documents saved without a preview (which store text in an undocumented compressed format — export to PDF or Word, or save with a preview, to make one searchable). `puzzlepkm documents list` shows which files yielded nothing and why.
+
+```bash
+npm run cli -- documents search "consolation"   # Search inside the indexed files
+npm run cli -- documents status                 # How much is indexed, and which formats are readable
+npm run cli -- documents index --force          # Re-read every file, ignoring the size/mtime cache
+```
+
 #### 6. Scriptures
 You do not manually create scriptures! PuzzlePKM automatically scans your topic and daily note bodies for RSVCE Bible citations (e.g. `Romans 3:16`, `1 Corinthians 13:4-8`).
 * **Creation**: Simply mention a valid scripture reference in a note block. On save, PuzzlePKM converts it into an internal scripture object and maintains backlinks to the source notes automatically.
@@ -152,6 +178,12 @@ npm run cli -- migrate-links --apply   # Migrate legacy links to canonical UUIDs
 # Syncing
 npm run cli -- sync                    # Trigger a one-shot sync to folders
 npm run cli -- sync --watch            # Run background sync watcher daemon
+
+# Document text index
+npm run cli -- documents search <query>  # Full-text search inside indexed documents
+npm run cli -- documents index           # Re-scan project and ref-material folders now
+npm run cli -- documents list            # Indexed documents with extraction status
+npm run cli -- documents status          # Index totals and readable formats
 ```
 
 ---
@@ -168,7 +200,10 @@ The database lives in the platform application data directory (`~/Library/Applic
 
 | Tool | What it does |
 | :--- | :--- |
-| `search_knowledge_base` | Substring search across note titles, individual note blocks, projects, reference materials, habits, scriptures, and tags. |
+| `search_knowledge_base` | Substring search across note titles, individual note blocks, projects, reference materials, habits, scriptures, tags, and indexed document text. |
+| `search_documents` | Full-text search inside the documents held in project and reference-material folders. |
+| `get_document_text` | Read one indexed document's extracted text in full. |
+| `list_documents` | Indexed documents with extraction status, plus index totals. |
 | `list_objects` | List every object of one kind, with paging. |
 | `get_object` | Fetch one object in full by kind and id. |
 | `get_note_context` | A note plus its blocks, tags, outbound links, backlinks, and cited scriptures in one call. |

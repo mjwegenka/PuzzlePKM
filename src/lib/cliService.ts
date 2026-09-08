@@ -591,6 +591,47 @@ export async function addLinkedSources(
   return JSON.parse(result.stdout.slice(start, end + 1)) as BulkLinkResult;
 }
 
+/**
+ * DEC-79: one match inside a file held by a project or reference material.
+ * `id` addresses the indexed document, not an object in the knowledge base.
+ */
+export interface DocumentSearchResult {
+  id: string;
+  objectType: LinkedSourceType;
+  objectId: string;
+  objectName: string;
+  fileName: string;
+  relativePath: string;
+  filePath: string;
+  extension: string;
+  characterCount: number;
+  indexedAt: string;
+  snippet: string;
+}
+
+/**
+ * Full-text search across the PDFs, Word documents and Markdown files indexed
+ * from project and reference-material folders. Returns [] rather than throwing:
+ * document hits widen the Library board, so a failure here should never take
+ * the rest of the search results down with it.
+ */
+export async function searchDocuments(query: string, limit = 30): Promise<DocumentSearchResult[]> {
+  const trimmed = String(query ?? '').trim();
+  if (!trimmed) return [];
+
+  try {
+    const result = await runPuzzlePKMCli(['documents', 'search', trimmed, '--limit', String(limit), '--json']);
+    if (result.exitCode !== 0) return [];
+    const start = result.stdout.indexOf('[');
+    const end = result.stdout.lastIndexOf(']');
+    if (start < 0 || end < start) return [];
+    const parsed = JSON.parse(result.stdout.slice(start, end + 1)) as DocumentSearchResult[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Opens the native folder picker and returns the chosen directory, or null if dismissed. */
 export async function pickDirectory(title: string): Promise<string | null> {
   const { open } = await import('@tauri-apps/plugin-dialog');

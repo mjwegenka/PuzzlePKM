@@ -11,10 +11,12 @@ import { createInterface } from 'node:readline/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { URL } from 'node:url';
 import { handleNotesCommand } from './commands/notes.mjs';
+import { handleDocumentsCommand } from './commands/documents.mjs';
 import { handleObjectsCommand } from './commands/objects.mjs';
 import { handleSettingsCommand } from './commands/settings.mjs';
 import { handleSourcesCommand } from './commands/sources.mjs';
 import { handleSyncCommand } from './commands/sync.mjs';
+import { documentFingerprint, extractDocumentText, isPackageDocument, isSupportedDocument, SUPPORTED_DOCUMENT_EXTENSIONS } from './documents/index.mjs';
 import { createDailyNoteRepository } from './objects/daily-note/repository.mjs';
 import { createDailyNoteService } from './objects/daily-note/service.mjs';
 import { createHabitRepository } from './objects/habit/repository.mjs';
@@ -255,6 +257,25 @@ const schema = `
     UNIQUE(object_type, object_id)
   );
 
+  CREATE TABLE IF NOT EXISTS document_texts (
+    id TEXT PRIMARY KEY,
+    object_type TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    extension TEXT NOT NULL DEFAULT '',
+    file_path TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    modified_at TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    character_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ok',
+    detail TEXT NOT NULL DEFAULT '',
+    truncated INTEGER NOT NULL DEFAULT 0,
+    indexed_at TEXT NOT NULL,
+    UNIQUE(object_type, object_id, relative_path)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
   CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
   CREATE INDEX IF NOT EXISTS idx_object_tags_object ON object_tags(object_id);
@@ -277,6 +298,8 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_scripture_chapter_links_chapter ON scripture_chapter_links(chapter_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_sources_path ON sync_sources(lower(path));
   CREATE INDEX IF NOT EXISTS idx_sync_sources_object ON sync_sources(object_type, object_id);
+  CREATE INDEX IF NOT EXISTS idx_document_texts_object ON document_texts(object_type, object_id);
+  CREATE INDEX IF NOT EXISTS idx_document_texts_status ON document_texts(status);
  `;
 
  // DEC-20: Ensure schema is migrated for new sync_path columns (DEC-21)
@@ -1439,6 +1462,9 @@ function ensureSchema(db) {
   }
   // DEC-20, DEC-21: Ensure schema is migrated for new sync_path columns
   ensureSchemaMigrations(db);
+  // DEC-79: the document text index is a virtual table, so it is created apart
+  // from the plain schema and degrades to a substring scan if FTS5 is missing.
+  ensureDocumentSearchIndex(db);
 }
 
 function isMissingSyncPath(path) {
@@ -2574,6 +2600,7 @@ const {
 } = topicNoteRepository;
 
 const projectRepository = createProjectRepository({
+  clearDocumentIndexForObject,
   clearSyncState,
   cleanupDailyNotesIfEligible,
   collectDateLinkTargets,
@@ -2608,6 +2635,7 @@ const {
 } = projectRepository;
 
 const refMaterialRepository = createRefMaterialRepository({
+  clearDocumentIndexForObject,
   clearSyncState,
   getIsoNow,
   getRelatedObjects,
@@ -4659,6 +4687,521 @@ async function maybeCleanupStaleDailyNotes(db) {
   return deleted;
 }
 
+// ── Document text index (DEC-79) ────────────────────────────────────────────
+
+// Folder-backed objects — projects, reference materials, and the linked
+// directories of DEC-70 — are walked recursively so the documents inside them
+// are searchable by their contents and not just by file name. Extraction is
+// keyed on size plus modification time, so the expensive parse happens once per
+// file version and every later sync is a stat per file.
+
+const DOCUMENT_INDEX_MAX_DEPTH = 12;
+const DOCUMENT_INDEX_MAX_FILES_PER_OBJECT = 5000;
+const DOCUMENT_SNIPPET_RADIUS = 120;
+const DOCUMENT_SEARCH_DEFAULT_LIMIT = 25;
+const DOCUMENT_SEARCH_MAX_LIMIT = 200;
+const DOCUMENT_INDEXED_OBJECT_TYPES = new Set(['project', 'ref-material']);
+const DOCUMENT_IGNORED_DIRECTORY_NAMES = new Set([
+  'node_modules', '.git', '.svn', '.hg', '__macosx', '.trash', '.obsidian', '.tmp',
+]);
+
+let documentSearchIndexAvailable = false;
+
+// FTS5 ships with Node's bundled SQLite, but the fallback keeps the feature
+// working (just slower) if a build ever lands without it.
+function ensureDocumentSearchIndex(db) {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS document_search USING fts5(
+        body,
+        document_id UNINDEXED,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+    documentSearchIndexAvailable = true;
+  } catch {
+    documentSearchIndexAvailable = false;
+  }
+  return documentSearchIndexAvailable;
+}
+
+function documentIndexTargets(db) {
+  const targets = [];
+  const sources = [
+    ['project', listProjects(db)],
+    ['ref-material', listRefMats(db)],
+  ];
+  for (const [objectType, rows] of sources) {
+    for (const row of rows) {
+      const syncPath = normalizeSyncPath(row.syncPath);
+      if (!syncPath) continue;
+      targets.push({
+        objectType,
+        objectId: row.id,
+        name: row.name,
+        syncPath,
+        localPath: resolveLocalSyncPath(syncPath),
+      });
+    }
+  }
+  return targets;
+}
+
+// Symlinked directories are skipped rather than followed: a loop would walk
+// forever, and the linked-directory feature already covers the case where a
+// folder elsewhere on disk should be part of the knowledge base.
+function* walkDocumentFiles(rootPath) {
+  const queue = [{ directory: rootPath, prefix: '', depth: 0 }];
+  let emitted = 0;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    let entries;
+    try {
+      entries = readdirSync(current.directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const absolutePath = join(current.directory, entry.name);
+      const relativePath = current.prefix ? `${current.prefix}/${entry.name}` : entry.name;
+
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stats = statSync(absolutePath);
+          isDirectory = stats.isDirectory();
+          isFile = stats.isFile();
+        } catch {
+          continue;
+        }
+        if (isDirectory) continue;
+      }
+
+      // A macOS package (.pages) is a directory the user sees as one document,
+      // so it is handed over whole rather than walked into.
+      if (isDirectory && isPackageDocument(entry.name)) {
+        if (emitted >= DOCUMENT_INDEX_MAX_FILES_PER_OBJECT) return;
+        emitted++;
+        yield { absolutePath, relativePath, fileName: entry.name };
+        continue;
+      }
+
+      if (isDirectory) {
+        if (current.depth >= DOCUMENT_INDEX_MAX_DEPTH) continue;
+        if (DOCUMENT_IGNORED_DIRECTORY_NAMES.has(entry.name.toLowerCase())) continue;
+        queue.push({ directory: absolutePath, prefix: relativePath, depth: current.depth + 1 });
+        continue;
+      }
+      if (!isFile || !isSupportedDocument(entry.name)) continue;
+      if (emitted >= DOCUMENT_INDEX_MAX_FILES_PER_OBJECT) return;
+      emitted++;
+      yield { absolutePath, relativePath, fileName: entry.name };
+    }
+  }
+}
+
+function deleteDocumentRow(db, documentId) {
+  if (documentSearchIndexAvailable) {
+    db.prepare('DELETE FROM document_search WHERE document_id = ?').run(documentId);
+  }
+  db.prepare('DELETE FROM document_texts WHERE id = ?').run(documentId);
+}
+
+function upsertDocumentText(db, entry) {
+  return withTransaction(db, () => {
+    const existing = db
+      .prepare('SELECT id FROM document_texts WHERE object_type = ? AND object_id = ? AND relative_path = ?')
+      .get(entry.objectType, entry.objectId, entry.relativePath);
+    const id = existing?.id ?? randomUUID();
+    const now = getIsoNow();
+
+    if (existing) {
+      db.prepare(`
+        UPDATE document_texts
+        SET file_name = ?, extension = ?, file_path = ?, size = ?, modified_at = ?,
+            content = ?, character_count = ?, status = ?, detail = ?, truncated = ?, indexed_at = ?
+        WHERE id = ?
+      `).run(
+        entry.fileName, entry.extension, entry.filePath, entry.size, entry.modifiedAt,
+        entry.content, entry.content.length, entry.status, entry.detail, entry.truncated ? 1 : 0, now, id,
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO document_texts (
+          id, object_type, object_id, relative_path, file_name, extension, file_path,
+          size, modified_at, content, character_count, status, detail, truncated, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, entry.objectType, entry.objectId, entry.relativePath, entry.fileName, entry.extension, entry.filePath,
+        entry.size, entry.modifiedAt, entry.content, entry.content.length, entry.status, entry.detail,
+        entry.truncated ? 1 : 0, now,
+      );
+    }
+
+    if (documentSearchIndexAvailable) {
+      db.prepare('DELETE FROM document_search WHERE document_id = ?').run(id);
+      if (entry.content) {
+        db.prepare('INSERT INTO document_search (body, document_id) VALUES (?, ?)').run(entry.content, id);
+      }
+    }
+    return id;
+  });
+}
+
+function clearDocumentIndexForObject(db, objectType, objectId) {
+  if (!DOCUMENT_INDEXED_OBJECT_TYPES.has(objectType)) return 0;
+  const rows = db
+    .prepare('SELECT id FROM document_texts WHERE object_type = ? AND object_id = ?')
+    .all(objectType, objectId);
+  for (const row of rows) deleteDocumentRow(db, row.id);
+  return rows.length;
+}
+
+function pruneMissingDocuments(db, target, seenRelativePaths) {
+  const rows = db
+    .prepare('SELECT id, relative_path FROM document_texts WHERE object_type = ? AND object_id = ?')
+    .all(target.objectType, target.objectId);
+  let removed = 0;
+  for (const row of rows) {
+    if (seenRelativePaths.has(row.relative_path)) continue;
+    deleteDocumentRow(db, row.id);
+    removed++;
+  }
+  return removed;
+}
+
+// Rows whose object was deleted, unlinked, or lost its folder path.
+function pruneOrphanDocuments(db, targets) {
+  const known = new Set(targets.map((target) => `${target.objectType}:${target.objectId}`));
+  const rows = db.prepare('SELECT id, object_type, object_id FROM document_texts').all();
+  let removed = 0;
+  for (const row of rows) {
+    if (known.has(`${row.object_type}:${row.object_id}`)) continue;
+    deleteDocumentRow(db, row.id);
+    removed++;
+  }
+  return removed;
+}
+
+function indexDocumentsForObject(db, target, { force = false } = {}) {
+  const result = { indexed: 0, updated: 0, removed: 0, unchanged: 0, unreadable: 0, warnings: [] };
+
+  let folderExists = false;
+  try {
+    folderExists = existsSync(target.localPath) && statSync(target.localPath).isDirectory();
+  } catch {
+    folderExists = false;
+  }
+  if (!folderExists) {
+    // Cloud folders go missing while they sync; keep what we already indexed.
+    result.warnings.push(`Folder unavailable, document index kept: ${target.localPath}`);
+    return result;
+  }
+
+  const readExisting = db.prepare(
+    'SELECT id, size, modified_at FROM document_texts WHERE object_type = ? AND object_id = ? AND relative_path = ?',
+  );
+  const seenRelativePaths = new Set();
+
+  for (const file of walkDocumentFiles(target.localPath)) {
+    seenRelativePaths.add(file.relativePath);
+
+    let fingerprint;
+    try {
+      fingerprint = documentFingerprint(file.absolutePath);
+    } catch {
+      continue;
+    }
+    const existing = readExisting.get(target.objectType, target.objectId, file.relativePath);
+    if (existing && !force && Number(existing.size) === fingerprint.size && existing.modified_at === fingerprint.modifiedAt) {
+      result.unchanged++;
+      continue;
+    }
+
+    const extraction = extractDocumentText(file.absolutePath);
+    if (extraction.status === 'error') {
+      result.unreadable++;
+      result.warnings.push(`${target.name}: ${file.relativePath} — ${extraction.detail}`);
+    }
+
+    upsertDocumentText(db, {
+      objectType: target.objectType,
+      objectId: target.objectId,
+      relativePath: file.relativePath,
+      fileName: file.fileName,
+      extension: extname(file.fileName).toLowerCase(),
+      filePath: file.absolutePath,
+      size: extraction.size || fingerprint.size,
+      modifiedAt: extraction.modifiedAt || fingerprint.modifiedAt,
+      content: extraction.text,
+      status: extraction.status,
+      detail: extraction.detail,
+      truncated: extraction.truncated,
+    });
+
+    if (existing) result.updated++;
+    else result.indexed++;
+  }
+
+  result.removed = pruneMissingDocuments(db, target, seenRelativePaths);
+  return result;
+}
+
+function reconcileDocumentIndex(db, { force = false } = {}) {
+  const result = { indexed: 0, updated: 0, removed: 0, unchanged: 0, unreadable: 0, warnings: [], errors: [] };
+  const targets = documentIndexTargets(db);
+
+  for (const target of targets) {
+    try {
+      const objectResult = indexDocumentsForObject(db, target, { force });
+      result.indexed += objectResult.indexed;
+      result.updated += objectResult.updated;
+      result.removed += objectResult.removed;
+      result.unchanged += objectResult.unchanged;
+      result.unreadable += objectResult.unreadable;
+      result.warnings.push(...objectResult.warnings);
+    } catch (e) {
+      result.errors.push(`document index ${target.objectType} ${target.name}: ${String(e)}`);
+    }
+  }
+
+  try {
+    result.removed += pruneOrphanDocuments(db, targets);
+  } catch (e) {
+    result.errors.push(`document index cleanup: ${String(e)}`);
+  }
+
+  return result;
+}
+
+function documentIndexStatus(db) {
+  const byStatus = db
+    .prepare('SELECT status, COUNT(*) AS count FROM document_texts GROUP BY status')
+    .all()
+    .reduce((totals, row) => ({ ...totals, [row.status]: Number(row.count) }), {});
+  const byExtension = db
+    .prepare('SELECT extension, COUNT(*) AS count FROM document_texts GROUP BY extension ORDER BY count DESC')
+    .all()
+    .map((row) => ({ extension: row.extension, count: Number(row.count) }));
+  const totals = db
+    .prepare('SELECT COUNT(*) AS documents, COALESCE(SUM(character_count), 0) AS characters FROM document_texts')
+    .get();
+
+  return {
+    documents: Number(totals?.documents ?? 0),
+    characters: Number(totals?.characters ?? 0),
+    searchIndex: documentSearchIndexAvailable ? 'fts5' : 'scan',
+    supportedExtensions: [...SUPPORTED_DOCUMENT_EXTENSIONS].sort(),
+    byStatus,
+    byExtension,
+    folders: documentIndexTargets(db).length,
+  };
+}
+
+function documentQueryTokens(query) {
+  return (String(query ?? '').toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).slice(0, 12);
+}
+
+// The trailing token is prefix-matched so search keeps up with typing.
+function documentMatchExpression(tokens) {
+  return tokens
+    .map((token, index) => {
+      const quoted = `"${token.replace(/"/g, '""')}"`;
+      return index === tokens.length - 1 ? `${quoted}*` : quoted;
+    })
+    .join(' AND ');
+}
+
+function documentSnippet(content, query, tokens) {
+  const text = String(content ?? '');
+  if (!text) return '';
+
+  const haystack = text.toLowerCase();
+  const phrase = normalize(query).toLowerCase();
+  let index = phrase ? haystack.indexOf(phrase) : -1;
+  let matchLength = index >= 0 ? phrase.length : 0;
+
+  if (index < 0) {
+    for (const token of tokens) {
+      const found = haystack.indexOf(token);
+      if (found < 0) continue;
+      index = found;
+      matchLength = token.length;
+      break;
+    }
+  }
+  if (index < 0) {
+    index = 0;
+    matchLength = 0;
+  }
+
+  const start = Math.max(0, index - DOCUMENT_SNIPPET_RADIUS);
+  const end = Math.min(text.length, index + matchLength + DOCUMENT_SNIPPET_RADIUS);
+  const body = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`;
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function mapDocumentSearchRow(row, query, tokens) {
+  return {
+    id: row.id,
+    objectType: row.object_type,
+    objectId: row.object_id,
+    objectName: row.object_name || '',
+    fileName: row.file_name,
+    relativePath: row.relative_path,
+    filePath: row.file_path,
+    extension: row.extension,
+    characterCount: Number(row.character_count ?? 0),
+    indexedAt: row.indexed_at,
+    snippet: documentSnippet(row.content, query, tokens),
+  };
+}
+
+/**
+ * Full-text search across indexed project and reference-material documents.
+ * Falls back to a substring scan when FTS5 is unavailable.
+ */
+function searchDocuments(query, { limit = DOCUMENT_SEARCH_DEFAULT_LIMIT, objectType, objectId } = {}) {
+  const tokens = documentQueryTokens(query);
+  if (tokens.length === 0) return [];
+  const cappedLimit = Math.min(Math.max(1, Number(limit) || DOCUMENT_SEARCH_DEFAULT_LIMIT), DOCUMENT_SEARCH_MAX_LIMIT);
+
+  return withDb((db) => {
+    const filters = [];
+    const filterValues = [];
+    if (objectType && DOCUMENT_INDEXED_OBJECT_TYPES.has(objectType)) {
+      filters.push('d.object_type = ?');
+      filterValues.push(objectType);
+    }
+    if (objectId) {
+      filters.push('d.object_id = ?');
+      filterValues.push(objectId);
+    }
+
+    const selection = `
+      d.id, d.object_type, d.object_id, d.relative_path, d.file_name, d.extension,
+      d.file_path, d.content, d.character_count, d.indexed_at,
+      COALESCE(p.name, r.name, '') AS object_name
+    `;
+    const joins = `
+      LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+      LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+    `;
+
+    if (documentSearchIndexAvailable) {
+      const where = ['document_search MATCH ?', ...filters].join(' AND ');
+      const rows = db.prepare(`
+        SELECT ${selection}, bm25(document_search) AS rank
+        FROM document_search
+        JOIN document_texts d ON d.id = document_search.document_id
+        ${joins}
+        WHERE ${where}
+        ORDER BY rank
+        LIMIT ?
+      `).all(documentMatchExpression(tokens), ...filterValues, cappedLimit);
+      return rows.map((row) => mapDocumentSearchRow(row, query, tokens));
+    }
+
+    const where = ["d.content LIKE ? ESCAPE '\\'", ...filters].join(' AND ');
+    const rows = db.prepare(`
+      SELECT ${selection}
+      FROM document_texts d
+      ${joins}
+      WHERE ${where}
+      ORDER BY d.indexed_at DESC
+      LIMIT ?
+    `).all(`%${escapeLikePattern(normalize(query))}%`, ...filterValues, cappedLimit);
+    return rows.map((row) => mapDocumentSearchRow(row, query, tokens));
+  });
+}
+
+function listIndexedDocuments({ objectId, limit = 200 } = {}) {
+  return withDb((db) => {
+    const rows = objectId
+      ? db.prepare(`
+          SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+          FROM document_texts d
+          LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+          LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+          WHERE d.object_id = ?
+          ORDER BY d.relative_path ASC
+          LIMIT ?
+        `).all(objectId, limit)
+      : db.prepare(`
+          SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+          FROM document_texts d
+          LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+          LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+          ORDER BY d.indexed_at DESC
+          LIMIT ?
+        `).all(limit);
+
+    return rows.map((row) => ({
+      id: row.id,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      objectName: row.object_name || '',
+      fileName: row.file_name,
+      relativePath: row.relative_path,
+      filePath: row.file_path,
+      extension: row.extension,
+      status: row.status,
+      detail: row.detail,
+      characterCount: Number(row.character_count ?? 0),
+      indexedAt: row.indexed_at,
+    }));
+  });
+}
+
+/** One indexed document, including its extracted text. */
+function getIndexedDocument(documentId, { maxCharacters = 0 } = {}) {
+  return withDb((db) => {
+    const row = db.prepare(`
+      SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+      FROM document_texts d
+      LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+      LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+      WHERE d.id = ?
+    `).get(documentId);
+    if (!row) return null;
+
+    const limit = Number(maxCharacters) > 0 ? Number(maxCharacters) : row.content.length;
+    return {
+      id: row.id,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      objectName: row.object_name || '',
+      fileName: row.file_name,
+      relativePath: row.relative_path,
+      filePath: row.file_path,
+      extension: row.extension,
+      status: row.status,
+      detail: row.detail,
+      characterCount: Number(row.character_count ?? 0),
+      truncated: Boolean(row.truncated) || row.content.length > limit,
+      indexedAt: row.indexed_at,
+      text: row.content.slice(0, limit),
+    };
+  });
+}
+
+function runDocumentIndex({ force = false } = {}) {
+  return withDb((db) => reconcileDocumentIndex(db, { force }));
+}
+
+function documentIndexStatusReport() {
+  return withDb((db) => documentIndexStatus(db));
+}
+
 async function runSync() {
   const token = null;
   const rootFolder = getSyncRootFolder();
@@ -4672,13 +5215,18 @@ async function runSync() {
     const linkedSourceResult = await reconcileLinkedSourcesDb(db);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
+    // DEC-79: runs after folder reconciliation so newly imported projects and
+    // reference materials are indexed in the same pass that discovered them.
+    const documentResult = reconcileDocumentIndex(db);
     return {
+      documentsIndexed: documentResult.indexed + documentResult.updated,
+      documentsRemoved: documentResult.removed,
       imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + linkedSourceResult.imported,
       updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + linkedSourceResult.updated,
       uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded + linkedSourceResult.uploaded,
       deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + linkedSourceResult.deleted + staleDailyNoteCleanupResult,
-      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...metadataCleanupResult.errors],
+      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings, ...documentResult.warnings],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...metadataCleanupResult.errors, ...documentResult.errors],
     };
   });
 }
@@ -4893,7 +5441,7 @@ async function runSyncWatch(intervalMinutes) {
   console.log(`Starting sync watch mode (${safeIntervalMinutes} minute interval). Press Ctrl+C to stop.`);
   while (!process.exitCode) {
     const result = await runSync();
-    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, documents indexed: ${result.documentsIndexed ?? 0}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
     if (result.warnings.length > 0) {
       for (const warning of result.warnings) console.warn(`  [warning] ${warning}`);
     }
@@ -5036,6 +5584,16 @@ Usage:
                            Delete an object
   ${PRIMARY_CLI_COMMAND} browse [target] Browse notes, directories, files, or all objects
 
+Documents (text inside project / ref-material folders, indexed on every sync):
+  ${PRIMARY_CLI_COMMAND} documents search <query> [--limit N] [--type project|ref-material] [--object <id>] [--json]
+                             Full-text search inside indexed PDFs, Word files, and Markdown
+  ${PRIMARY_CLI_COMMAND} documents index [--force]
+                             Re-scan folders now; --force re-reads unchanged files
+  ${PRIMARY_CLI_COMMAND} documents list [--object <id>] [--json]
+                             List indexed documents and their extraction status
+  ${PRIMARY_CLI_COMMAND} documents status [--json]
+                             Index totals and the file formats this build can read
+
 Sync:
   ${PRIMARY_CLI_COMMAND} sync            Sync notes, habits, and directories to local sync folder (one-shot)
   ${PRIMARY_CLI_COMMAND} sync --watch    Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
@@ -5142,6 +5700,11 @@ function createCommandContext(rl) {
     createAuthor,
     deleteAuthor,
     convertTopicNoteToProject,
+    runDocumentIndex,
+    searchDocuments,
+    listIndexedDocuments,
+    getIndexedDocument,
+    documentIndexStatus: documentIndexStatusReport,
   };
 }
 
@@ -5168,6 +5731,7 @@ async function executeTokens(tokens, context = {}) {
   const commandContext = createCommandContext(rl);
   if (await handleNotesCommand(action, args, commandContext)) return;
   if (await handleObjectsCommand(action, args, commandContext)) return;
+  if (await handleDocumentsCommand(action, args, commandContext)) return;
   if (await handleSettingsCommand(action, args, commandContext)) return;
   if (await handleSourcesCommand(action, args, commandContext)) return;
   if (await handleSyncCommand(action, args, commandContext)) return;
@@ -5318,6 +5882,13 @@ export const mcpInternals = {
   listRefMats,
   listScriptures,
   getScripture,
+
+  // Documents (DEC-79)
+  searchDocuments,
+  listIndexedDocuments,
+  getIndexedDocument,
+  runDocumentIndex,
+  documentIndexStatus: documentIndexStatusReport,
 
   // Sync
   runSync,

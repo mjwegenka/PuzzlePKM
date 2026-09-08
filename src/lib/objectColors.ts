@@ -19,7 +19,7 @@ export interface ObjectColorToken {
   selectionGlow: string
 }
 
-type ColorableType = Exclude<ObjectType, 'tag'> | 'tag' | 'scripture-book' | 'scripture-chapter'
+type ColorableType = Exclude<ObjectType, 'tag'> | 'tag' | 'scripture-book' | 'scripture-chapter' | 'document'
 
 function buildToken(accent: string): ObjectColorToken {
   return {
@@ -42,6 +42,8 @@ export const objectColors: Record<ColorableType, ObjectColorToken> = {
   'tag': buildToken('#faad14'),
   'scripture-book': buildToken('#f5222d'),
   'scripture-chapter': buildToken('#f5222d'),
+  // DEC-79: files inside project and ref-material folders.
+  'document': buildToken('#fa541c'),
 }
 
 /** Look up the color token for a given object type string, falling back to daily-note colors. */
