@@ -24,7 +24,7 @@ PuzzlePKM is a local-first personal knowledge management (PKM) app with a fast C
 ### Requirements
 
 - **Node.js**: Version 22 or higher is required.
-- **Operating System**: macOS, Linux, or Windows.
+- **Operating System**: macOS-first. The CLI and database use per-platform paths and run on Linux and Windows, but packaging, code signing, and the desktop shell are developed and exercised on macOS; treat the other platforms as untested.
 
 ### Quick Start
 
@@ -66,8 +66,11 @@ PuzzlePKM structures your PKM data into distinct object types. You can create, m
 | `project` | Local folder-backed directories for projects. | `project` |
 | `ref-material` | Local folder-backed directories for reference materials. | `ref-material` |
 | `scripture` | Automatically parsed scripture references. | `scripture` |
+| `scripture-chapter` | Chapter-level rollup of the references that cite it. | `scripture-chapter` |
 | `tag` | Organization labels (case-insensitive). | `tag` |
 | `link` | Internal relationships between objects. | `link` |
+
+The files inside project and reference-material folders are indexed for search (see below), but a document is **not** an object type: it has no id in the object registry and cannot be listed, tagged, or linked. It appears only as a search result pointing at the file.
 
 ---
 
@@ -117,9 +120,46 @@ Reference Materials are folder-backed resource records (books, articles, PDFs) i
   npm run cli -- create ref-material
   ```
 
-##### Document search inside project and reference-material folders
+#### 6. Scriptures
+You do not manually create scriptures! PuzzlePKM automatically scans your topic and daily note bodies for RSVCE Bible citations (e.g. `Romans 3:16`, `1 Corinthians 13:4-8`).
+* **Creation**: Simply mention a valid scripture reference in a note block. On save, PuzzlePKM converts it into an internal scripture object and maintains backlinks to the source notes automatically.
 
-Every sync walks these folders recursively and extracts the text of the files it can read into a full-text index:
+#### 7. Tags
+Tags organize your PKM database.
+* **Via CLI**:
+  ```bash
+  npm run cli -- create tag
+  ```
+* **Implicit Creation**: Tags are automatically created when you add them to any note or object via front matter or the editor tag field.
+
+#### 8. Links
+Links represent relationships between objects.
+* **Via CLI**:
+  ```bash
+  npm run cli -- create link
+  ```
+* **Implicit Creation**: Simply write internal links in note content using the `@` mention menu in the desktop editor or manual Markdown links `[Label](objectId)`.
+
+---
+
+### Linking folders that already exist
+
+A project or reference material does not have to live inside the sync root. Any folder on disk can be linked as one, and PuzzlePKM will keep it where it is: linked directories are scanned on every sync and are **never** written to, renamed, or deleted by the app. Deleting the object or unlinking it leaves the folder untouched.
+
+In the desktop app, the Library's create menu offers **Project** ("Choose a folder to add as a project") and **Reference Material**, both of which open a native folder picker. From the CLI:
+
+```bash
+npm run cli -- sources list                              # linked folders and whether they are reachable
+npm run cli -- sources scan ~/Documents/Reading          # list a parent folder's subdirectories as candidates
+npm run cli -- sources add ~/Documents/Reading/Augustine --type ref-material --name "Augustine"
+npm run cli -- sources remove ~/Documents/Reading/Augustine
+```
+
+`sources add` accepts several paths at once, so a scanned parent folder can be linked in one pass. Folders inside the sync root, overlapping links, and non-directories are rejected. If a linked folder becomes unreachable — an unmounted volume, a cloud folder mid-sync — the sync warns and keeps the record and its indexed document text rather than treating the absence as a deletion.
+
+### Document search inside folders
+
+Every sync walks project and reference-material folders recursively — those in the sync root and linked ones alike — and extracts the text of the files it can read into a full-text index:
 
 | Format | Read from |
 | :--- | :--- |
@@ -142,25 +182,73 @@ npm run cli -- documents status                 # How much is indexed, and which
 npm run cli -- documents index --force          # Re-read every file, ignoring the size/mtime cache
 ```
 
-#### 6. Scriptures
-You do not manually create scriptures! PuzzlePKM automatically scans your topic and daily note bodies for RSVCE Bible citations (e.g. `Romans 3:16`, `1 Corinthians 13:4-8`).
-* **Creation**: Simply mention a valid scripture reference in a note block. On save, PuzzlePKM converts it into an internal scripture object and maintains backlinks to the source notes automatically.
+---
 
-#### 7. Tags
-Tags organize your PKM database.
-* **Via CLI**:
-  ```bash
-  npm run cli -- create tag
-  ```
-* **Implicit Creation**: Tags are automatically created when you add them to any note or object via front matter or the editor tag field.
+## How Your Data Is Stored
 
-#### 8. Links
-Links represent relationships between objects.
-* **Via CLI**:
-  ```bash
-  npm run cli -- create link
-  ```
-* **Implicit Creation**: Simply write internal links in note content using the `@` mention menu in the desktop editor or manual Markdown links `[Label](objectId)`.
+Two things hold your knowledge base, and only one of them is the original.
+
+### The sync folder is the source of truth
+
+Everything you write is a plain file in the folder you configured, in a layout you can read without this app:
+
+```text
+<sync root>/
+├── daily-notes/2026-03-14.md
+├── topic-notes/discernment-notes-5548060a.md
+├── habits/2026-03-14-morning-prayer-e45172.md
+├── projects/<project-slug>/          # your own files, plus meta.yaml
+├── ref-materials/<material-slug>/    # your own files, plus meta.yaml
+└── mobile-inbox/                     # capture drop-box, consumed on sync
+```
+
+Notes and habits are Markdown with YAML front matter. Projects and reference materials are ordinary folders holding whatever you put in them, identified by a small `meta.yaml`:
+
+```yaml
+---
+id: "5548060a-8376-4d4b-a2a2-064805846114"
+type: "topic-note"
+title: "Discernment notes for the retreat"
+date: ""
+tags: ["retreat"]
+linkedObjectIds: []
+createdAt: "2026-03-14T09:12:04.118Z"
+updatedAt: "2026-03-14T09:31:52.740Z"
+---
+
+- Consolation without previous cause <!-- blk-2328f132e1ff -->
+```
+
+The trailing HTML comment on a line is a **block id**. It is what lets another note link to that exact paragraph and survive edits around it; leave it in place when editing files by hand, and omit it when writing new lines — the app assigns one on the next save.
+
+Note that the file does **not** record its own location: sync paths are derived from where a file is actually found, so moving or renaming a folder is something PuzzlePKM follows rather than fights.
+
+### The database is a derived index
+
+The SQLite database is a fast local index over those files, not a second copy of record. It lives outside your sync folder, in the platform application-data directory:
+
+| Platform | Location |
+| :--- | :--- |
+| macOS | `~/Library/Application Support/puzzlepkm/puzzlepkm.sqlite` |
+| Linux | `~/.config/puzzlepkm/` |
+| Windows | `%APPDATA%\puzzlepkm\` |
+
+Because the identity of every object lives in its file's front matter, the database is reconstructible. Deleting it and running `npm run cli -- sync` re-imports the folder and restores your objects with their original ids, links intact. That also means the folder — not the database — is what you back up, and any Markdown editor is a valid second way into your notes.
+
+### The installed app
+
+An installed `PuzzlePKM.app` reads the same database as the CLI in this checkout, so both see one knowledge base. The app bundles its own copy of `cli.mjs` and `cli/` as resources and shells out to them for every operation; it does not need a source tree.
+
+It does need Node. A GUI app launched from the Dock does not inherit your shell `PATH`, so PuzzlePKM tries `node`, then the common Homebrew and MacPorts locations. If Node lives somewhere else — under nvm, for instance — set `PUZZLEPKM_NODE_PATH` to an absolute path.
+
+### Environment variables
+
+| Variable | Purpose |
+| :--- | :--- |
+| `PUZZLEPKM_DB_PATH` | Absolute path to a database file. Useful for a scratch knowledge base while testing. |
+| `PUZZLEPKM_SECRETS_PATH` | Override the settings/secrets file location. |
+| `PUZZLEPKM_NODE_PATH` | Absolute path to the Node binary the desktop app should use. |
+| `PUZZLEPKM_MCP_ALLOW_WRITES` | `true` enables the MCP server's write tools. Anything else keeps it read-only. |
 
 ---
 
@@ -245,11 +333,7 @@ npm run mcp                                    # read-only, stdio transport
 PUZZLEPKM_MCP_ALLOW_WRITES=true npm run mcp    # writes enabled
 ```
 
-| Environment variable | Purpose |
-| :--- | :--- |
-| `PUZZLEPKM_MCP_ALLOW_WRITES` | `true` to enable the write tools. Anything else keeps the server read-only. |
-| `PUZZLEPKM_DB_PATH` | Override the database location. |
-| `PUZZLEPKM_SECRETS_PATH` | Override the settings/secrets file location. |
+`PUZZLEPKM_MCP_ALLOW_WRITES=true` enables the write tools; anything else keeps the server read-only. The database and secrets paths can be overridden with the same variables the CLI uses — see [Environment variables](#environment-variables).
 
 ---
 
@@ -261,6 +345,18 @@ PUZZLEPKM_MCP_ALLOW_WRITES=true npm run mcp    # writes enabled
 npm run build
 npm run lint
 npm run version:check
+```
+
+### Tests
+
+Everything runs on `node --test`; there is no test-runner dependency.
+
+```bash
+npm run test:sync-parser      # sync front matter and markdown parsing
+npm run test:smoke            # CLI create/read/update/delete and sync
+npm run test:mcp              # MCP server protocol and tools
+npm run test:linked-sources   # linked directories (DEC-70)
+npm run test:documents        # document extraction and the search index (DEC-79)
 ```
 
 ### Build a macOS binary locally
@@ -310,15 +406,21 @@ npm run version:check
 
 When changesets reach `main`, GitHub Actions opens or updates a `chore: version packages` PR. Merging that PR bumps versions in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` together.
 
+`.gitignore` excludes markdown, so `.changeset/*.md` and `CHANGELOG.md` are explicitly re-included — commit the changeset with your feature branch or the workflow will find nothing to release.
+
 ### Project Layout
 
 ```text
-cli.mjs     CLI entrypoint
-cli/        CLI command and object modules
-src/        React desktop UI shell
-src-tauri/  Tauri desktop host
-public/     Static assets
-scripts/    Tests and automation helpers
+cli.mjs            CLI entrypoint
+cli/commands/      Command routing
+cli/objects/       Per-object repositories and services
+cli/documents/     Document text extractors (PDF, Word, PowerPoint, Pages, text)
+cli/mcp/           MCP server
+src/               React desktop UI shell
+src-tauri/         Tauri desktop host
+mcpb/              Claude Desktop bundle launcher
+public/            Static assets
+scripts/           Tests and automation helpers
 ```
 
 ---
