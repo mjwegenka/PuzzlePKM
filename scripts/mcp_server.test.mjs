@@ -167,10 +167,42 @@ test('enabled writes create notes and append to daily notes without clobbering',
 
     const habit = toolPayload(await client.call('tools/call', {
       name: 'set_habit',
-      arguments: { text: 'Test habit', status: 'accomplished' },
+      arguments: { name: 'Test habit', targetIntervalDays: 7 },
     }));
     assert.equal(habit.action, 'created');
-    assert.equal(habit.habit.status, 'accomplished');
+    assert.equal(habit.habit.name, 'Test habit');
+    assert.equal(habit.habit.state, 'active');
+    assert.equal(habit.habit.targetIntervalDays, 7);
+
+    // Occurrences are logged separately, and logging the same day twice is a no-op.
+    const logged = toolPayload(await client.call('tools/call', {
+      name: 'log_habit',
+      arguments: { habit: 'Test habit', date: '2026-01-05' },
+    }));
+    assert.equal(logged.action, 'logged');
+    assert.equal(logged.habit.stats.entryCount, 1);
+    const again = toolPayload(await client.call('tools/call', {
+      name: 'log_habit',
+      arguments: { habit: 'Test habit', date: '2026-01-05' },
+    }));
+    assert.equal(again.habit.stats.entryCount, 1);
+
+    const log = toolPayload(await client.call('tools/call', {
+      name: 'get_habit_log',
+      arguments: { to: '2026-01-20' },
+    }));
+    assert.equal(log.habits.length, 1);
+    assert.equal(log.habits[0].name, 'Test habit');
+    // Logged 2026-01-05 with a 7-day target: due 01-12, so 01-20 is 8 days late.
+    assert.equal(log.habits[0].dueOn, '2026-01-12');
+    assert.equal(log.habits[0].dueState, 'overdue');
+    assert.equal(log.habits[0].daysOverdue, 8);
+
+    const retired = toolPayload(await client.call('tools/call', {
+      name: 'set_habit',
+      arguments: { id: habit.habit.id, state: 'retired' },
+    }));
+    assert.equal(retired.habit.state, 'retired');
   } finally {
     client.close();
     rmSync(dir, { recursive: true, force: true });

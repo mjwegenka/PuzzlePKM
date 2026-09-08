@@ -21,6 +21,7 @@ import { createDailyNoteRepository } from './objects/daily-note/repository.mjs';
 import { createDailyNoteService } from './objects/daily-note/service.mjs';
 import { createHabitRepository } from './objects/habit/repository.mjs';
 import { createHabitService } from './objects/habit/service.mjs';
+import { computeHabitStats, normalizeTargetIntervalDays } from './objects/habit/stats.mjs';
 import { createObjectTypeAliasMap } from './objects/index.mjs';
 import { createLinkRepository } from './objects/link/repository.mjs';
 import { createLinkService } from './objects/link/service.mjs';
@@ -41,14 +42,15 @@ const KEYCHAIN_ACCOUNT_EMAIL = 'sync_account_email';
 const KEYCHAIN_ROOT_FOLDER = 'sync_root_folder';
 const MILLISECONDS_PER_MINUTE = 60_000;
 const MAX_NOTE_TITLE_LENGTH = 120;
-const MAX_HABIT_TEXT_LENGTH = 255;
+const MAX_HABIT_NAME_LENGTH = 255;
+const MAX_HABIT_ENTRY_NOTE_LENGTH = 512;
 const PRIMARY_PRODUCT_NAME = 'PuzzlePKM';
 const PRIMARY_CLI_COMMAND = 'puzzlepkm';
 const PRIMARY_DB_ENV_VAR = 'PUZZLEPKM_DB_PATH';
 const PRIMARY_SECRETS_ENV_VAR = 'PUZZLEPKM_SECRETS_PATH';
-const HABIT_STATUS_PLANNED = 'planned';
-const HABIT_STATUS_ACCOMPLISHED = 'accomplished';
-const HABIT_STATUSES = new Set([HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED]);
+const HABIT_STATE_ACTIVE = 'active';
+const HABIT_STATE_RETIRED = 'retired';
+const HABIT_STATES = new Set([HABIT_STATE_ACTIVE, HABIT_STATE_RETIRED]);
 const SHELL_HISTORY_SIZE = 200;
 const DEFAULT_NOTES_ROOT = '/PuzzlePKM';
 const DAILY_NOTES_SUBFOLDER = 'daily-notes';
@@ -155,12 +157,23 @@ const schema = `
 
   CREATE TABLE IF NOT EXISTS habits (
     id TEXT PRIMARY KEY,
-    text TEXT NOT NULL,
-    date TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned', 'accomplished')),
+    name TEXT NOT NULL,
+    target_interval_days INTEGER,
+    state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active', 'retired')),
+    retired_on TEXT,
     sync_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS habit_entries (
+    id TEXT PRIMARY KEY,
+    habit_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(habit_id, date)
   );
 
   CREATE TABLE IF NOT EXISTS tags (
@@ -285,8 +298,10 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_object_links_source_type_id ON object_links(source_type, source_id);
   CREATE INDEX IF NOT EXISTS idx_object_links_target_type_id ON object_links(target_type, target_id);
   CREATE INDEX IF NOT EXISTS idx_sync_state_object_type ON sync_state(object_type, object_id);
-  CREATE INDEX IF NOT EXISTS idx_habits_date ON habits(date);
   CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_habits_state ON habits(state);
+  CREATE INDEX IF NOT EXISTS idx_habit_entries_habit ON habit_entries(habit_id, date);
+  CREATE INDEX IF NOT EXISTS idx_habit_entries_date ON habit_entries(date);
   CREATE INDEX IF NOT EXISTS idx_topic_notes_title ON topic_notes(title);
   CREATE INDEX IF NOT EXISTS idx_topic_notes_updated_at ON topic_notes(updated_at);
   CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at);
@@ -341,20 +356,7 @@ const schema = `
    }
 
     try {
-      // Ensure habits has sync_path and required status migration.
       ensureSyncPathColumn('habits');
-      const habitsColumnsCheck = db.prepare("PRAGMA table_info(habits)").all();
-      if (!habitsColumnsCheck.some(c => c.name === 'status')) {
-        db.prepare(`ALTER TABLE habits ADD COLUMN status TEXT NOT NULL DEFAULT '${HABIT_STATUS_ACCOMPLISHED}'`).run();
-      }
-      db.prepare(`
-        UPDATE habits
-        SET status = CASE
-          WHEN lower(trim(COALESCE(status, ''))) IN ('planned', 'accomplished')
-            THEN lower(trim(status))
-          ELSE '${HABIT_STATUS_PLANNED}'
-        END
-      `).run();
     } catch (e) {
       // Column may already exist or table doesn't exist yet
     }
@@ -466,17 +468,9 @@ function parseCsv(value) {
   ));
 }
 
-function normalizeHabitStatus(value, fallback = HABIT_STATUS_PLANNED) {
+function normalizeHabitState(value, fallback = HABIT_STATE_ACTIVE) {
   const normalized = normalize(String(value ?? '')).toLowerCase();
-  return HABIT_STATUSES.has(normalized) ? normalized : fallback;
-}
-
-function normalizeHabitTagNames(tags) {
-  if (!Array.isArray(tags)) return [];
-  const [first] = tags
-    .map((value) => String(value ?? '').trim())
-    .filter(Boolean);
-  return first ? [first] : [];
+  return HABIT_STATES.has(normalized) ? normalized : fallback;
 }
 
 // Appends the Inbox tag to a tag list if not already present (for multi-tag object types).
@@ -484,14 +478,6 @@ function addInboxTag(tagNames) {
   const names = Array.isArray(tagNames) ? tagNames : [];
   const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
   return hasInbox ? names : [...names, INBOX_TAG_NAME];
-}
-
-// Prepends the Inbox tag for habits (single-tag constraint: DEC-45).
-// Inbox becomes the primary tag; the original remote tag is preserved in the sync file.
-function addInboxTagForHabit(tagNames) {
-  const names = Array.isArray(tagNames) ? tagNames : [];
-  const hasInbox = names.some((t) => t.toLowerCase() === INBOX_TAG_NAME.toLowerCase());
-  return hasInbox ? names : [INBOX_TAG_NAME, ...names];
 }
 
 function mergeRemoteTagsPreservingImportedInbox(existingTagNames, remoteTagNames) {
@@ -509,7 +495,7 @@ function normalizeTagNameForComparison(value) {
 }
 
 function assertPinnedTagAllowedForObjectType(objectType, tagNames) {
-  if (objectType !== 'habit' && objectType !== 'tag') return;
+  if (objectType !== 'tag') return;
   const hasPinnedTag = (Array.isArray(tagNames) ? tagNames : [])
     .some((tag) => normalizeTagNameForComparison(tag) === PINNED_TAG_NAME);
   if (!hasPinnedTag) return;
@@ -1456,7 +1442,171 @@ function openDb() {
   return db;
 }
 
+/**
+ * Rebuilds the pre-practice `habits` table, where one row was a single dated
+ * checkbox (`text`, `date`, `status`), into a named practice plus a log of
+ * dated occurrences.
+ *
+ * Identity comes from the row's first tag, falling back to its text — that is
+ * how the old shape was used in practice, with the tag carrying the name of the
+ * thing being repeated and the text usually empty.
+ */
+function migrateLegacyHabitsToPractices(db) {
+  // This runs before the schema statements, so nothing here may assume a table
+  // exists; an older database has them all, a half-built one may not.
+  const tableExists = (name) => (
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined
+  );
+
+  const columns = db.prepare("PRAGMA table_info(habits)").all();
+  if (columns.length === 0) return null;               // fresh database
+  if (!columns.some((column) => column.name === 'date')) return null; // already migrated
+
+  const hasStatus = columns.some((column) => column.name === 'status');
+  const legacyRows = db.prepare('SELECT * FROM habits').all();
+  const hasTags = tableExists('tags') && tableExists('object_tags');
+  const hasLinks = tableExists('object_links') && tableExists('daily_notes');
+  const tagDisplayNames = hasTags
+    ? new Map(db.prepare('SELECT id, display_name FROM tags').all().map((row) => [row.id, row.display_name]))
+    : new Map();
+  const tagIdsByHabitId = new Map();
+  if (hasTags) {
+    for (const row of db.prepare("SELECT object_id, tag_id FROM object_tags WHERE object_type = 'habit'").all()) {
+      if (!tagIdsByHabitId.has(row.object_id)) tagIdsByHabitId.set(row.object_id, []);
+      tagIdsByHabitId.get(row.object_id).push(row.tag_id);
+    }
+  }
+
+  const groups = new Map();
+  for (const row of legacyRows) {
+    const tagIds = tagIdsByHabitId.get(row.id) ?? [];
+    const firstTagName = tagIds
+      .map((tagId) => String(tagDisplayNames.get(tagId) ?? '').trim())
+      .find(Boolean);
+    const text = String(row.text ?? '').trim();
+    const name = firstTagName || text || 'Untitled habit';
+    const key = name.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { name, tagIds: new Set(), rows: [] });
+    const group = groups.get(key);
+    for (const tagId of tagIds) group.tagIds.add(tagId);
+    group.rows.push({ ...row, text });
+  }
+
+  const now = getIsoNow();
+  const legacyHabitIds = legacyRows.map((row) => row.id);
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(`
+      CREATE TABLE habits_v2 (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        target_interval_days INTEGER,
+        state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active', 'retired')),
+        retired_on TEXT,
+        sync_path TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `).run();
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS habit_entries (
+        id TEXT PRIMARY KEY,
+        habit_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(habit_id, date)
+      )
+    `).run();
+
+    const insertHabit = db.prepare(`
+      INSERT INTO habits_v2 (id, name, target_interval_days, state, retired_on, sync_path, created_at, updated_at)
+      VALUES (?, ?, NULL, ?, NULL, '', ?, ?)
+    `);
+    const insertEntry = db.prepare(`
+      INSERT INTO habit_entries (id, habit_id, date, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(habit_id, date) DO NOTHING
+    `);
+    const insertTag = hasTags ? db.prepare(`
+      INSERT INTO object_tags (object_id, object_type, tag_id)
+      VALUES (?, 'habit', ?)
+      ON CONFLICT(object_id, tag_id) DO NOTHING
+    `) : null;
+    const insertLink = hasLinks ? db.prepare(`
+      INSERT INTO object_links (id, source_id, target_id, source_type, target_type, created_at)
+      VALUES (?, ?, ?, 'habit', 'daily-note', ?)
+      ON CONFLICT(source_id, target_id) DO NOTHING
+    `) : null;
+    const dailyNoteForDate = hasLinks ? db.prepare('SELECT id FROM daily_notes WHERE date = ?') : null;
+
+    // Old per-row tags and links belong to occurrences that are no longer
+    // objects; they are rebuilt below against the new practice ids.
+    const deleteTags = hasTags ? db.prepare("DELETE FROM object_tags WHERE object_type = 'habit' AND object_id = ?") : null;
+    const deleteLinks = hasLinks ? db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?') : null;
+    const deleteSyncState = tableExists('sync_state')
+      ? db.prepare("DELETE FROM sync_state WHERE object_type = 'habit' AND object_id = ?")
+      : null;
+    for (const legacyId of legacyHabitIds) {
+      deleteTags?.run(legacyId);
+      deleteLinks?.run(legacyId, legacyId);
+      deleteSyncState?.run(legacyId);
+    }
+
+    let habitCount = 0;
+    let entryCount = 0;
+    for (const group of groups.values()) {
+      const habitId = randomUUID();
+      const createdAt = group.rows
+        .map((row) => String(row.created_at ?? '').trim())
+        .filter(Boolean)
+        .sort()[0] ?? now;
+      insertHabit.run(habitId, group.name.slice(0, MAX_HABIT_NAME_LENGTH), HABIT_STATE_ACTIVE, createdAt, now);
+      habitCount += 1;
+
+      for (const tagId of group.tagIds) insertTag?.run(habitId, tagId);
+
+      const linkedDailyNoteIds = new Set();
+      for (const row of group.rows) {
+        const date = String(row.date ?? '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        // A legacy row only counts as an occurrence if it actually happened.
+        if (hasStatus && String(row.status ?? '').trim().toLowerCase() === 'planned') continue;
+        // Text that merely restated the habit name adds nothing as an entry note.
+        const note = row.text && row.text.toLowerCase() !== group.name.toLowerCase()
+          ? row.text.slice(0, MAX_HABIT_ENTRY_NOTE_LENGTH)
+          : '';
+        insertEntry.run(row.id, habitId, date, note, row.created_at ?? now, row.updated_at ?? now);
+        entryCount += 1;
+
+        const dailyNote = dailyNoteForDate?.get(date);
+        if (dailyNote?.id && !linkedDailyNoteIds.has(dailyNote.id)) {
+          linkedDailyNoteIds.add(dailyNote.id);
+          insertLink?.run(randomUUID(), habitId, dailyNote.id, now);
+        }
+      }
+    }
+
+    db.prepare('DROP TABLE habits').run();
+    db.prepare('ALTER TABLE habits_v2 RENAME TO habits').run();
+    db.exec('COMMIT');
+    if (habitCount > 0) {
+      console.warn(`[habits] Migrated ${legacyRows.length} dated habit row(s) into ${habitCount} practice(s) with ${entryCount} logged occurrence(s).`);
+    }
+    return { habits: habitCount, entries: entryCount, legacyRows: legacyRows.length };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 function ensureSchema(db) {
+  // Runs before the schema statements: the legacy `habits` table lacks the
+  // `state` column that idx_habits_state indexes, so the rebuild has to happen
+  // first or schema application fails outright.
+  migrateLegacyHabitsToPractices(db);
   for (const statement of schema.split(';').map((part) => part.trim()).filter(Boolean)) {
     db.prepare(statement).run();
   }
@@ -1540,10 +1690,9 @@ function backfillMissingSyncPaths(db) {
     }
   }
 
-  const missingHabit = db.prepare("SELECT id, date, sync_path FROM habits WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
+  const missingHabit = db.prepare("SELECT id, name, sync_path FROM habits WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingHabit) {
-    const tags = getTagDisplayNames(db, row.id);
-    db.prepare('UPDATE habits SET sync_path = ? WHERE id = ?').run(habitSyncPath(rootFolder, row.id, row.date, tags), row.id);
+    db.prepare('UPDATE habits SET sync_path = ? WHERE id = ?').run(habitSyncPath(rootFolder, row.name, row.id), row.id);
   }
 
   // Safety pass for any legacy placeholder value persisted from older flows.
@@ -2026,7 +2175,7 @@ function lookupObjectSummary(db, id, typeHint) {
       UNION ALL
       SELECT id, 'ref-material' AS type, name AS label, '' AS date, sync_path AS sync_path, '' AS passage_url FROM ref_materials
       UNION ALL
-      SELECT id, 'habit' AS type, text AS label, date, sync_path AS sync_path, '' AS passage_url FROM habits
+      SELECT id, 'habit' AS type, name AS label, '' AS date, sync_path AS sync_path, '' AS passage_url FROM habits
       UNION ALL
       SELECT id, 'scripture' AS type, reference AS label, '' AS date, '' AS sync_path, passage_url AS passage_url FROM scriptures
     )
@@ -2668,26 +2817,30 @@ const {
 
 let habitService;
 const habitRepository = createHabitRepository({
-  HABIT_STATUS_PLANNED,
+  HABIT_STATE_ACTIVE,
   cleanupDailyNotesIfEligible,
   clearSyncState,
   collectDateLinkTargets,
   getIsoNow,
   getTagDisplayNames,
   getTagDisplayNamesMap,
-  normalizeHabitStatus,
-  normalizeHabitTagNames,
-  sanitizeHabitText: (...args) => habitService.sanitizeHabitText(...args),
+  localDateString,
+  normalizeHabitState,
+  randomUUID,
+  sanitizeHabitEntryNote: (...args) => habitService.sanitizeHabitEntryNote(...args),
+  sanitizeHabitName: (...args) => habitService.sanitizeHabitName(...args),
   syncNoteObjectLinks,
   syncObjectTags,
   withTransaction,
 });
 habitService = createHabitService({
-  MAX_HABIT_TEXT_LENGTH,
+  HABIT_STATE_ACTIVE,
+  HABIT_STATE_RETIRED,
+  MAX_HABIT_ENTRY_NOTE_LENGTH,
+  MAX_HABIT_NAME_LENGTH,
   createHabitRecord: habitRepository.createHabitRecord,
   getHabit: habitRepository.getHabit,
   getIsoNow,
-  localDateString,
   prompt,
   promptList,
   randomUUID,
@@ -2698,11 +2851,15 @@ const {
   updateHabitInteractive,
 } = habitService;
 const {
+  addHabitEntry,
   createHabitRecord,
   deleteHabitRecord,
   getHabit,
+  listHabitEntries,
   listHabits,
   listHabitsForSync,
+  removeHabitEntry,
+  resolveHabitRow,
   updateHabitRecord,
 } = habitRepository;
 
@@ -2910,9 +3067,13 @@ function printRecords(type, rows) {
       case 'scripture-chapter':
         console.log(`${row.id}\t${listField(row.reference)}\t${row.noteCount ?? 0} notes\t${row.referenceCount ?? 0} refs`);
         break;
-       case 'habit':
-         console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
+       case 'habit': {
+         const stats = row.stats ?? {};
+         const cadence = stats.intervalDays ? `every ~${stats.intervalDays}d` : 'no cadence yet';
+         const last = stats.lastDate ? `last ${stats.lastDate} (${stats.daysSinceLast}d ago)` : 'never logged';
+         console.log(`${row.id}\t${listField(row.name)}\t${row.state}\t${stats.entryCount ?? 0} entries\t${cadence}\t${last}\t${stats.state ?? ''}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
          break;
+       }
        case 'tag':
          console.log(`${row.id}\t${row.displayName}\t${row.objectCount} objects`);
          break;
@@ -3455,16 +3616,16 @@ function refMaterialMetaPath(rootFolder, slug) {
   return `${refMaterialDirectoryPath(rootFolder, slug)}/meta.yaml`;
 }
 
-// DEC-20: Generate habit filename from date, first tag, and last 6 chars of ID
-function habitFilename(id, date, tagNames) {
-  const shortId = id.slice(-6);
-  const firstTag = tagNames && tagNames.length > 0 ? tagNames[0] : '';
-  return `${date}-${firstTag}-${shortId}.md`;
+// One file per practice, named from the habit rather than from a single date:
+// the whole log now lives in one file (supersedes the per-entry DEC-19 naming).
+function habitFilename(name, id) {
+  const slug = slugify(name || 'untitled');
+  const suffix = id ? `-${id.slice(0, 8)}` : '';
+  return `${slug}${suffix}.md`;
 }
 
-function habitSyncPath(rootFolder, id, date, tagNames) {
-  const filename = habitFilename(id, date, tagNames);
-  return `${habitsFolderPath(rootFolder)}/${filename}`;
+function habitSyncPath(rootFolder, name, id) {
+  return `${habitsFolderPath(rootFolder)}/${habitFilename(name, id)}`;
 }
 
 // DEC-80: projects/ and ref-materials/ are deliberately absent. Linking a directory
@@ -3506,8 +3667,12 @@ function serializeMetaYaml(data) {
 function serializeFrontMatter(data) {
   const lines = ['---'];
   for (const [key, value] of Object.entries(data)) {
+    // Omitted rather than written as "null": an absent key reads as "not set".
+    if (value === null || value === undefined) continue;
     if (Array.isArray(value)) {
       lines.push(`${key}: ${yamlStringArray(value)}`);
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      lines.push(`${key}: ${value}`);
     } else {
       lines.push(`${key}: ${JSON.stringify(String(value))}`);
     }
@@ -3583,18 +3748,48 @@ function refMaterialToMetaYaml(fields) {
   });
 }
 
+const HABIT_LOG_HEADING = '## Log';
+
+/**
+ * One file per practice: front matter describes the habit, the body lists every
+ * occurrence newest-first so the history is readable outside the app.
+ */
 function habitToMarkdown(fields) {
+  const state = normalizeHabitState(fields.state, HABIT_STATE_ACTIVE);
   const fm = serializeFrontMatter({
     id: fields.id,
     type: 'habit',
-    text: fields.text,
-    date: fields.date,
-    status: normalizeHabitStatus(fields.status, HABIT_STATUS_PLANNED),
-    tags: normalizeHabitTagNames(fields.tagNames),
+    name: fields.name,
+    targetIntervalDays: normalizeTargetIntervalDays(fields.targetIntervalDays),
+    state,
+    retiredOn: state === HABIT_STATE_RETIRED ? (fields.retiredOn || null) : null,
+    tags: Array.isArray(fields.tagNames) ? fields.tagNames : [],
     createdAt: fields.createdAt,
     updatedAt: fields.updatedAt,
   });
-  return `${fm}\n`;
+  const entries = [...(fields.entries ?? [])]
+    .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.date ?? '')))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const lines = entries.map((entry) => {
+    const note = String(entry.note ?? '').trim();
+    return note ? `- ${entry.date} — ${note}` : `- ${entry.date}`;
+  });
+  return `${fm}\n\n${HABIT_LOG_HEADING}\n${lines.join('\n')}\n`;
+}
+
+/** `- YYYY-MM-DD` with an optional ` — note` after an em dash, en dash, or hyphen. */
+function parseHabitLogBody(body) {
+  const entries = [];
+  const seen = new Set();
+  for (const line of String(body ?? '').split(/\r?\n/)) {
+    const match = /^\s*[-*]\s+(\d{4}-\d{2}-\d{2})\s*(?:[—–-]\s*(.*))?$/.exec(line);
+    if (!match) continue;
+    const [, date, note] = match;
+    if (seen.has(date)) continue;
+    seen.add(date);
+    entries.push({ date, note: String(note ?? '').trim() });
+  }
+  return entries.sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
 function parseDailyNoteMarkdown(content) {
@@ -3687,19 +3882,49 @@ function parseRefMaterialSyncFolderEntry(content, folder) {
   };
 }
 
+/**
+ * Parses both shapes found in a habits/ folder: the current one-file-per-practice
+ * format, and the legacy one-file-per-occurrence format (front matter carrying a
+ * `date`, no log body), which reconciliation folds into a practice and deletes.
+ */
 function parseHabitMarkdown(content) {
-  const { data } = parseFrontMatter(content);
+  const { data, body } = parseFrontMatter(content);
   if (typeof data.id !== 'string' || !data.id) return null;
-  if (typeof data.text !== 'string') return null;
-  if (typeof data.date !== 'string' || !data.date) return null;
+  const createdAt = typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString();
+  const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString();
+  const tagNames = Array.isArray(data.tags) ? data.tags.map(String).filter(Boolean) : [];
+
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+  const hasLogSection = body.includes(HABIT_LOG_HEADING);
+  const looksLegacy = !name && typeof data.date === 'string' && data.date && !hasLogSection;
+
+  if (looksLegacy) {
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    return {
+      legacy: true,
+      id: data.id,
+      // Identity came from the tag, falling back to the text (see the DB migration).
+      name: tagNames[0] || text || 'Untitled habit',
+      date: data.date,
+      note: text,
+      tagNames,
+      createdAt,
+      updatedAt,
+    };
+  }
+
+  if (!name) return null;
   return {
+    legacy: false,
     id: data.id,
-    text: data.text,
-    date: data.date,
-    status: normalizeHabitStatus(data.status, HABIT_STATUS_ACCOMPLISHED),
-    tagNames: normalizeHabitTagNames(Array.isArray(data.tags) ? data.tags.map(String) : []),
-    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
-    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+    name,
+    targetIntervalDays: normalizeTargetIntervalDays(data.targetIntervalDays),
+    state: normalizeHabitState(data.state, HABIT_STATE_ACTIVE),
+    retiredOn: typeof data.retiredOn === 'string' && data.retiredOn ? data.retiredOn : null,
+    entries: parseHabitLogBody(body),
+    tagNames,
+    createdAt,
+    updatedAt,
   };
 }
 
@@ -3785,11 +4010,29 @@ function shouldApplyRemoteHabit(existing, remote) {
   const localUpdatedAt = new Date(existing.updatedAt ?? 0).getTime();
   if (remoteUpdatedAt > localUpdatedAt) return true;
   if (remoteUpdatedAt < localUpdatedAt) return false;
-  if ((remote.text ?? '') !== (existing.text ?? '')) return true;
-  if ((remote.date ?? '') !== (existing.date ?? '')) return true;
-  if (normalizeHabitStatus(remote.status, HABIT_STATUS_ACCOMPLISHED) !== normalizeHabitStatus(existing.status, HABIT_STATUS_PLANNED)) return true;
+  if ((remote.name ?? '') !== (existing.name ?? '')) return true;
+  if ((remote.targetIntervalDays ?? null) !== (existing.targetIntervalDays ?? null)) return true;
+  if (normalizeHabitState(remote.state, HABIT_STATE_ACTIVE) !== normalizeHabitState(existing.state, HABIT_STATE_ACTIVE)) return true;
+  if ((remote.retiredOn ?? '') !== (existing.retiredOn ?? '')) return true;
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  if (!sameHabitEntryLog(remote.entries, existing.entries)) return true;
   return false;
+}
+
+/** Occurrence logs match when the same dates carry the same notes. */
+function sameHabitEntryLog(remoteEntries, existingEntries) {
+  const toMap = (entries) => new Map(
+    (Array.isArray(entries) ? entries : [])
+      .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(String(entry?.date ?? '')))
+      .map((entry) => [entry.date, String(entry.note ?? '').trim()]),
+  );
+  const remote = toMap(remoteEntries);
+  const existing = toMap(existingEntries);
+  if (remote.size !== existing.size) return false;
+  for (const [date, note] of remote) {
+    if (!existing.has(date) || existing.get(date) !== note) return false;
+  }
+  return true;
 }
 
 // ── Local sync transport helpers ──────────────────────────────────────────────
@@ -4530,39 +4773,95 @@ async function reconcileHabitsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
   const { items: syncItems, folderFound } = await fetchAllHabitsFromSyncFolder(token, rootFolder);
-  const syncById = new Map(syncItems.map((item) => [item.id, item]));
+  const practiceItems = syncItems.filter((item) => !item.legacy);
+  const legacyItems = syncItems.filter((item) => item.legacy);
 
-   for (const fields of syncItems) {
-     try {
-       const existing = getHabit(db, fields.id);
-        if (!existing) {
-          createHabitRecord(db, {
-            id: fields.id,
-            text: fields.text,
-            date: fields.date,
-            status: fields.status,
-            syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.id, fields.date, fields.tagNames),
-            tags: addInboxTagForHabit(fields.tagNames),
-            createdAt: fields.createdAt,
-            updatedAt: fields.updatedAt,
-         });
-         result.imported++;
-        } else if (shouldApplyRemoteHabit(existing, fields)) {
-          updateHabitRecord(db, existing.id, {
-            text: fields.text,
-            date: fields.date,
-            status: fields.status,
-            syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.id, fields.date, fields.tagNames),
-            tags: fields.tagNames,
-            updatedAt: fields.updatedAt,
-          });
-         result.updated++;
-       }
-       markRemotePresence(db, 'habit', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
-     } catch (e) {
-       result.errors.push(`habit ${fields.id}: ${String(e)}`);
-     }
-   }
+  // Legacy per-occurrence files fold into the practice they belong to and are
+  // then removed, so habits/ converges on one file per practice.
+  const absorbedLegacyPaths = [];
+  const legacyByName = new Map();
+  for (const item of legacyItems) {
+    const key = item.name.toLowerCase();
+    if (!legacyByName.has(key)) legacyByName.set(key, { name: item.name, tagNames: item.tagNames, entries: [], paths: [] });
+    const group = legacyByName.get(key);
+    group.entries.push({ date: item.date, note: item.note });
+    group.paths.push(item.syncPath);
+  }
+
+  for (const group of legacyByName.values()) {
+    try {
+      const target = practiceItems.find((item) => item.name.toLowerCase() === group.name.toLowerCase())
+        ?? resolveHabitRow(db, group.name);
+      if (target) {
+        const existingEntries = target.entries ?? getHabit(db, target.id)?.entries ?? [];
+        const merged = new Map(existingEntries.map((entry) => [entry.date, entry]));
+        for (const entry of group.entries) {
+          if (!merged.has(entry.date)) merged.set(entry.date, entry);
+        }
+        const mergedEntries = Array.from(merged.values());
+        if (target.entries) {
+          target.entries = mergedEntries;
+        } else {
+          updateHabitRecord(db, target.id, { entries: mergedEntries, updatedAt: getIsoNow() });
+        }
+      } else {
+        const id = randomUUID();
+        const now = getIsoNow();
+        createHabitRecord(db, {
+          id,
+          name: group.name,
+          state: HABIT_STATE_ACTIVE,
+          entries: group.entries,
+          syncPath: habitSyncPath(rootFolder, group.name, id),
+          tags: addInboxTag(group.tagNames),
+          createdAt: now,
+          updatedAt: now,
+        });
+        result.imported++;
+      }
+      absorbedLegacyPaths.push(...group.paths);
+    } catch (e) {
+      result.errors.push(`habit legacy import ${group.name}: ${String(e)}`);
+    }
+  }
+
+  const syncById = new Map(practiceItems.map((item) => [item.id, item]));
+
+  for (const fields of practiceItems) {
+    try {
+      const existing = getHabit(db, fields.id);
+      if (!existing) {
+        createHabitRecord(db, {
+          id: fields.id,
+          name: fields.name,
+          targetIntervalDays: fields.targetIntervalDays,
+          state: fields.state,
+          retiredOn: fields.retiredOn,
+          entries: fields.entries,
+          syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.name, fields.id),
+          tags: addInboxTag(fields.tagNames),
+          createdAt: fields.createdAt,
+          updatedAt: fields.updatedAt,
+        });
+        result.imported++;
+      } else if (shouldApplyRemoteHabit(existing, fields)) {
+        updateHabitRecord(db, existing.id, {
+          name: fields.name,
+          targetIntervalDays: fields.targetIntervalDays,
+          state: fields.state,
+          retiredOn: fields.retiredOn,
+          entries: fields.entries,
+          syncPath: fields.syncPath || habitSyncPath(rootFolder, fields.name, fields.id),
+          tags: fields.tagNames,
+          updatedAt: fields.updatedAt,
+        });
+        result.updated++;
+      }
+      markRemotePresence(db, 'habit', fields.id, fields.serverModified ?? fields.updatedAt ?? getIsoNow());
+    } catch (e) {
+      result.errors.push(`habit ${fields.id}: ${String(e)}`);
+    }
+  }
 
   const localItems = listHabitsForSync(db);
   if (!folderFound) {
@@ -4573,37 +4872,54 @@ async function reconcileHabitsDb(db, token, rootFolder) {
     return result;
   }
 
-   for (const item of localItems) {
-     if (!syncById.has(item.id)) {
-       try {
-         if (hasKnownRemoteCopy(db, 'habit', item.id)) {
-           if (deleteHabitRecord(db, item.id)) {
-             result.deleted++;
-           }
-         } else {
-           await syncUploadText(habitSyncPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
-           markRemotePresence(db, 'habit', item.id, getIsoNow());
-           result.uploaded++;
-         }
-       } catch (e) {
-         result.errors.push(`habit reconcile ${item.id}: ${String(e)}`);
-       }
-     } else {
-       const remoteItem = syncById.get(item.id);
-       if (remoteItem) {
-         const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
-         const localTime = new Date(item.updatedAt ?? 0).getTime();
-         if (localTime > remoteTime) {
-           try {
-             await syncUploadText(habitSyncPath(rootFolder, item.id, item.date, item.tagNames), habitToMarkdown(item));
-             result.uploaded++;
-           } catch (e) {
-             result.errors.push(`habit upload ${item.id}: ${String(e)}`);
-           }
-         }
-       }
-     }
-   }
+  for (const item of localItems) {
+    const canonicalPath = habitSyncPath(rootFolder, item.name, item.id);
+    if (!syncById.has(item.id)) {
+      try {
+        // A habit only counts as remotely deleted if it was never a legacy file
+        // we just absorbed — those were consumed, not removed by the user.
+        if (hasKnownRemoteCopy(db, 'habit', item.id) && absorbedLegacyPaths.length === 0) {
+          if (deleteHabitRecord(db, item.id)) {
+            result.deleted++;
+          }
+        } else {
+          await syncUploadText(canonicalPath, habitToMarkdown(item));
+          markRemotePresence(db, 'habit', item.id, getIsoNow());
+          result.uploaded++;
+        }
+      } catch (e) {
+        result.errors.push(`habit reconcile ${item.id}: ${String(e)}`);
+      }
+    } else {
+      const remoteItem = syncById.get(item.id);
+      if (remoteItem) {
+        const remoteTime = new Date(remoteItem.updatedAt ?? 0).getTime();
+        const localTime = new Date(item.updatedAt ?? 0).getTime();
+        const renamed = normalizeSyncPath(remoteItem.syncPath) !== normalizeSyncPath(canonicalPath);
+        if (localTime > remoteTime || renamed) {
+          try {
+            await syncUploadText(canonicalPath, habitToMarkdown(item));
+            // Renaming leaves the old slug behind; drop it so the folder stays clean.
+            if (renamed && remoteItem.syncPath) await deleteSyncPath(remoteItem.syncPath);
+            result.uploaded++;
+          } catch (e) {
+            result.errors.push(`habit upload ${item.id}: ${String(e)}`);
+          }
+        }
+      }
+    }
+    if (normalizeSyncPath(item.syncPath) !== normalizeSyncPath(canonicalPath)) {
+      db.prepare('UPDATE habits SET sync_path = ? WHERE id = ?').run(canonicalPath, item.id);
+    }
+  }
+
+  for (const path of absorbedLegacyPaths) {
+    try {
+      await deleteSyncPath(path);
+    } catch (e) {
+      result.warnings.push(`Could not remove legacy habit file ${path}: ${String(e)}`);
+    }
+  }
 
   return result;
 }
@@ -5584,6 +5900,14 @@ Usage:
                            Delete an object
   ${PRIMARY_CLI_COMMAND} browse [target] Browse notes, directories, files, or all objects
 
+Habits (a habit is a named practice; its history is a log of dated occurrences):
+  ${PRIMARY_CLI_COMMAND} habit list [--as-of YYYY-MM-DD] [--include-retired]
+                           Every habit as JSON with its cadence, gaps, and due state
+  ${PRIMARY_CLI_COMMAND} habit log <id-or-name> [YYYY-MM-DD] [note]
+                           Record an occurrence (defaults to today; logging a day twice is a no-op)
+  ${PRIMARY_CLI_COMMAND} habit unlog <id-or-name> <YYYY-MM-DD>
+                           Remove a logged occurrence
+
 Documents (text inside project / ref-material folders, indexed on every sync):
   ${PRIMARY_CLI_COMMAND} documents search <query> [--limit N] [--type project|ref-material] [--object <id>] [--json]
                              Full-text search inside indexed PDFs, Word files, and Markdown
@@ -5634,7 +5958,8 @@ function createCommandContext(rl) {
     rl,
     PRIMARY_CLI_COMMAND,
     SYNC_INTERVAL_MINUTES_DEFAULT,
-    HABIT_STATUS_PLANNED,
+    HABIT_STATE_ACTIVE,
+    HABIT_STATE_RETIRED,
     randomUUID,
     normalize,
     withDb,
@@ -5646,7 +5971,11 @@ function createCommandContext(rl) {
     createDailyNoteRecord,
     createProjectRecord,
     createRefMatRecord,
+    addHabitEntry,
     createHabitRecord,
+    listHabits,
+    removeHabitEntry,
+    resolveHabitRow,
     updateTopicNoteRecord,
     updateDailyNoteRecord,
     updateProjectRecord,
@@ -5810,6 +6139,7 @@ export const __testing = {
   listTopicNotes,
   listProjects,
   listRefMats,
+  listHabitEntries,
   listHabits,
   listScriptures,
   getDailyNote,
@@ -5826,8 +6156,8 @@ export const __testing = {
 export const mcpInternals = {
   // Product metadata
   PRIMARY_PRODUCT_NAME,
-  HABIT_STATUS_PLANNED,
-  HABIT_STATUS_ACCOMPLISHED,
+  HABIT_STATE_ACTIVE,
+  HABIT_STATE_RETIRED,
   SCRIPTURE_TYPE,
   dbFile,
 
@@ -5864,10 +6194,16 @@ export const mcpInternals = {
   listDailyNotes,
 
   // Habits
+  addHabitEntry,
+  computeHabitStats,
   createHabitRecord,
-  updateHabitRecord,
+  deleteHabitRecord,
   getHabit,
+  listHabitEntries,
   listHabits,
+  removeHabitEntry,
+  resolveHabitRow,
+  updateHabitRecord,
 
   // Tags and links
   createTagRecord,

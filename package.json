@@ -18,6 +18,7 @@
     "test:mcp": "node --no-warnings --test ./scripts/mcp_server.test.mjs",
     "test:linked-sources": "node --no-warnings --test ./scripts/linked_sources.test.mjs",
     "test:documents": "node --no-warnings --test ./scripts/document_index.test.mjs",
+    "test:habits": "node --no-warnings --test ./scripts/habits.test.mjs",
     "benchmark:sqlite": "node ./scripts/sqlite_benchmark.mjs",
     "issues:queue": "node ./scripts/issue_sequence_runner.mjs",
     "issues:queue:apply": "node ./scripts/issue_sequence_runner.mjs --apply",

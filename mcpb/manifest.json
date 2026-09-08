@@ -4,7 +4,7 @@
   "display_name": "PuzzlePKM",
   "version": "1.4.0",
   "description": "Search, traverse, and extend your local PuzzlePKM knowledge base.",
-  "long_description": "Gives Claude read access to the PuzzlePKM knowledge base on this machine: full-text search down to the individual note block and into the PDFs, Word documents, PowerPoint decks, Pages documents, Markdown and text files stored in project and reference-material folders, the link graph between notes, projects, reference materials, habits and tags, the scripture references PuzzlePKM extracts from note bodies, habit streaks, and a health report covering unlinked notes and Inbox backlog. Optional write tools can create topic notes, append to the day's daily note, set habits, and run a folder sync. Reads and writes go through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths stay correct. Everything runs against the local SQLite database; nothing leaves your machine. Writes are disabled unless you turn them on below.",
+  "long_description": "Gives Claude read access to the PuzzlePKM knowledge base on this machine: full-text search down to the individual note block and into the PDFs, Word documents, PowerPoint decks, Pages documents, Markdown and text files stored in project and reference-material folders, the link graph between notes, projects, reference materials, habits and tags, the scripture references PuzzlePKM extracts from note bodies, habit consistency, and a health report covering unlinked notes and Inbox backlog. Optional write tools can create topic notes, append to the day's daily note, set and log habits, and run a folder sync. Reads and writes go through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths stay correct. Everything runs against the local SQLite database; nothing leaves your machine. Writes are disabled unless you turn them on below.",
   "author": {
     "name": "PuzzlePKM"
   },
@@ -42,7 +42,7 @@
     "allow_writes": {
       "type": "boolean",
       "title": "Allow writing to the knowledge base",
-      "description": "Leave off to keep Claude read-only. When on, Claude can create topic notes, append to daily notes, set habits, and run a folder sync. Reading is always available.",
+      "description": "Leave off to keep Claude read-only. When on, Claude can create topic notes, append to daily notes, set and log habits, and run a folder sync. Reading is always available.",
       "required": false,
       "default": false
     },
@@ -115,7 +115,7 @@
     },
     {
       "name": "get_habit_log",
-      "description": "Habit history with completion rates and current streaks"
+      "description": "Per-habit consistency: cadence, gap since the last occurrence, and due state"
     },
     {
       "name": "list_tags",
@@ -143,7 +143,11 @@
     },
     {
       "name": "set_habit",
-      "description": "Create or update a habit, including marking it accomplished (requires writes)"
+      "description": "Create a habit, rename it, set its target interval, or retire it (requires writes)"
+    },
+    {
+      "name": "log_habit",
+      "description": "Record that a habit was practised on a date, or remove an occurrence (requires writes)"
     },
     {
       "name": "sync_now",

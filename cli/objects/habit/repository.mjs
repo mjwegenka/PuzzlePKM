@@ -1,105 +1,241 @@
-export function createHabitRepository(deps) {
-  const { collectDateLinkTargets, getIsoNow, getTagDisplayNames, getTagDisplayNamesMap, normalizeHabitStatus, normalizeHabitTagNames, syncNoteObjectLinks, syncObjectTags, withTransaction } = deps;
+import { computeHabitStats, normalizeTargetIntervalDays } from './stats.mjs';
 
-  function getHabit(db, id) {
-    const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
-    if (!row) return null;
-    const tags = getTagDisplayNames(db, row.id);
+export function createHabitRepository(deps) {
+  const {
+    collectDateLinkTargets,
+    getIsoNow,
+    getTagDisplayNames,
+    getTagDisplayNamesMap,
+    localDateString,
+    normalizeHabitState,
+    randomUUID,
+    syncNoteObjectLinks,
+    syncObjectTags,
+    withTransaction,
+    HABIT_STATE_ACTIVE,
+  } = deps;
+
+  function listEntryRows(db, habitId) {
+    return db
+      .prepare('SELECT id, habit_id, date, note, created_at, updated_at FROM habit_entries WHERE habit_id = ? ORDER BY date ASC')
+      .all(habitId);
+  }
+
+  function toEntry(row) {
     return {
       id: row.id,
-      type: 'habit',
-      text: row.text,
+      habitId: row.habit_id,
       date: row.date,
-      status: normalizeHabitStatus(row.status, deps.HABIT_STATUS_PLANNED),
-      syncPath: row.sync_path || '',
-      tags,
+      note: row.note ?? '',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  function listHabits(db) {
-    const rows = db.prepare('SELECT * FROM habits ORDER BY date DESC, created_at ASC').all();
-    const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-    return rows.map((row) => ({
+  function toHabit(row, tags, entries, asOfDate) {
+    const habit = {
       id: row.id,
-      text: row.text,
-      contentSearch: row.text,
-      date: row.date,
-      status: normalizeHabitStatus(row.status, deps.HABIT_STATUS_PLANNED),
+      type: 'habit',
+      name: row.name,
+      targetIntervalDays: normalizeTargetIntervalDays(row.target_interval_days),
+      state: normalizeHabitState(row.state, HABIT_STATE_ACTIVE),
+      retiredOn: row.retired_on || null,
       syncPath: row.sync_path || '',
-      tags: tagNamesByObjectId.get(row.id) ?? [],
+      tags,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    }));
+    };
+    return { ...habit, entries, stats: computeHabitStats(habit, entries, asOfDate ?? localDateString()) };
+  }
+
+  /** Accepts an id or, for convenience at the CLI, an exact (case-insensitive) name. */
+  function resolveHabitRow(db, reference) {
+    const value = String(reference ?? '').trim();
+    if (!value) return null;
+    return db.prepare('SELECT * FROM habits WHERE id = ?').get(value)
+      ?? db.prepare('SELECT * FROM habits WHERE lower(name) = lower(?) ORDER BY created_at ASC').get(value)
+      ?? null;
+  }
+
+  function getHabit(db, reference, asOfDate) {
+    const row = resolveHabitRow(db, reference);
+    if (!row) return null;
+    const entries = listEntryRows(db, row.id).map(toEntry);
+    return toHabit(row, getTagDisplayNames(db, row.id), entries, asOfDate);
+  }
+
+  function listHabits(db, options = {}) {
+    const { includeRetired = true, asOfDate } = options;
+    const rows = db.prepare('SELECT * FROM habits ORDER BY name COLLATE NOCASE ASC').all();
+    const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
+    const entryRows = db
+      .prepare('SELECT id, habit_id, date, note, created_at, updated_at FROM habit_entries ORDER BY date ASC')
+      .all();
+    const entriesByHabitId = new Map();
+    for (const row of entryRows) {
+      if (!entriesByHabitId.has(row.habit_id)) entriesByHabitId.set(row.habit_id, []);
+      entriesByHabitId.get(row.habit_id).push(toEntry(row));
+    }
+    return rows
+      .map((row) => {
+        const habit = toHabit(
+          row,
+          tagNamesByObjectId.get(row.id) ?? [],
+          entriesByHabitId.get(row.id) ?? [],
+          asOfDate,
+        );
+        // Search indexes the name; there is no other free text on a practice.
+        return { ...habit, contentSearch: habit.name };
+      })
+      .filter((habit) => includeRetired || habit.state === HABIT_STATE_ACTIVE);
+  }
+
+  /** Every date this habit has been practised links it to that day's daily note (DEC-43). */
+  function syncHabitDateLinks(db, habitId) {
+    const dates = listEntryRows(db, habitId).map((row) => row.date);
+    const removedDailyNoteIds = syncNoteObjectLinks(db, habitId, 'habit', collectDateLinkTargets(db, dates));
+    deps.cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
   }
 
   function createHabitRecord(db, input) {
-    const sanitized = deps.sanitizeHabitText(input.text);
-    const tags = normalizeHabitTagNames(input.tags);
-    const status = normalizeHabitStatus(input.status, deps.HABIT_STATUS_PLANNED);
+    const name = deps.sanitizeHabitName(input.name);
+    const state = normalizeHabitState(input.state, HABIT_STATE_ACTIVE);
     return withTransaction(db, () => {
-      const syncPath = input.syncPath || '';
       db.prepare(`
-        INSERT INTO habits (id, text, date, status, sync_path, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(input.id, sanitized.text, input.date, status, syncPath, input.createdAt, input.updatedAt);
-      syncObjectTags(db, input.id, 'habit', tags);
-      syncNoteObjectLinks(db, input.id, 'habit', collectDateLinkTargets(db, [input.date]));
-      return { ...getHabit(db, input.id), truncated: sanitized.truncated };
+        INSERT INTO habits (id, name, target_interval_days, state, retired_on, sync_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.id,
+        name.text,
+        normalizeTargetIntervalDays(input.targetIntervalDays),
+        state,
+        state === HABIT_STATE_ACTIVE ? null : (input.retiredOn || localDateString()),
+        input.syncPath || '',
+        input.createdAt,
+        input.updatedAt,
+      );
+      syncObjectTags(db, input.id, 'habit', input.tags ?? []);
+      for (const entry of input.entries ?? []) {
+        addHabitEntryRow(db, input.id, entry.date, entry.note, entry.id);
+      }
+      syncHabitDateLinks(db, input.id);
+      return { ...getHabit(db, input.id), truncated: name.truncated };
     });
   }
 
-  function updateHabitRecord(db, id, input) {
-    const existing = getHabit(db, id);
+  function updateHabitRecord(db, reference, input) {
+    const existing = getHabit(db, reference);
     if (!existing) return null;
     const fields = ['updated_at = ?'];
     const values = [input.updatedAt ?? getIsoNow()];
     let truncated = false;
 
-    if (input.text !== undefined) {
-      const sanitized = deps.sanitizeHabitText(input.text);
-      truncated = sanitized.truncated;
-      fields.push('text = ?');
-      values.push(sanitized.text);
+    if (input.name !== undefined) {
+      const name = deps.sanitizeHabitName(input.name);
+      truncated = name.truncated;
+      fields.push('name = ?');
+      values.push(name.text);
     }
-    if (input.date !== undefined) {
-      fields.push('date = ?');
-      values.push(input.date);
+    if (input.targetIntervalDays !== undefined) {
+      fields.push('target_interval_days = ?');
+      values.push(normalizeTargetIntervalDays(input.targetIntervalDays));
     }
-    if (input.status !== undefined) {
-      fields.push('status = ?');
-      values.push(normalizeHabitStatus(input.status, existing.status));
+    if (input.state !== undefined) {
+      const state = normalizeHabitState(input.state, existing.state);
+      fields.push('state = ?');
+      values.push(state);
+      // Retiring stamps the date so history reads correctly later; reactivating clears it.
+      fields.push('retired_on = ?');
+      values.push(state === HABIT_STATE_ACTIVE ? null : (input.retiredOn || existing.retiredOn || localDateString()));
     }
     if (input.syncPath !== undefined) {
       fields.push('sync_path = ?');
       values.push(input.syncPath);
     }
 
-    values.push(id);
+    values.push(existing.id);
 
     return withTransaction(db, () => {
       db.prepare(`UPDATE habits SET ${fields.join(', ')} WHERE id = ?`).run(...values);
       if (input.tags !== undefined) {
-        syncObjectTags(db, id, 'habit', normalizeHabitTagNames(input.tags));
+        syncObjectTags(db, existing.id, 'habit', input.tags);
       }
-      const nextDate = input.date ?? existing.date;
-      const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'habit', collectDateLinkTargets(db, [nextDate]));
-      deps.cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
-      return { ...getHabit(db, id), truncated };
+      if (Array.isArray(input.entries)) {
+        replaceHabitEntries(db, existing.id, input.entries);
+      }
+      syncHabitDateLinks(db, existing.id);
+      return { ...getHabit(db, existing.id), truncated };
     });
   }
 
-  function deleteHabitRecord(db, id) {
+  function addHabitEntryRow(db, habitId, date, note, id) {
+    const now = getIsoNow();
+    db.prepare(`
+      INSERT INTO habit_entries (id, habit_id, date, note, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(habit_id, date) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at
+    `).run(id || randomUUID(), habitId, date, deps.sanitizeHabitEntryNote(note), now, now);
+  }
+
+  /** Logging the same day twice is a no-op rather than an error — it already happened. */
+  function addHabitEntry(db, reference, date, note) {
+    const habit = resolveHabitRow(db, reference);
+    if (!habit) return null;
+    const day = String(date ?? '').trim() || localDateString();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      throw new Error(`Habit entry date must be YYYY-MM-DD, received "${day}".`);
+    }
+    return withTransaction(db, () => {
+      addHabitEntryRow(db, habit.id, day, note);
+      db.prepare('UPDATE habits SET updated_at = ? WHERE id = ?').run(getIsoNow(), habit.id);
+      syncHabitDateLinks(db, habit.id);
+      return getHabit(db, habit.id);
+    });
+  }
+
+  function removeHabitEntry(db, reference, date) {
+    const habit = resolveHabitRow(db, reference);
+    if (!habit) return null;
+    const day = String(date ?? '').trim();
+    return withTransaction(db, () => {
+      db.prepare('DELETE FROM habit_entries WHERE habit_id = ? AND date = ?').run(habit.id, day);
+      db.prepare('UPDATE habits SET updated_at = ? WHERE id = ?').run(getIsoNow(), habit.id);
+      syncHabitDateLinks(db, habit.id);
+      return getHabit(db, habit.id);
+    });
+  }
+
+  /** Used by sync, where the habit's file is authoritative for the whole log. */
+  function replaceHabitEntries(db, habitId, entries) {
+    const wanted = new Map();
+    for (const entry of entries ?? []) {
+      const date = String(entry?.date ?? '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      wanted.set(date, entry);
+    }
+    for (const row of listEntryRows(db, habitId)) {
+      if (!wanted.has(row.date)) {
+        db.prepare('DELETE FROM habit_entries WHERE id = ?').run(row.id);
+      }
+    }
+    for (const [date, entry] of wanted) {
+      addHabitEntryRow(db, habitId, date, entry.note, entry.id);
+    }
+  }
+
+  function deleteHabitRecord(db, reference) {
+    const habit = resolveHabitRow(db, reference);
+    if (!habit) return false;
     return withTransaction(db, () => {
       const linkedDailyNoteIds = db
         .prepare("SELECT target_id FROM object_links WHERE source_id = ? AND target_type = 'daily-note'")
-        .all(id)
+        .all(habit.id)
         .map((row) => row.target_id);
-      syncObjectTags(db, id, 'habit', []);
-      db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
-      deps.clearSyncState(db, 'habit', id);
-      const result = db.prepare('DELETE FROM habits WHERE id = ?').run(id);
+      syncObjectTags(db, habit.id, 'habit', []);
+      db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(habit.id, habit.id);
+      db.prepare('DELETE FROM habit_entries WHERE habit_id = ?').run(habit.id);
+      deps.clearSyncState(db, 'habit', habit.id);
+      const result = db.prepare('DELETE FROM habits WHERE id = ?').run(habit.id);
       deps.cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
       return result.changes > 0;
     });
@@ -108,27 +244,51 @@ export function createHabitRepository(deps) {
   function listHabitsForSync(db) {
     const rows = db.prepare('SELECT * FROM habits ORDER BY updated_at DESC').all();
     const tagNamesByObjectId = getTagDisplayNamesMap(db, rows.map((row) => row.id));
-    return rows.map((row) => {
-      const tags = tagNamesByObjectId.get(row.id) ?? [];
-      return {
-        id: row.id,
-        text: row.text,
-        date: row.date,
-        status: normalizeHabitStatus(row.status, deps.HABIT_STATUS_PLANNED),
-        syncPath: row.sync_path || '',
-        tagNames: normalizeHabitTagNames(tags),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      targetIntervalDays: normalizeTargetIntervalDays(row.target_interval_days),
+      state: normalizeHabitState(row.state, HABIT_STATE_ACTIVE),
+      retiredOn: row.retired_on || null,
+      syncPath: row.sync_path || '',
+      tagNames: tagNamesByObjectId.get(row.id) ?? [],
+      entries: listEntryRows(db, row.id).map(toEntry),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /** Every occurrence in a date range, for calendar markers and daily-note lookups. */
+  function listHabitEntries(db, { from, to, habitId } = {}) {
+    const clauses = [];
+    const values = [];
+    if (from) { clauses.push('e.date >= ?'); values.push(from); }
+    if (to) { clauses.push('e.date <= ?'); values.push(to); }
+    if (habitId) { clauses.push('e.habit_id = ?'); values.push(habitId); }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    return db.prepare(`
+      SELECT e.id, e.habit_id, e.date, e.note, e.created_at, e.updated_at, h.name AS habit_name, h.state AS habit_state
+      FROM habit_entries e
+      JOIN habits h ON h.id = e.habit_id
+      ${where}
+      ORDER BY e.date DESC, h.name COLLATE NOCASE ASC
+    `).all(...values).map((row) => ({
+      ...toEntry(row),
+      habitName: row.habit_name,
+      habitState: normalizeHabitState(row.habit_state, HABIT_STATE_ACTIVE),
+    }));
   }
 
   return {
+    addHabitEntry,
     createHabitRecord,
     deleteHabitRecord,
     getHabit,
+    listHabitEntries,
     listHabits,
     listHabitsForSync,
+    removeHabitEntry,
+    resolveHabitRow,
     updateHabitRecord,
   };
 }

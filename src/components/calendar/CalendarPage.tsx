@@ -7,21 +7,13 @@ import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 import MentionPopup, { type MentionOption } from '../common/MentionPopup'
 
-import { listHabitMeta, listMetaBundle, getObject, rankSearchCandidates } from '../../lib/cliService'
+import { listMetaBundle, getObject, rankSearchCandidates } from '../../lib/cliService'
 import type { ResolvedObjectRef } from '../../lib/cliService'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectColor, type ObjectColorToken } from '../../lib/objectColors'
 import { itemMatchesTagFilters, type TagFilterState } from '../../lib/tagFilters'
 import { useUnsavedChangesStore } from '../../lib/unsavedChangesStore'
 
-function normalizePathForLookup(path?: string): string {
-  return String(path ?? '')
-    .trim()
-    .replace(/[?#].*$/, '')
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .toLowerCase()
-}
 
 type CalObjectType = 'daily-note' | 'topic-note' | 'habit' | 'project' | 'ref-material'
 
@@ -57,7 +49,7 @@ interface CalendarSearchOption extends MentionOption {
 
 interface CalendarPageProps {
   onOpenObjectTab?: (target: { id: string; type: CalObjectType; forceNewTab?: boolean }) => void | Promise<void>
-  onStartCreateObject?: (target: { type: 'daily-note' | 'topic-note' | 'habit'; date: string }) => void | Promise<void>
+  onStartCreateObject?: (target: { type: 'daily-note' | 'topic-note'; date: string }) => void | Promise<void>
   tagFilters?: TagFilterState
 }
 
@@ -102,6 +94,9 @@ function formatDateKey(date: Date): string {
 export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tagFilters = {} }: CalendarPageProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [events, setEvents] = useState<CalEvent[]>([])
+  // Habit markers open the day they happened on, so the calendar needs the
+  // daily note behind each date.
+  const [dailyNoteIdByDate, setDailyNoteIdByDate] = useState<Map<string, string>>(new Map())
   const [searchCandidates, setSearchCandidates] = useState<CalendarSearchCandidate[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
@@ -110,7 +105,7 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   const [searchPopupPosition, setSearchPopupPosition] = useState<{ top: number; left: number } | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate())
   const [selectedObject, setSelectedObject] = useState<Record<string, unknown> | undefined>()
-  const [selectedType, setSelectedType] = useState<CalObjectType>('daily-note')
+  const [selectedType, setSelectedType] = useState<Exclude<CalObjectType, 'habit'>>('daily-note')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<CalObjectType[]>(DEFAULT_VISIBLE_CAL_TYPES)
@@ -170,14 +165,17 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
       })
     }
     for (const h of bundle.habits) {
-      if (h.date) evts.push({ id: h.id, date: h.date, label: h.displayTitle || 'Habit', type: 'habit', tags: h.tags ?? [] })
+      // One marker per logged occurrence — the gaps between them are the point.
+      for (const entry of h.entries) {
+        evts.push({ id: h.id, date: entry.date, label: h.name || 'Habit', type: 'habit', tags: h.tags ?? [] })
+      }
       candidates.push({
         id: h.id,
         type: 'habit',
-        title: h.displayTitle || 'Habit',
-        date: h.date || undefined,
+        title: h.name || 'Habit',
+        date: h.stats.lastDate ?? undefined,
         metadata: TYPE_LABELS.habit,
-        snippet: h.text,
+        snippet: h.stats.lastDate ? `Last logged ${h.stats.lastDate}` : 'Never logged',
         contentSearch: h.contentSearch,
         tags: h.tags ?? [],
       })
@@ -202,6 +200,9 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
         tags: p.tags ?? [],
       })
     }
+    setDailyNoteIdByDate(new Map(
+      bundle.dailyNotes.filter((note) => note.date && note.id).map((note) => [note.date, note.id]),
+    ))
     setEvents(evts)
     setSearchCandidates(candidates)
   }, [])
@@ -308,25 +309,32 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [filteredEvents])
 
   const openEvent = useCallback(async (evt: CalEvent) => {
+    // A habit marker is an occurrence, not an object to edit. Open the day it
+    // happened on — that is where the habit panel lives.
+    const target = evt.type === 'habit'
+      ? { id: dailyNoteIdByDate.get(evt.date), type: 'daily-note' as const }
+      : { id: evt.id, type: evt.type }
+
+    if (evt.type === 'habit' && !target.id) {
+      setSelectedDate(evt.date)
+      return
+    }
+
     if (onOpenObjectTab) {
       setSelectedDate(evt.date)
-      await Promise.resolve(onOpenObjectTab({ id: evt.id, type: evt.type, forceNewTab: true }))
+      await Promise.resolve(onOpenObjectTab({ id: target.id as string, type: target.type, forceNewTab: true }))
       return
     }
 
     setSelectedDate(evt.date)
-    setSelectedType(evt.type)
+    setSelectedType(target.type)
     try {
-      const full = await getObject(evt.type, evt.id)
-      setSelectedObject({ ...full, type: evt.type })
+      const full = await getObject(target.type, target.id as string)
+      setSelectedObject({ ...full, type: target.type })
     } catch {
-      setSelectedObject(
-        evt.type === 'habit'
-          ? { id: evt.id, date: evt.date, type: 'habit', text: '', tags: [] }
-          : { id: evt.id, date: evt.date, type: evt.type, contentMarkdown: '', tags: [] },
-      )
+      setSelectedObject({ id: target.id, date: evt.date, type: target.type, contentMarkdown: '', tags: [] })
     }
-  }, [onOpenObjectTab])
+  }, [onOpenObjectTab, dailyNoteIdByDate])
 
   const navigateToDate = useCallback((date: string) => {
     setSelectedDate(date)
@@ -345,13 +353,17 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
       await Promise.resolve(onOpenObjectTab({ id: option.objectId, type: option.objectType, forceNewTab: true }))
       return
     }
+    // A habit has no single date and no editor of its own; the Library is where
+    // its history is shown.
+    if (option.objectType === 'habit') return
+    const editorType = option.objectType
     try {
-      const full = await getObject(option.objectType, option.objectId)
-      setSelectedType(option.objectType)
-      setSelectedObject({ ...full, type: option.objectType })
+      const full = await getObject(editorType, option.objectId)
+      setSelectedType(editorType)
+      setSelectedObject({ ...full, type: editorType })
     } catch {
-      setSelectedType(option.objectType)
-      setSelectedObject({ id: option.objectId, type: option.objectType, tags: [] })
+      setSelectedType(editorType)
+      setSelectedObject({ id: option.objectId, type: editorType, tags: [] })
     }
   }, [navigateToDate, onOpenObjectTab])
 
@@ -393,12 +405,13 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [hasUnsavedChanges])
 
   const startCreateForDate = useCallback(async (date: string, type: CalObjectType) => {
-    if (onStartCreateObject && (type === 'daily-note' || type === 'topic-note' || type === 'habit')) {
+    if (onStartCreateObject && (type === 'daily-note' || type === 'topic-note')) {
       await Promise.resolve(onStartCreateObject({ type, date }))
       return
     }
 
     setSelectedDate(date)
+    if (type === 'habit') return
     setSelectedType(type)
     if (type === 'daily-note') {
       setSelectedObject({ date, type: 'daily-note', contentMarkdown: '', tags: [], linkedObjectIds: [] })
@@ -406,10 +419,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     }
     if (type === 'topic-note') {
       setSelectedObject({ title: '', date, type: 'topic-note', contentMarkdown: '', tags: [], linkedObjectIds: [] })
-      return
-    }
-    if (type === 'habit') {
-      setSelectedObject({ date, type: 'habit', text: '', tags: [] })
       return
     }
   }, [onStartCreateObject])
@@ -434,38 +443,19 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   }, [])
 
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
+    // Habits are practices rather than dated entries; the calendar shows their
+    // occurrences but does not open them.
+    if (!isCalObjectType(target.type) || target.type === 'habit') return
+    const editorType = target.type
     try {
-      const full = await getObject(target.type, target.id)
+      const full = await getObject(editorType, target.id)
       if (full && typeof full === 'object') {
-        if (!isCalObjectType(target.type)) return
-        setSelectedType(target.type)
-        setSelectedObject({ ...full, type: target.type })
+        setSelectedType(editorType)
+        setSelectedObject({ ...full, type: editorType })
         setHasUnsavedChanges(false)
-        return
       }
     } catch {
-      // Keep current object open and try a metadata fallback below.
-    }
-
-    if (target.type === 'habit') {
-      const habitsMeta = await listHabitMeta()
-      const targetPath = normalizePathForLookup(target.syncPath ?? target.syncPath)
-      const fallback = habitsMeta.find((item) => item.id === target.id)
-        ?? habitsMeta.find((item) => normalizePathForLookup(item.syncPath ?? item.syncPath) === targetPath)
-      if (fallback) {
-        try {
-          const fullFallback = await getObject('habit', fallback.id)
-          setSelectedType('habit')
-          setSelectedObject({ ...fullFallback, type: 'habit' })
-          setHasUnsavedChanges(false)
-          return
-        } catch {
-          // Fall through to metadata-only fallback.
-        }
-        setSelectedType('habit')
-        setSelectedObject({ ...fallback, type: 'habit' })
-        setHasUnsavedChanges(false)
-      }
+      // Keep the current object open.
     }
   }, [])
 
@@ -513,9 +503,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
                     New Topic Note
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'habit') }}>
-                    New Habit
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -632,7 +619,6 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
           <div className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-3 py-2">
             <h3 className="text-lg font-bold">
               {selectedType === 'daily-note' ? 'Daily Note'
-                : selectedType === 'habit' ? 'Habit'
                 : selectedType === 'project' ? 'Project'
                 : selectedType === 'ref-material' ? 'Reference Material'
                 : 'Topic Note'}

@@ -62,7 +62,7 @@ PuzzlePKM structures your PKM data into distinct object types. You can create, m
 | :--- | :--- | :--- |
 | `topic-note` | Free-form notes with titles and content. | `topic-note` |
 | `daily-note` | Journal entries tied to a specific date. | `daily-note` |
-| `habit` | Simple checkable habits. | `habit` |
+| `habit` | A repeated practice, with a log of the dates it happened. | `habit` |
 | `project` | Local folder-backed directories for projects. | `project` |
 | `ref-material` | Local folder-backed directories for reference materials. | `ref-material` |
 | `scripture` | Automatically parsed scripture references. | `scripture` |
@@ -97,12 +97,19 @@ Daily Notes are journal entries anchored to a specific date (`YYYY-MM-DD`). Only
 * **Via Desktop UI**: Open the **Calendar** tab, click on any date, and begin writing. If a note already exists for that date, it opens automatically.
 
 #### 3. Habits
-Habits represent simple recurring tasks. They support a status of `planned` or `accomplished` and accept a maximum of one tag.
-* **Via CLI (Interactive)**:
+A habit is a practice you repeat — Confession, an examen, spiritual direction. The habit itself carries the name, an optional target interval, and whether it is active or retired; each time you actually do it, you log a dated occurrence. PuzzlePKM works out the gap since the last one, the typical gap between them, and whether the practice is now due or overdue.
+
+Set a target interval ("every 30 days") if you have one in mind. Leave it blank and PuzzlePKM uses the median of your own observed gaps instead, so a habit becomes useful without you having to guess a number.
+
+* **Via Desktop UI**: Open a daily note. The **Habits** panel sits above the note body; it opens by itself on days when something is due or was logged, and stays collapsed otherwise. Click a habit's circle to log it on that day, use **+** to create one, and a habit's **⋯** menu to see its history, change its cadence, or retire it. Retired habits keep their history and can be reactivated.
+* **Via CLI**:
   ```bash
-  npm run cli -- create habit
+  npm run cli -- create habit                        # guided prompts
+  npm run cli -- habit list                          # cadence, gaps, and due state as JSON
+  npm run cli -- habit log Confession                # record an occurrence today
+  npm run cli -- habit log Confession 2026-04-18     # …or on a given date
+  npm run cli -- habit unlog Confession 2026-04-18   # remove one
   ```
-* **Via Desktop UI**: In the **Library** or **Calendar** tab, click **New** and choose **Habit**. Set its name, date, state, and tag in the fields provided.
 
 #### 4. Projects
 Projects are folder-backed workspaces designed to hold your local project files (source code, assets, documents) alongside PKM notes.
@@ -196,7 +203,7 @@ Everything you write is a plain file in the folder you configured, in a layout y
 <sync root>/
 ├── daily-notes/2026-03-14.md
 ├── topic-notes/discernment-notes-5548060a.md
-├── habits/2026-03-14-morning-prayer-e45172.md
+├── habits/morning-prayer-e4517203.md  # one file per practice, log in the body
 ├── projects/<project-slug>/          # your own files, plus meta.yaml
 ├── ref-materials/<material-slug>/    # your own files, plus meta.yaml
 └── mobile-inbox/                     # capture drop-box, consumed on sync
@@ -258,7 +265,7 @@ It does need Node. A GUI app launched from the Dock does not inherit your shell 
 # General Management
 npm run cli -- list topic-note         # List all topic notes
 npm run cli -- get topic-note <id>     # Display detailed object JSON
-npm run cli -- delete habit <id>       # Destructively delete a habit
+npm run cli -- delete habit <id>       # Destructively delete a habit and its whole log
 
 # Database Migration
 npm run cli -- migrate-links --apply   # Migrate legacy links to canonical UUIDs
@@ -299,14 +306,15 @@ The database lives in the platform application data directory (`~/Library/Applic
 | `get_backlinks` | What links to and from an object. |
 | `get_graph_neighborhood` | Walk the link graph outward from an object, up to 3 hops. |
 | `list_scripture_references` | Extracted scripture references with the notes citing each one. |
-| `get_habit_log` | Habit history with completion rates and current streaks. |
+| `get_habit_log` | Per-habit consistency: cadence, gap since the last occurrence, gaps between past ones, and due state. |
 | `list_tags` | Tags with usage counts broken down by object kind. |
 | `find_stale_notes` | Topic notes not updated in a while, for resurfacing. |
-| `get_status` | Counts, sync root, and what needs attention (unlinked notes, Inbox backlog, habits still due). |
+| `get_status` | Counts, sync root, and what needs attention (unlinked notes, Inbox backlog, habits due or overdue). |
 | `create_topic_note` | Create a topic note from markdown. *Requires writes.* |
 | `update_topic_note` | Update a note's title, body, or tags. *Requires writes.* |
 | `append_to_daily_note` | Append to a day's daily note, creating it if needed. Never overwrites. *Requires writes.* |
-| `set_habit` | Create a habit or mark an existing one accomplished. *Requires writes.* |
+| `set_habit` | Create a habit, rename it, set its target interval, or retire it. *Requires writes.* |
+| `log_habit` | Record that a habit was practised on a date, or remove an occurrence. *Requires writes.* |
 | `sync_now` | Reconcile the database with the sync folder. *Requires writes.* |
 
 ### Install into Claude Desktop

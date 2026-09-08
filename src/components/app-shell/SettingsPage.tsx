@@ -443,7 +443,7 @@ export default function SettingsPage() {
             {`<sync-root>/
 ├── daily-notes/
 ├── topic-notes/
-├── habits/
+├── habits/         ← one file per habit, its occurrence log in the body
 ├── projects/       ← optional, created only when a project lives in the sync root
 └── ref-materials/  ← optional, created only when a ref material lives in the sync root`}
           </pre>

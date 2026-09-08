@@ -96,6 +96,8 @@ class GraphErrorBoundary extends React.Component<{ children: ReactNode }, { hasE
 type Section = 'calendar' | 'library' | 'graph'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
+/** Habits are created inside a daily note's habit panel, not from the Library. */
+type CreatableNotesObjType = 'topic-note' | 'daily-note'
 type MetaObjType = 'scripture' | 'scripture-chapter' | 'tag'
 type LibraryObjectType = NotesObjType | FileObjType | MetaObjType
 type PinnedObjType = NotesObjType | FileObjType
@@ -112,7 +114,7 @@ interface LibraryPendingSelection {
 }
 
 interface LibraryPendingCreate {
-  type: NotesObjType
+  type: CreatableNotesObjType
   date?: string
   nonce: number
 }
@@ -173,7 +175,7 @@ export default function App() {
     }))
   }, [])
 
-  const openLibraryCreate = useCallback((target: { type: NotesObjType; date?: string }) => {
+  const openLibraryCreate = useCallback((target: { type: CreatableNotesObjType; date?: string }) => {
     setSidebarSection('library')
     setLibraryPendingCreate((prev) => ({
       type: target.type,

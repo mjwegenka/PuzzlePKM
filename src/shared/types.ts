@@ -47,11 +47,56 @@ export interface ReferenceMaterial extends BaseObject {
   syncPath: string;
 }
 
+/** A dated occurrence of a habit. Logging one means it happened. */
+export interface HabitEntry {
+  id: string;
+  habitId: string;
+  date: string; // YYYY-MM-DD
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Consistency for a habit as of a given date, computed by the CLI
+ * (`cli/objects/habit/stats.mjs`) so the desktop and MCP never disagree.
+ */
+export interface HabitStats {
+  asOfDate: string;
+  entryCount: number;
+  totalEntryCount: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  daysSinceLast: number | null;
+  gaps: number[];
+  medianGapDays: number | null;
+  averageGapDays: number | null;
+  targetIntervalDays: number | null;
+  observedIntervalDays: number | null;
+  /** Target when set, otherwise the observed median gap. */
+  intervalDays: number | null;
+  intervalSource: 'target' | 'observed' | null;
+  dueOn: string | null;
+  state: HabitDueState;
+  daysUntilDue: number | null;
+  daysOverdue: number | null;
+}
+
+export type HabitDueState = 'logged' | 'untracked' | 'on-track' | 'due' | 'overdue';
+
+export type HabitState = 'active' | 'retired';
+
+/** A repeated practice. Its history lives in `entries`, not in the habit itself. */
 export interface Habit extends BaseObject {
   type: 'habit';
-  text: string; // < 256 chars
-  date: string; // YYYY-MM-DD
-  status: 'planned' | 'accomplished';
+  name: string; // < 256 chars
+  /** Intended days between occurrences; null means "use the observed rhythm". */
+  targetIntervalDays: number | null;
+  state: HabitState;
+  retiredOn: string | null;
+  syncPath: string;
+  entries: HabitEntry[];
+  stats: HabitStats;
 }
 
 export interface Scripture {
