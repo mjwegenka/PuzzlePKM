@@ -257,7 +257,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     return node.label
   }
 
-  const getNodeColor = (rawNode: unknown) => {
+  const getNodeColor = useCallback((rawNode: unknown) => {
     if (!rawNode || typeof rawNode !== 'object') return 'rgba(52, 50, 52, 0.95)'
     const node = rawNode as Partial<GraphNode>
     if (node.id === focusedNodeId) return '#ffffff'
@@ -267,7 +267,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     // Notes recede so the chapters they cite read as the subject of the graph;
     // the translucent token keeps each type's hue identifiable.
     return getObjectColor(node.type ?? 'topic-note').border
-  }
+  }, [focusedNodeId])
 
   // Label the chapters that actually matter — the hubs — plus whatever is focused,
   // so the graph is readable without clicking every dot.
@@ -305,7 +305,7 @@ export default function GraphPage({ onOpenNode, tagFilters = {} }: GraphPageProp
     ctx.textBaseline = 'top'
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)'
     ctx.fillText(String(node.label ?? ''), node.x, node.y + radius + 1.5 / globalScale)
-  }, [focusedNodeId, labelThreshold])
+  }, [focusedNodeId, getNodeColor, labelThreshold])
 
   const chapterCount = useMemo(
     () => filteredData.nodes.filter((node) => node.type === 'scripture-chapter').length,
