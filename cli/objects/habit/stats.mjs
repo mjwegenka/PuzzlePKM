@@ -40,6 +40,16 @@ function normalizeEntryDates(entries) {
   return Array.from(dates).sort();
 }
 
+export const HABIT_CADENCE_OBSERVED = 'observed';
+export const HABIT_CADENCE_TARGET = 'target';
+export const HABIT_CADENCE_NONE = 'none';
+const HABIT_CADENCE_MODES = new Set([HABIT_CADENCE_OBSERVED, HABIT_CADENCE_TARGET, HABIT_CADENCE_NONE]);
+
+export function normalizeHabitCadenceMode(value, fallback = HABIT_CADENCE_OBSERVED) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return HABIT_CADENCE_MODES.has(normalized) ? normalized : fallback;
+}
+
 export function normalizeTargetIntervalDays(value) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -75,9 +85,24 @@ export function computeHabitStats(habit, entries, asOfDate) {
     : null;
 
   const targetIntervalDays = normalizeTargetIntervalDays(habit?.targetIntervalDays);
+  // A caller that supplies an interval and no mode means `target`. The stored
+  // shape never has both, since the repository clears the interval outside
+  // target mode — so this only ever resolves a caller's shorthand.
+  const cadenceMode = normalizeHabitCadenceMode(
+    habit?.cadenceMode,
+    targetIntervalDays === null ? HABIT_CADENCE_OBSERVED : HABIT_CADENCE_TARGET,
+  );
   const observedIntervalDays = gaps.length >= MIN_GAPS_FOR_OBSERVED_INTERVAL ? medianGapDays : null;
-  const intervalDays = targetIntervalDays ?? observedIntervalDays;
-  const intervalSource = targetIntervalDays ? 'target' : (observedIntervalDays ? 'observed' : null);
+
+  // `none` is a habit kept as a historical record — something no longer
+  // practised, or with no rhythm worth holding to. It reports its history and
+  // its observed gaps but is never due, so it never asks anything of the user.
+  const intervalDays = cadenceMode === HABIT_CADENCE_NONE
+    ? null
+    : (cadenceMode === HABIT_CADENCE_TARGET ? targetIntervalDays : observedIntervalDays);
+  const intervalSource = intervalDays === null
+    ? null
+    : (cadenceMode === HABIT_CADENCE_TARGET ? HABIT_CADENCE_TARGET : HABIT_CADENCE_OBSERVED);
 
   const dueOn = lastDate && intervalDays ? shiftDateBy(lastDate, intervalDays) : null;
   const loggedOnAsOfDate = dates.includes(asOf);
@@ -103,6 +128,7 @@ export function computeHabitStats(habit, entries, asOfDate) {
 
   return {
     asOfDate: asOf,
+    cadenceMode,
     entryCount: dates.length,
     totalEntryCount: allDates.length,
     firstDate: dates.length > 0 ? dates[0] : null,

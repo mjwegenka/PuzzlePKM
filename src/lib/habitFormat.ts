@@ -1,4 +1,4 @@
-import type { HabitDueState, HabitStats } from '../shared/types'
+import type { HabitCadenceMode, HabitDueState, HabitStats } from '../shared/types'
 
 /**
  * Phrasing for habit cadence and due state. Shared so the Library board and the
@@ -8,6 +8,7 @@ import type { HabitDueState, HabitStats } from '../shared/types'
 
 interface HabitLike {
   name: string
+  cadenceMode?: HabitCadenceMode
   targetIntervalDays: number | null
   stats: HabitStats
 }
@@ -16,9 +17,10 @@ export function pluralizeDays(days: number): string {
   return `${days} ${Math.abs(days) === 1 ? 'day' : 'days'}`
 }
 
-/** "every ~34 days" (observed) or "every 30 days" (an explicit target). */
+/** "every ~34 days" (observed), "every 30 days" (a target), or "record only". */
 export function describeHabitCadence(habit: HabitLike): string | undefined {
-  const { intervalDays, intervalSource } = habit.stats
+  const { intervalDays, intervalSource, cadenceMode } = habit.stats
+  if (cadenceMode === 'none') return 'record only'
   if (!intervalDays) return undefined
   return intervalSource === 'target'
     ? `every ${pluralizeDays(intervalDays)}`

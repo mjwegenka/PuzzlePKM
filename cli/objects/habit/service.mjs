@@ -24,7 +24,18 @@ export function createHabitService(deps) {
     return String(note ?? '').replace(/\r?\n/g, ' ').trim().slice(0, MAX_HABIT_ENTRY_NOTE_LENGTH);
   }
 
-  /** Blank means "no target" — the observed median gap takes over (see stats.mjs). */
+  /**
+   * `observed` learns the rhythm from the log, `target` holds to an interval,
+   * and `none` never becomes due — a habit kept purely as a record (DEC-82).
+   */
+  function parseCadenceModeInput(value) {
+    const raw = String(value ?? '').trim().toLowerCase() || 'observed';
+    if (raw !== 'observed' && raw !== 'target' && raw !== 'none') {
+      throw new Error('Cadence must be "observed", "target", or "none".');
+    }
+    return raw;
+  }
+
   function parseTargetIntervalInput(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return null;
@@ -38,13 +49,17 @@ export function createHabitService(deps) {
   async function createHabitInteractive(db, rl) {
     const createdAt = getIsoNow();
     const name = await prompt(rl, 'Habit name', { required: true });
-    const targetIntervalDays = parseTargetIntervalInput(
-      await prompt(rl, 'Target interval in days (blank for none)'),
+    const cadenceMode = parseCadenceModeInput(
+      await prompt(rl, 'Cadence (observed/target/none)', { defaultValue: 'observed', showDefault: true }),
     );
+    const targetIntervalDays = cadenceMode === 'target'
+      ? parseTargetIntervalInput(await prompt(rl, 'Target interval in days', { required: true }))
+      : null;
     const tags = parseCsv(await prompt(rl, 'Tags (comma separated)'));
     return createHabitRecord(db, {
       id: randomUUID(),
       name,
+      cadenceMode,
       targetIntervalDays,
       state: HABIT_STATE_ACTIVE,
       tags,
@@ -57,12 +72,16 @@ export function createHabitService(deps) {
     const existing = getHabit(db, reference);
     if (!existing) return null;
     const name = await prompt(rl, 'Habit name', { defaultValue: existing.name, showDefault: true });
-    const targetIntervalDays = parseTargetIntervalInput(
-      await prompt(rl, 'Target interval in days (blank for none)', {
-        defaultValue: existing.targetIntervalDays == null ? '' : String(existing.targetIntervalDays),
-        showDefault: true,
-      }),
+    const cadenceMode = parseCadenceModeInput(
+      await prompt(rl, 'Cadence (observed/target/none)', { defaultValue: existing.cadenceMode, showDefault: true }),
     );
+    const targetIntervalDays = cadenceMode === 'target'
+      ? parseTargetIntervalInput(await prompt(rl, 'Target interval in days', {
+          defaultValue: existing.targetIntervalDays == null ? '' : String(existing.targetIntervalDays),
+          showDefault: true,
+          required: true,
+        }))
+      : null;
     const state = await prompt(rl, `State (${HABIT_STATE_ACTIVE}/${HABIT_STATE_RETIRED})`, {
       defaultValue: existing.state,
       showDefault: true,
@@ -70,6 +89,7 @@ export function createHabitService(deps) {
     const tags = await promptList(rl, 'Tags (comma separated)', existing.tags);
     return updateHabitRecord(db, existing.id, {
       name,
+      cadenceMode,
       targetIntervalDays,
       state,
       tags,
@@ -79,6 +99,7 @@ export function createHabitService(deps) {
 
   return {
     createHabitInteractive,
+    parseCadenceModeInput,
     parseTargetIntervalInput,
     sanitizeHabitEntryNote,
     sanitizeHabitName,

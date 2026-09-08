@@ -5,6 +5,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { CalendarIcon, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import HabitEditDialog from '../habits/HabitEditDialog'
 import MentionPopup, { type MentionOption } from '../common/MentionPopup'
 
 import { listMetaBundle, getObject, rankSearchCandidates } from '../../lib/cliService'
@@ -97,6 +98,9 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   // Habit markers open the day they happened on, so the calendar needs the
   // daily note behind each date.
   const [dailyNoteIdByDate, setDailyNoteIdByDate] = useState<Map<string, string>>(new Map())
+  // A habit created from the calendar is normally being added because it
+  // happened on that day, so the dialog offers to log it there too.
+  const [creatingHabitOn, setCreatingHabitOn] = useState<string | null>(null)
   const [searchCandidates, setSearchCandidates] = useState<CalendarSearchCandidate[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
@@ -504,6 +508,9 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
                   <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
                     New Topic Note
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setCreatingHabitOn(createTargetDate)}>
+                    New Habit
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -639,6 +646,15 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
            </EditorErrorBoundary>
          </div>
        </div>
+      )}
+
+      {creatingHabitOn && (
+        <HabitEditDialog
+          habit={null}
+          logOnDate={creatingHabitOn}
+          onClose={() => setCreatingHabitOn(null)}
+          onSaved={() => { setCreatingHabitOn(null); void loadEvents() }}
+        />
       )}
 
       {/* Confirmation Dialog for unsaved changes */}

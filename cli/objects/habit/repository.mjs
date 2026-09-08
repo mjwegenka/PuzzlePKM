@@ -1,4 +1,4 @@
-import { computeHabitStats, normalizeTargetIntervalDays } from './stats.mjs';
+import { computeHabitStats, normalizeHabitCadenceMode, normalizeTargetIntervalDays, HABIT_CADENCE_TARGET } from './stats.mjs';
 
 export function createHabitRepository(deps) {
   const {
@@ -37,6 +37,7 @@ export function createHabitRepository(deps) {
       id: row.id,
       type: 'habit',
       name: row.name,
+      cadenceMode: normalizeHabitCadenceMode(row.cadence_mode),
       targetIntervalDays: normalizeTargetIntervalDays(row.target_interval_days),
       state: normalizeHabitState(row.state, HABIT_STATE_ACTIVE),
       retiredOn: row.retired_on || null,
@@ -101,13 +102,20 @@ export function createHabitRepository(deps) {
     const name = deps.sanitizeHabitName(input.name);
     const state = normalizeHabitState(input.state, HABIT_STATE_ACTIVE);
     return withTransaction(db, () => {
+      const cadenceMode = normalizeHabitCadenceMode(
+        input.cadenceMode,
+        // A caller that only supplies an interval means "target"; this keeps
+        // `write habit '{"targetIntervalDays":30}'` doing the obvious thing.
+        normalizeTargetIntervalDays(input.targetIntervalDays) === null ? undefined : HABIT_CADENCE_TARGET,
+      );
       db.prepare(`
-        INSERT INTO habits (id, name, target_interval_days, state, retired_on, sync_path, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO habits (id, name, cadence_mode, target_interval_days, state, retired_on, sync_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.id,
         name.text,
-        normalizeTargetIntervalDays(input.targetIntervalDays),
+        cadenceMode,
+        cadenceMode === HABIT_CADENCE_TARGET ? normalizeTargetIntervalDays(input.targetIntervalDays) : null,
         state,
         state === HABIT_STATE_ACTIVE ? null : (input.retiredOn || localDateString()),
         input.syncPath || '',
@@ -136,9 +144,20 @@ export function createHabitRepository(deps) {
       fields.push('name = ?');
       values.push(name.text);
     }
-    if (input.targetIntervalDays !== undefined) {
+    if (input.cadenceMode !== undefined || input.targetIntervalDays !== undefined) {
+      const interval = input.targetIntervalDays !== undefined
+        ? normalizeTargetIntervalDays(input.targetIntervalDays)
+        : existing.targetIntervalDays;
+      const cadenceMode = normalizeHabitCadenceMode(
+        input.cadenceMode,
+        input.targetIntervalDays !== undefined && interval !== null ? HABIT_CADENCE_TARGET : existing.cadenceMode,
+      );
+      fields.push('cadence_mode = ?');
+      values.push(cadenceMode);
+      // An interval only means anything under `target`; clearing it elsewhere
+      // keeps the row from carrying a number nothing reads.
       fields.push('target_interval_days = ?');
-      values.push(normalizeTargetIntervalDays(input.targetIntervalDays));
+      values.push(cadenceMode === HABIT_CADENCE_TARGET ? interval : null);
     }
     if (input.state !== undefined) {
       const state = normalizeHabitState(input.state, existing.state);
@@ -247,6 +266,7 @@ export function createHabitRepository(deps) {
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
+      cadenceMode: normalizeHabitCadenceMode(row.cadence_mode),
       targetIntervalDays: normalizeTargetIntervalDays(row.target_interval_days),
       state: normalizeHabitState(row.state, HABIT_STATE_ACTIVE),
       retiredOn: row.retired_on || null,

@@ -18,6 +18,7 @@ import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
 import ScriptureChapterPanel from '../objects/ScriptureChapterPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import TaskInbox from '../tasks/TaskInbox'
 
 import type { NoteCardData } from '../ui/NoteCard'
 
@@ -31,6 +32,7 @@ import {
   rankSearchCandidates,
   searchDocuments,
   writeObject,
+  type DailyNoteMeta,
   type DocumentSearchResult,
   type HabitMeta,
   type ResolvedObjectRef,
@@ -79,15 +81,7 @@ interface TopicItem {
   type: 'topic-note'
 }
 
-interface DailyItem {
-  id: string
-  date: string
-  preview: string
-  contentSearch?: string
-  tags: string[]
-  displayTitle: string
-  type: 'daily-note'
-}
+type DailyItem = DailyNoteMeta
 
 type HabitItem = HabitMeta
 
@@ -854,6 +848,7 @@ export default function LibraryPage({
         snippet: sanitizeCardPreview(n.preview) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
         tags: n.tags,
+        openTaskCount: n.openTaskCount,
         sortTimestamp: toSortTimestamp(n.date),
       }))
 
@@ -1442,19 +1437,32 @@ export default function LibraryPage({
           </>
         }
         listContent={
-          loading && !hasLoadedOnce ? (
-            <div className="flex h-full min-h-[240px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
-            </div>
-          ) : renderedCards.length === 0 ? (
-            <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
-              {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
-            </div>
-          ) : isGalleryMode ? (
-            renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
-          ) : (
-            renderedCards.map((entry) => renderBoardCard(entry))
-          )
+          <>
+            {/* DEC-83: the Inbox gathers tasks first, then the items sync
+                flagged for filing. */}
+            {showInbox && (
+              <TaskInbox
+                onOpenSource={async ({ noteId, noteType, blockId }) => {
+                  setPendingBlockId(blockId)
+                  await openObjectInPanel(noteId, noteType)
+                }}
+                onTasksChanged={loadAll}
+              />
+            )}
+            {loading && !hasLoadedOnce ? (
+              <div className="flex h-full min-h-[240px] items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+              </div>
+            ) : renderedCards.length === 0 ? (
+              <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+                {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
+              </div>
+            ) : isGalleryMode ? (
+              renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
+            ) : (
+              renderedCards.map((entry) => renderBoardCard(entry))
+            )}
+          </>
         }
         resultsLabel={
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1470,7 +1478,7 @@ export default function LibraryPage({
             {showInbox && (
               <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
-                Inbox only — imported items tagged Inbox
+                Inbox — open tasks, then imported items tagged Inbox
               </div>
             )}
           </div>
@@ -1526,6 +1534,7 @@ export default function LibraryPage({
                       type={activeObject.type}
                       flatTop
                       onNavigateToObject={handleNavigateToObject}
+                      onDeleted={async () => { setActiveObject(null); await loadAll() }}
                     />
                   ) : (
                     <ObjectEditor

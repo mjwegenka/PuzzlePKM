@@ -567,6 +567,7 @@ function getHabitLog({ from, to, tag, includeRetired, limit }) {
         state: habit.state,
         retiredOn: habit.retiredOn,
         tags: habit.tags ?? [],
+        cadenceMode: habit.cadenceMode,
         targetIntervalDays: habit.targetIntervalDays,
         cadenceDays: stats.intervalDays ?? null,
         cadenceSource: stats.intervalSource ?? null,
@@ -789,8 +790,12 @@ function appendToDailyNote({ date, markdown }) {
   });
 }
 
-function setHabit({ id, name, targetIntervalDays, state, tags }) {
+function setHabit({ id, name, cadenceMode, targetIntervalDays, state, tags }) {
   requireWrites('set_habit');
+  const normalizedCadence = normalizeString(cadenceMode).toLowerCase();
+  if (normalizedCadence && !['observed', 'target', 'none'].includes(normalizedCadence)) {
+    throw new Error('cadenceMode must be "observed", "target", or "none".');
+  }
   const normalizedState = normalizeString(state).toLowerCase();
   if (normalizedState && normalizedState !== HABIT_STATE_ACTIVE && normalizedState !== HABIT_STATE_RETIRED) {
     throw new Error(`state must be "${HABIT_STATE_ACTIVE}" or "${HABIT_STATE_RETIRED}".`);
@@ -807,6 +812,7 @@ function setHabit({ id, name, targetIntervalDays, state, tags }) {
     if (existing) {
       const patch = { updatedAt: getIsoNow() };
       if (name !== undefined) patch.name = String(name);
+      if (normalizedCadence) patch.cadenceMode = normalizedCadence;
       if (targetIntervalDays !== undefined) patch.targetIntervalDays = targetIntervalDays;
       if (normalizedState) patch.state = normalizedState;
       if (tags !== undefined) patch.tags = Array.isArray(tags) ? tags.map(String) : [];
@@ -819,6 +825,7 @@ function setHabit({ id, name, targetIntervalDays, state, tags }) {
     const created = createHabitRecord(db, {
       id: randomUUID(),
       name: habitName,
+      cadenceMode: normalizedCadence || undefined,
       targetIntervalDays: targetIntervalDays ?? null,
       state: normalizedState || HABIT_STATE_ACTIVE,
       tags: Array.isArray(tags) ? tags.map(String) : [],
@@ -1105,7 +1112,7 @@ const TOOLS = [
   },
   {
     name: 'set_habit',
-    description: 'Create a habit (a named practice), or update an existing one — rename it, set or clear its target interval, retire it, or bring it back. Does not record occurrences; use log_habit for that. Requires writes to be enabled.',
+    description: 'Create a habit (a named practice), or update an existing one — rename it, change how its cadence is decided, retire it, or bring it back. Does not record occurrences; use log_habit for that. Requires writes to be enabled.',
     write: true,
     handler: setHabit,
     inputSchema: {
@@ -1113,7 +1120,8 @@ const TOOLS = [
       properties: {
         id: { type: 'string', description: 'Existing habit id. Omit to create, or to match an existing habit by name.' },
         name: { type: 'string', description: 'Habit name. Required when creating.' },
-        targetIntervalDays: { type: ['integer', 'null'], description: 'Intended days between occurrences. Null or omitted means the observed median gap is used instead.' },
+        cadenceMode: { type: 'string', enum: ['observed', 'target', 'none'], description: '"observed" (default) learns the rhythm from the log, "target" holds to targetIntervalDays, "none" never becomes due — for a practice kept only as a historical record.' },
+        targetIntervalDays: { type: ['integer', 'null'], description: 'Intended days between occurrences. Only meaningful with cadenceMode "target"; supplying it alone selects that mode.' },
         state: { type: 'string', enum: [HABIT_STATE_ACTIVE, HABIT_STATE_RETIRED], description: 'Retire a habit you no longer practise, or reactivate one.' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Tag display names.' },
       },

@@ -1,6 +1,6 @@
 import { cn, Badge } from 'aslan-ui';
 import React from 'react'
-import { BookOpenText, CalendarDays, FileText, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
+import { BookOpenText, CalendarDays, FileText, Folder, Hash, ListTodo, NotebookPen, Repeat, ScrollText } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
 import { getObjectColor } from '@/lib/objectColors'
 import { withAlpha } from '@/lib/colorUtils'
@@ -37,6 +37,8 @@ export interface NoteCardData {
   tags: string[]
   /** Hide rendered tag chips while retaining tags in the backing card payload. */
   hideTags?: boolean
+  /** DEC-83: incomplete tasks written in this note, shown as a small chip. */
+  openTaskCount?: number
 }
 
 export interface NoteCardProps {
@@ -299,6 +301,17 @@ export function NoteCard({ card, isSelected = false, onClick, title }: NoteCardP
           >
             {isTagCard || suppressMetadataDot ? card.metadata : `· ${card.metadata}`}
           </span>
+        )}
+
+        {Boolean(card.openTaskCount) && (
+          <Badge
+            variant="outline"
+            className={cn('h-5 rounded-[8px] px-2 text-xs font-semibold', chipClassName)}
+            title={`${card.openTaskCount} open task${card.openTaskCount === 1 ? '' : 's'}`}
+          >
+            <ListTodo className="mr-1 h-3 w-3" />
+            {card.openTaskCount}
+          </Badge>
         )}
 
         {visibleTags.slice(0, 3).map((tag) => (

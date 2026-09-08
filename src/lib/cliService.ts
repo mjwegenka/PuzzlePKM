@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DailyNote, Habit, HabitEntry, HabitState, HabitStats, Project, ReferenceMaterial, Scripture, ScriptureChapter, TopicNote } from '../shared/types';
+import type { DailyNote, Habit, HabitCadenceMode, HabitEntry, HabitState, HabitStats, Project, ReferenceMaterial, Scripture, ScriptureChapter, Task, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
 import { normalizeNoteBlocks } from './noteBlocks';
 import { formatDatePretty, parseDateQueryToISO } from './dateUtils';
@@ -71,6 +71,8 @@ export interface DailyNoteMeta {
   contentSearch?: string;
   firstBlockId?: string;
   tags: string[];
+  /** DEC-83: incomplete tasks written in this note, shown as a card badge. */
+  openTaskCount: number;
   displayTitle: string;
   type: 'daily-note';
 }
@@ -78,6 +80,7 @@ export interface DailyNoteMeta {
 export interface HabitMeta {
   id: string;
   name: string;
+  cadenceMode: HabitCadenceMode;
   targetIntervalDays: number | null;
   state: HabitState;
   retiredOn: string | null;
@@ -1319,8 +1322,10 @@ function normalizeHabitMeta(row: Record<string, unknown>): HabitMeta {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
+  const cadenceMode = normalizeCadenceMode(row.cadenceMode);
   const stats: HabitStats = {
     asOfDate: String(rawStats.asOfDate ?? ''),
+    cadenceMode: normalizeCadenceMode(rawStats.cadenceMode ?? cadenceMode),
     entryCount: asNumber(rawStats.entryCount) ?? 0,
     totalEntryCount: asNumber(rawStats.totalEntryCount) ?? 0,
     firstDate: rawStats.firstDate ? String(rawStats.firstDate) : null,
@@ -1355,6 +1360,7 @@ function normalizeHabitMeta(row: Record<string, unknown>): HabitMeta {
   return {
     id,
     name,
+    cadenceMode,
     targetIntervalDays: asNumber(row.targetIntervalDays),
     state: row.state === 'retired' ? 'retired' : 'active',
     retiredOn: row.retiredOn ? String(row.retiredOn) : null,
@@ -1369,6 +1375,10 @@ function normalizeHabitMeta(row: Record<string, unknown>): HabitMeta {
 }
 
 const HABIT_DUE_STATES = new Set(['logged', 'untracked', 'on-track', 'due', 'overdue']);
+
+function normalizeCadenceMode(value: unknown): HabitCadenceMode {
+  return value === 'target' || value === 'none' ? value : 'observed';
+}
 
 export async function listMetaBundle(options: { force?: boolean } = {}): Promise<MetaBundle> {
   if (!options.force && metaBundleCache) {
@@ -1435,6 +1445,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
           contentSearch,
           firstBlockId,
           tags,
+          openTaskCount: Number(row.openTaskCount ?? 0) || 0,
           displayTitle: getObjectDisplayTitle('daily-note', { date }),
           type: 'daily-note' as const,
         };
@@ -1585,6 +1596,9 @@ export async function listDailyNoteMeta(): Promise<
           date: parts[1] ?? '',
           preview: parts[2] ?? '',
           tags,
+          // The tab-delimited listing carries no task counts; callers that need
+          // them read the meta bundle instead.
+          openTaskCount: 0,
           displayTitle: getObjectDisplayTitle('daily-note', { date: parts[1] ?? '' }),
           type: 'daily-note' as const,
         };
@@ -1643,6 +1657,49 @@ export async function listHabitMeta(): Promise<HabitMeta[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Every task across daily and topic notes, ordered as the Inbox shows them:
+ * due soonest first, then undated, then recently completed. Ordering and the
+ * completed-task cutoff both live in the CLI so nothing recomputes them here.
+ */
+export async function listTasks(): Promise<Task[]> {
+  const result = await runPuzzlePKMCli(['tasks', 'list']);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'tasks list failed');
+  const raw = JSON.parse(result.stdout) as Task[];
+  return Array.isArray(raw) ? raw : [];
+}
+
+/** Edits a task by rewriting its line in the note that owns it. */
+export async function setTask(
+  id: string,
+  patch: { text?: string; dueDate?: string | null; done?: boolean },
+): Promise<Task> {
+  const args = ['tasks', 'set', id];
+  if (patch.text !== undefined) args.push('--text', patch.text);
+  if (patch.dueDate === null) args.push('--clear-due');
+  else if (patch.dueDate !== undefined) args.push('--due', patch.dueDate);
+  if (patch.done === true) args.push('--done');
+  if (patch.done === false) args.push('--undone');
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || `tasks set ${id} failed`);
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as Task;
+}
+
+/** Captures a task by appending it to a day's daily note (today unless given). */
+export async function addTask(
+  text: string,
+  options: { dueDate?: string | null; date?: string } = {},
+): Promise<{ date: string; noteId: string; task: Task | null }> {
+  const args = ['tasks', 'add', text];
+  if (options.dueDate) args.push('--due', options.dueDate);
+  if (options.date) args.push('--date', options.date);
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'tasks add failed');
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as { date: string; noteId: string; task: Task | null };
 }
 
 /**

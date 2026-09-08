@@ -1,6 +1,7 @@
-import { Button } from 'aslan-ui';
-import React, { useMemo } from 'react'
-import type { ResolvedObjectRef } from '../../lib/cliService'
+import { Alert, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from 'aslan-ui';
+import { Loader2, Trash2 } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { deleteObject, type ResolvedObjectRef } from '../../lib/cliService'
 import { describeHabitCadence, describeHabitRecency, pluralizeDays } from '../../lib/habitFormat'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
 
@@ -9,6 +10,8 @@ interface ObjectMetaDetailPanelProps {
   type: 'scripture' | 'tag' | 'habit'
   flatTop?: boolean
   onNavigateToObject?: (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => void | Promise<void>
+  /** Called after a habit is deleted, so the surrounding view can close and refresh. */
+  onDeleted?: () => void | Promise<void>
 }
 
 function toTarget(row: Record<string, unknown>): ResolvedObjectRef | null {
@@ -26,7 +29,10 @@ function relationLabel(row: Record<string, unknown>): string {
   return fallback || 'Object'
 }
 
-export default function ObjectMetaDetailPanel({ object, type, flatTop = false, onNavigateToObject }: ObjectMetaDetailPanelProps) {
+export default function ObjectMetaDetailPanel({ object, type, flatTop = false, onNavigateToObject, onDeleted }: ObjectMetaDetailPanelProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const header = type === 'scripture' ? 'Scripture' : type === 'habit' ? 'Habit' : 'Tag'
   const title = useMemo(() => {
     return getObjectDisplayTitle(type, object)
@@ -82,6 +88,22 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
     return []
   }, [object, type])
 
+  const habitEntryCount = Number((object?.stats as Record<string, unknown> | undefined)?.entryCount ?? 0)
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteObject('habit', String(object?.id ?? ''))
+      setConfirmingDelete(false)
+      await onDeleted?.()
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div
       className={flatTop ? 'flex min-h-0 flex-1 overflow-hidden bg-transparent' : 'flex min-h-0 flex-1 overflow-hidden rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6'}
@@ -97,6 +119,17 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
             {subtitle}
           </p>
+          {type === 'habit' && String(object?.id ?? '').trim() && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="mt-4"
+              onClick={() => { setDeleteError(null); setConfirmingDelete(true) }}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete habit
+            </Button>
+          )}
           {type === 'scripture' && String(object?.passageUrl ?? '').trim() && (
             <a
               href={String(object?.passageUrl)}
@@ -169,6 +202,34 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           )}
         </div>
       </div>
+
+      {confirmingDelete && (
+        <Dialog open onOpenChange={(open) => { if (!open && !deleting) setConfirmingDelete(false) }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete this habit?</DialogTitle>
+              <DialogDescription>
+                {`“${String(object?.name ?? 'This habit')}” and its ${habitEntryCount} logged occurrence${habitEntryCount === 1 ? '' : 's'} will be removed from the database and its Markdown file deleted from the sync folder. This cannot be undone — to stop practising something while keeping its history, retire it instead.`}
+              </DialogDescription>
+            </DialogHeader>
+            {deleteError && <Alert variant="destructive" className="py-2 text-xs">{deleteError}</Alert>}
+            <DialogFooter>
+              <Button variant="outline" size="sm" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deleting}
+                onClick={() => { void handleDelete() }}
+              >
+                {deleting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

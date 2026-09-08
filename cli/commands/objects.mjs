@@ -183,6 +183,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           if (id && ctx.getHabit(db, id)) {
             return ctx.updateHabitRecord(db, id, {
               name: input.name,
+              cadenceMode: input.cadenceMode,
               targetIntervalDays: input.targetIntervalDays,
               state: input.state,
               retiredOn: input.retiredOn,
@@ -194,6 +195,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           return ctx.createHabitRecord(db, {
             id: id ?? ctx.randomUUID(),
             name: input.name ?? 'Untitled habit',
+            cadenceMode: input.cadenceMode,
             targetIntervalDays: input.targetIntervalDays ?? null,
             state: input.state ?? ctx.HABIT_STATE_ACTIVE,
             retiredOn: input.retiredOn,

@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Dialog,
   DialogContent,
@@ -11,8 +12,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Input,
-  Alert,
 } from 'aslan-ui'
 import { Check, ChevronDown, ChevronRight, History, Loader2, MoreHorizontal, Plus, RotateCcw } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -33,6 +32,7 @@ import {
   pluralizeDays,
 } from '../../lib/habitFormat'
 import { cn } from '../../lib/utils'
+import HabitEditDialog from './HabitEditDialog'
 
 interface HabitPanelProps {
   /** The daily note's date. Consistency is always measured as of this day. */
@@ -437,98 +437,6 @@ function HabitHistoryDialog({ habit, onClose }: { habit: HabitMeta; onClose: () 
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function HabitEditDialog({
-  habit,
-  onClose,
-  onSaved,
-}: {
-  habit: HabitMeta | null
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const [name, setName] = useState(habit?.name ?? '')
-  const [interval, setInterval] = useState(
-    habit?.targetIntervalDays == null ? '' : String(habit.targetIntervalDays),
-  )
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleSave = async () => {
-    const trimmed = name.trim()
-    if (!trimmed) {
-      setError('A habit needs a name.')
-      return
-    }
-    const raw = interval.trim()
-    const targetIntervalDays = raw === '' ? null : Number(raw)
-    if (targetIntervalDays !== null && (!Number.isFinite(targetIntervalDays) || targetIntervalDays <= 0)) {
-      setError('Target interval must be a positive number of days, or blank.')
-      return
-    }
-    setSaving(true)
-    setError(null)
-    try {
-      // Tags are deliberately omitted so an edit here never clears them.
-      await writeObject('habit', {
-        ...(habit ? { id: habit.id } : {}),
-        name: trimmed,
-        targetIntervalDays,
-      })
-      onSaved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{habit ? 'Edit habit' : 'New habit'}</DialogTitle>
-          <DialogDescription>
-            A habit is a practice you repeat. Leave the interval blank to let PuzzlePKM
-            learn your own rhythm from the occurrences you log.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
-              Name
-            </label>
-            <Input
-              value={name}
-              autoFocus
-              onChange={(e) => setName(e.target.value.replace(/\r?\n/g, ' '))}
-              placeholder="Confession, Examen, Spiritual direction…"
-              maxLength={255}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
-              Target interval (days)
-            </label>
-            <Input
-              value={interval}
-              onChange={(e) => setInterval(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="Blank — use my observed rhythm"
-              inputMode="numeric"
-            />
-          </div>
-          {error && <Alert variant="destructive" className="py-2 text-xs">{error}</Alert>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" onClick={() => { void handleSave() }} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

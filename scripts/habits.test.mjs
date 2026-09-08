@@ -143,7 +143,9 @@ test('cadence comes from the target when set and from the median gap otherwise',
   assert.equal(observed.state, 'on-track');
   assert.equal(observed.daysUntilDue, 12);
 
+  // An interval with no mode is shorthand for the target mode.
   const targeted = computeHabitStats({ targetIntervalDays: 5 }, entries, '2026-03-10');
+  assert.equal(targeted.cadenceMode, 'target');
   assert.equal(targeted.intervalDays, 5);
   assert.equal(targeted.intervalSource, 'target');
   assert.equal(targeted.dueOn, '2026-03-07');
@@ -275,6 +277,95 @@ test('legacy per-occurrence sync files are absorbed and removed', () => {
     const [habit] = runJson(['habit', 'list'], env);
     assert.equal(habit.name, 'Confession');
     assert.deepEqual(habit.entries.map((entry) => entry.date), ['2025-01-11', '2025-02-13']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a "record only" habit never becomes due, however long the gap', () => {
+  const entries = [{ date: '2024-01-01' }, { date: '2024-01-11' }, { date: '2024-01-21' }];
+
+  // The same history under the default mode is long overdue.
+  const observed = computeHabitStats({ cadenceMode: 'observed' }, entries, '2026-06-01');
+  assert.equal(observed.state, 'overdue');
+
+  const recordOnly = computeHabitStats({ cadenceMode: 'none' }, entries, '2026-06-01');
+  assert.equal(recordOnly.state, 'untracked');
+  assert.equal(recordOnly.dueOn, null);
+  assert.equal(recordOnly.intervalDays, null);
+  // The history itself is still fully reported — that is the point of keeping it.
+  assert.equal(recordOnly.entryCount, 3);
+  assert.equal(recordOnly.medianGapDays, 10);
+  assert.equal(recordOnly.daysSinceLast, 862);
+
+  // An explicit target still wins where one is set.
+  const targeted = computeHabitStats({ cadenceMode: 'target', targetIntervalDays: 30 }, entries, '2024-03-01');
+  assert.equal(targeted.intervalSource, 'target');
+  assert.equal(targeted.state, 'overdue');
+});
+
+test('cadence mode round-trips through the habit file', () => {
+  const { dir, env } = scratch();
+  const root = join(dir, 'syncroot');
+  try {
+    mkdirSync(join(root, 'habits'), { recursive: true });
+    runCli(['settings', 'set', 'root-folder', root], env);
+
+    runJson(['write', 'habit', JSON.stringify({ name: 'Rosary walk', cadenceMode: 'none' })], env);
+    runJson(['write', 'habit', JSON.stringify({ name: 'Confession', targetIntervalDays: 30 })], env);
+    runCli(['sync'], env);
+
+    const files = readdirSync(join(root, 'habits'));
+    const rosary = readFileSync(join(root, 'habits', files.find((file) => file.startsWith('rosary'))), 'utf8');
+    assert.match(rosary, /^cadenceMode: "none"$/m);
+    assert.doesNotMatch(rosary, /^targetIntervalDays:/m, 'an interval means nothing without the target mode');
+
+    const confession = readFileSync(join(root, 'habits', files.find((file) => file.startsWith('confession'))), 'utf8');
+    assert.match(confession, /^cadenceMode: "target"$/m);
+    assert.match(confession, /^targetIntervalDays: 30$/m);
+
+    const second = scratch();
+    try {
+      runCli(['settings', 'set', 'root-folder', root], second.env);
+      runCli(['sync'], second.env);
+      const byName = new Map(runJson(['habit', 'list'], second.env).map((habit) => [habit.name, habit]));
+      assert.equal(byName.get('Rosary walk').cadenceMode, 'none');
+      assert.equal(byName.get('Confession').cadenceMode, 'target');
+      assert.equal(byName.get('Confession').targetIntervalDays, 30);
+    } finally {
+      rmSync(second.dir, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('deleting a habit removes its entries, tags, links, and file', () => {
+  const { dir, env } = scratch();
+  const root = join(dir, 'syncroot');
+  try {
+    mkdirSync(join(root, 'habits'), { recursive: true });
+    runCli(['settings', 'set', 'root-folder', root], env);
+
+    const created = runJson(['write', 'habit', JSON.stringify({ name: 'Confession', tags: ['Sacraments'] })], env);
+    runCli(['habit', 'log', created.id, '2026-01-11'], env);
+    runCli(['habit', 'log', created.id, '2026-02-13'], env);
+    runCli(['sync'], env);
+    assert.equal(readdirSync(join(root, 'habits')).length, 1);
+
+    runCli(['delete', 'habit', created.id], env);
+
+    assert.equal(runJson(['habit', 'list', '--include-retired'], env).length, 0);
+    assert.equal(readdirSync(join(root, 'habits')).length, 0, 'the Markdown file goes too');
+
+    const db = new DatabaseSync(env.PUZZLEPKM_DB_PATH);
+    const remaining = {
+      entries: db.prepare('SELECT COUNT(*) AS n FROM habit_entries WHERE habit_id = ?').get(created.id).n,
+      tags: db.prepare("SELECT COUNT(*) AS n FROM object_tags WHERE object_id = ?").get(created.id).n,
+      links: db.prepare('SELECT COUNT(*) AS n FROM object_links WHERE source_id = ? OR target_id = ?').get(created.id, created.id).n,
+    };
+    db.close();
+    assert.deepEqual(remaining, { entries: 0, tags: 0, links: 0 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
