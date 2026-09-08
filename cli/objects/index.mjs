@@ -3,11 +3,12 @@ import { habitDefinition } from './habit/definition.mjs';
 import { linkDefinition } from './link/definition.mjs';
 import { projectDefinition } from './project/definition.mjs';
 import { refMaterialDefinition } from './ref-material/definition.mjs';
+import { scriptureChapterDefinition } from './scripture-chapter/definition.mjs';
 import { scriptureDefinition } from './scripture/definition.mjs';
 import { tagDefinition } from './tag/definition.mjs';
 import { topicNoteDefinition } from './topic-note/definition.mjs';
 
-// DEC-05, DEC-48: Keep object-type ownership aligned to canonical product object types.
+// DEC-05, DEC-48, DEC-77: Keep object-type ownership aligned to canonical product object types.
 export const objectTypeDefinitions = [
   topicNoteDefinition,
   dailyNoteDefinition,
@@ -15,6 +16,7 @@ export const objectTypeDefinitions = [
   refMaterialDefinition,
   habitDefinition,
   scriptureDefinition,
+  scriptureChapterDefinition,
   tagDefinition,
   linkDefinition,
 ];

@@ -302,8 +302,9 @@ fn open_settings_window(app: &tauri::AppHandle) {
         WebviewUrl::App("index.html?settings=true".into()),
     )
     .title("Settings")
-    .inner_size(680.0, 560.0)
-    .resizable(false)
+    .inner_size(680.0, 620.0)
+    .resizable(true)
+    .closable(true)
     .focused(true)
     .build();
 }
@@ -326,6 +327,8 @@ fn open_new_main_window(app: &tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        // Native folder picker for linking external project/ref-material directories.
+        .plugin(tauri_plugin_dialog::init())
         .manage(CliSerializer(Arc::new(tokio::sync::Mutex::new(()))))
         .manage(BackgroundSyncState(Arc::new(tokio::sync::Mutex::new(
             BackgroundSyncStatus::default(),
@@ -358,9 +361,17 @@ fn main() {
                 .select_all()
                 .build()?;
 
+            // Replacing the default menu drops the standard Window menu with it, which
+            // is what left secondary windows (Settings) with no Cmd+W.
+            let window_menu = SubmenuBuilder::new(handle, "Window")
+                .minimize()
+                .close_window()
+                .build()?;
+
             let menu = MenuBuilder::new(handle)
                 .item(&app_menu)
                 .item(&edit_menu)
+                .item(&window_menu)
                 .build()?;
             app.set_menu(menu)?;
             Ok(())

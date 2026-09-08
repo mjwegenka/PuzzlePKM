@@ -3,7 +3,7 @@
   "description": "A local-first knowledge management app with local folder sync",
   "author": "PuzzlePKM",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "cli": "node ./cli.mjs",
@@ -42,6 +42,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tiptap/extension-blockquote": "^3.23.1",
     "@tiptap/extension-bold": "^3.23.1",
     "@tiptap/extension-bubble-menu": "^3.23.1",

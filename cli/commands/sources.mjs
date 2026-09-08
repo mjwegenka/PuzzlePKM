@@ -20,18 +20,41 @@ export async function handleSourcesCommand(action, args, ctx) {
     return true;
   }
 
+  if (sourcesAction === 'scan') {
+    const { positional } = parseFlags(args.slice(1));
+    let parent = positional[0];
+    if (!parent && ctx.rl) {
+      parent = await ctx.prompt(ctx.rl, 'Parent folder to scan', { required: true });
+    }
+    if (!parent) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} sources scan <parent-path>`);
+    console.log(ctx.formatCompact(ctx.scanLinkedSourceCandidates(parent)));
+    return true;
+  }
+
   if (sourcesAction === 'add' || sourcesAction === 'link') {
     const rest = args.slice(1);
     const { flags, positional } = parseFlags(rest);
-    let path = positional[0];
-    if (!path && ctx.rl) {
-      path = await ctx.prompt(ctx.rl, 'Directory path to link', { required: true });
+    const paths = positional.filter(Boolean);
+    if (paths.length === 0 && ctx.rl) {
+      const prompted = await ctx.prompt(ctx.rl, 'Directory path to link', { required: true });
+      if (prompted) paths.push(prompted);
     }
-    if (!path) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} sources add <path> [--type project|ref-material] [--name "Name"] [--tags a,b]`);
+    if (paths.length === 0) throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} sources add <path...> [--type project|ref-material] [--name "Name"] [--tags a,b]`);
+
+    const objectType = flags.type ?? 'project';
+
+    // One path keeps the single-record output that callers parse; several report per-path outcomes.
+    if (paths.length > 1) {
+      const summary = ctx.attachLinkedDirectories(paths, objectType);
+      for (const entry of summary.added) console.log(`Linked ${objectType} "${entry.name}" -> ${entry.path}`);
+      for (const entry of summary.failed) console.error(`Skipped ${entry.path}: ${entry.error}`);
+      console.log(ctx.formatCompact(summary));
+      return true;
+    }
 
     const { source, record } = ctx.attachLinkedDirectory({
-      path,
-      objectType: flags.type ?? 'project',
+      path: paths[0],
+      objectType,
       name: flags.name,
       tags: parseCsv(flags.tags),
     });

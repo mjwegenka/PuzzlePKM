@@ -50,6 +50,7 @@ const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
   'project': 'Project',
   'ref-material': 'Reference',
   'scripture': 'Scripture',
+  'scripture-chapter': 'Chapter',
   'tag': 'Tag',
 }
 
