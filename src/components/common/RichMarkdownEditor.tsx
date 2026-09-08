@@ -37,6 +37,7 @@ import MentionPopup, { type MentionOption } from './MentionPopup'
 import { searchObjects } from '../../lib/cliService'
 import { fallbackBlockId } from '../../lib/noteBlocks'
 import type { NoteBlock } from '../../shared/types'
+import { taskListMarkedExtension, taskListTurndownRule } from '../../lib/markdownTaskLists'
 import { cn } from '../../lib/utils'
 
 interface RichMarkdownEditorProps {
@@ -76,6 +77,8 @@ marked.setOptions({
   breaks: true,
 })
 
+marked.use(taskListMarkedExtension)
+
 const turndown = new TurndownService({
   headingStyle: 'atx',
   codeBlockStyle: 'fenced',
@@ -83,6 +86,10 @@ const turndown = new TurndownService({
   emDelimiter: '*',
   strongDelimiter: '**',
 })
+
+// The mirror of the marked override above: without this, a task made with the
+// toolbar button serialized as a plain `-   text` bullet.
+turndown.addRule('taskListItem', taskListTurndownRule)
 
 turndown.addRule('tightLineBreaks', {
   filter: ['br'],
