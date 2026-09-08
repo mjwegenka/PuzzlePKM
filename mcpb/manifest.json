@@ -4,7 +4,7 @@
   "display_name": "PuzzlePKM",
   "version": "1.4.0",
   "description": "Search, traverse, and extend your local PuzzlePKM knowledge base.",
-  "long_description": "Gives Claude read access to the PuzzlePKM knowledge base on this machine: full-text search down to the individual note block, the link graph between notes, projects, reference materials, habits and tags, the scripture references PuzzlePKM extracts from note bodies, habit streaks, and a health report covering unlinked notes and Inbox backlog. Optional write tools can create topic notes, append to the day's daily note, set habits, and run a folder sync. Reads and writes go through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths stay correct. Everything runs against the local SQLite database; nothing leaves your machine. Writes are disabled unless you turn them on below.",
+  "long_description": "Gives Claude read access to the PuzzlePKM knowledge base on this machine: full-text search down to the individual note block and into the PDFs, Word documents, PowerPoint decks, Pages documents, Markdown and text files stored in project and reference-material folders, the link graph between notes, projects, reference materials, habits and tags, the scripture references PuzzlePKM extracts from note bodies, habit streaks, and a health report covering unlinked notes and Inbox backlog. Optional write tools can create topic notes, append to the day's daily note, set habits, and run a folder sync. Reads and writes go through the same repositories as the CLI and desktop app, so backlinks, scripture extraction, and sync paths stay correct. Everything runs against the local SQLite database; nothing leaves your machine. Writes are disabled unless you turn them on below.",
   "author": {
     "name": "PuzzlePKM"
   },
@@ -71,7 +71,19 @@
   "tools": [
     {
       "name": "search_knowledge_base",
-      "description": "Substring search across notes, blocks, projects, materials, habits, scriptures, and tags"
+      "description": "Substring search across notes, blocks, projects, materials, habits, scriptures, tags, and document text"
+    },
+    {
+      "name": "search_documents",
+      "description": "Full-text search inside PDFs, Word, PowerPoint, Pages, Markdown and text files in project and reference-material folders"
+    },
+    {
+      "name": "get_document_text",
+      "description": "Read one indexed document's extracted text"
+    },
+    {
+      "name": "list_documents",
+      "description": "Indexed documents with extraction status and index totals"
     },
     {
       "name": "list_objects",

@@ -1,4 +1,4 @@
-export type ObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
+export type ObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'scripture-chapter' | 'tag';
 
 export interface BaseObject {
   id: string;
@@ -67,6 +67,59 @@ export interface Scripture {
     title: string;
     date?: string;
   }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * DEC-77: A chapter of scripture — the unit citations are browsed by. Many
+ * verse-level `Scripture` references roll up into one chapter.
+ */
+export interface ScriptureChapterReference {
+  id: string;
+  type: 'scripture';
+  reference: string;
+  passageUrl: string;
+  /** null when the citation covers the whole chapter. */
+  verseStart: number | null;
+  /** null when the span runs to the end of the chapter. */
+  verseEnd: number | null;
+  noteCount: number;
+  linkedNotes: Array<{
+    id: string;
+    type: 'topic-note' | 'daily-note';
+    title: string;
+    date?: string;
+    syncPath?: string;
+  }>;
+}
+
+export interface ScriptureChapterSummary {
+  id: string;
+  type: 'scripture-chapter';
+  reference: string;
+  bookName: string;
+  bookOrder: number;
+  chapter: number;
+  passageUrl: string;
+  noteCount?: number;
+}
+
+export interface ScriptureChapter extends ScriptureChapterSummary {
+  /** Every verse-level citation in this chapter, ordered by verse span. */
+  references: ScriptureChapterReference[];
+  /** Distinct notes citing this chapter through any of those references. */
+  linkedNotes: Array<{
+    id: string;
+    type: 'topic-note' | 'daily-note';
+    title: string;
+    date?: string;
+    syncPath?: string;
+  }>;
+  adjacentChapters: {
+    previous: ScriptureChapterSummary | null;
+    next: ScriptureChapterSummary | null;
+  };
   createdAt: string;
   updatedAt: string;
 }

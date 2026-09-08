@@ -14,6 +14,29 @@ import { useUnsavedChangesStore } from './lib/unsavedChangesStore'
 
 function GlobalCloseConfirmDialog() {
   const { showCloseConfirm, setShowCloseConfirm } = useUnsavedChangesStore()
+  const [closeError, setCloseError] = useState<string | null>(null)
+
+  // This dialog is the only way out of a close blocked by onCloseRequested, so a
+  // failure here leaves the window unclosable. Render the reason instead of
+  // logging it: release builds ship without devtools, so a console-only error is
+  // invisible — which is how a missing core:window:allow-destroy capability once
+  // presented as the red X simply not working.
+  const handleQuitWithoutSaving = async () => {
+    setCloseError(null)
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      await getCurrentWindow().destroy()
+    } catch (error) {
+      setCloseError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  // Cancel sets the store directly rather than going through onOpenChange, so
+  // clearing on dismissal would miss it and the next open would show a stale
+  // error. Clear on open instead, which covers every dismissal path.
+  useEffect(() => {
+    if (showCloseConfirm) setCloseError(null)
+  }, [showCloseConfirm])
 
   return (
     <Dialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
@@ -22,18 +45,18 @@ function GlobalCloseConfirmDialog() {
         <DialogDescription>
           You have unsaved changes. Are you sure you want to quit without saving?
         </DialogDescription>
+        {closeError && (
+          <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+            <p className="text-sm font-semibold text-red-600">Couldn&apos;t close the window</p>
+            <p className="mt-1 text-xs wrap-break-word text-red-500">{closeError}</p>
+          </div>
+        )}
         <DialogFooter className="mt-4 flex justify-end space-x-2">
           <Button variant="outline" onClick={() => setShowCloseConfirm(false)}>
             Cancel
           </Button>
-          <Button
-            variant="destructive"
-            onClick={async () => {
-              const { getCurrentWindow } = await import('@tauri-apps/api/window')
-              await getCurrentWindow().destroy()
-            }}
-          >
-            Quit without saving
+          <Button variant="destructive" onClick={handleQuitWithoutSaving}>
+            {closeError ? 'Try again' : 'Quit without saving'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -73,7 +96,7 @@ class GraphErrorBoundary extends React.Component<{ children: ReactNode }, { hasE
 type Section = 'calendar' | 'library' | 'graph'
 type FileObjType = 'project' | 'ref-material'
 type NotesObjType = 'topic-note' | 'daily-note' | 'habit'
-type MetaObjType = 'scripture' | 'tag'
+type MetaObjType = 'scripture' | 'scripture-chapter' | 'tag'
 type LibraryObjectType = NotesObjType | FileObjType | MetaObjType
 type PinnedObjType = NotesObjType | FileObjType
 
@@ -123,6 +146,9 @@ export default function App() {
   }, [sidebarSection])
 
   useEffect(() => {
+    // The settings window renders an early-return tree without GlobalCloseConfirmDialog,
+    // so blocking its close here would leave it unclosable with no way to confirm.
+    if (isSettingsWindow) return
     if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__) {
       import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
         const unlistenPromise = getCurrentWindow().onCloseRequested(async (event) => {
@@ -136,7 +162,7 @@ export default function App() {
         }
       }).catch(console.error)
     }
-  }, [])
+  }, [isSettingsWindow])
 
   const openLibrarySelection = useCallback((target: { id: string; type: LibraryObjectType }) => {
     setSidebarSection('library')

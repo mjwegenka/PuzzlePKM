@@ -3,7 +3,9 @@ import NoteCard from "../ui/NoteCard";
 import React, { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import {
   ArrowUpDown,
+  BookOpen,
   CalendarDays,
+  FolderKanban,
   Inbox,
   Loader2,
   NotebookPen,
@@ -15,6 +17,7 @@ import {
 } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
+import ScriptureChapterPanel from '../objects/ScriptureChapterPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
 
 import type { NoteCardData } from '../ui/NoteCard'
@@ -22,10 +25,14 @@ import type { NoteCardData } from '../ui/NoteCard'
 import {
   deleteObject,
   getObject,
+  linkDirectoryViaPicker,
   listHabitMeta,
   listMetaBundle,
+  openPathInDefaultApp,
   rankSearchCandidates,
+  searchDocuments,
   writeObject,
+  type DocumentSearchResult,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
@@ -43,8 +50,8 @@ function normalizePathForLookup(path?: string): string {
 }
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
-type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'tag'
-type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'tag'>
+type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'scripture-chapter' | 'tag'
+type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'scripture-chapter' | 'tag'>
 
 interface LibraryPageProps {
   onSaved?: () => void
@@ -109,6 +116,19 @@ interface ScriptureItem {
   type: 'scripture'
 }
 
+interface ScriptureChapterItem {
+  id: string
+  reference: string
+  bookName: string
+  bookOrder: number
+  chapter: number
+  passageUrl: string
+  referenceCount: number
+  noteCount: number
+  displayTitle: string
+  type: 'scripture-chapter'
+}
+
 interface ActiveLibraryObject {
   objectId: string
   type: EditorObjectType
@@ -125,6 +145,8 @@ interface BoardCard extends NoteCardData {
   contentSearch?: string
   date?: string
   author?: string
+  /** DEC-79: absolute path of the file a document card opens. */
+  filePath?: string
 }
 
 interface RenderedBoardCard {
@@ -134,7 +156,7 @@ interface RenderedBoardCard {
 }
 
 type BoardSort = 'recent' | 'oldest' | 'title-asc' | 'title-desc'
-type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture'
+type LibraryObjectFilterType = EditorObjectType | 'tag' | 'scripture' | 'scripture-chapter' | 'document'
 
 const LIBRARY_OBJECT_TYPE_OPTIONS: Array<{ value: LibraryObjectFilterType; label: string; checkedByDefault: boolean }> = [
   { value: 'topic-note', label: 'Topic Notes', checkedByDefault: true },
@@ -142,8 +164,11 @@ const LIBRARY_OBJECT_TYPE_OPTIONS: Array<{ value: LibraryObjectFilterType; label
   { value: 'habit', label: 'Habits', checkedByDefault: false },
   { value: 'project', label: 'Projects', checkedByDefault: true },
   { value: 'ref-material', label: 'Reference Materials', checkedByDefault: true },
+  // DEC-79: file contents, so this only ever produces cards while searching.
+  { value: 'document', label: 'Documents', checkedByDefault: true },
   { value: 'tag', label: 'Tags', checkedByDefault: false },
-  { value: 'scripture', label: 'Scripture', checkedByDefault: false },
+  { value: 'scripture-chapter', label: 'Scripture Chapters', checkedByDefault: false },
+  { value: 'scripture', label: 'Scripture References', checkedByDefault: false },
 ]
 
 const DEFAULT_VISIBLE_LIBRARY_TYPES = LIBRARY_OBJECT_TYPE_OPTIONS
@@ -330,6 +355,7 @@ export default function LibraryPage({
   const [habits, setHabits] = useState<HabitItem[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
   const [scriptures, setScriptures] = useState<ScriptureItem[]>([])
+  const [scriptureChapters, setScriptureChapters] = useState<ScriptureChapterItem[]>([])
   const [loading, setLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -360,6 +386,9 @@ export default function LibraryPage({
   // Board filter
   const [boardFilter, setBoardFilter] = useState('')
   const deferredBoardFilter = useDeferredValue(boardFilter)
+  // DEC-79: document hits come from the CLI's full-text index rather than the
+  // in-memory object lists, so they are fetched per query.
+  const [documentMatches, setDocumentMatches] = useState<DocumentSearchResult[]>([])
   const [boardSort, setBoardSort] = useState<BoardSort>('recent')
   const [visibleObjectTypes, setVisibleObjectTypes] = useState<LibraryObjectFilterType[]>(DEFAULT_VISIBLE_LIBRARY_TYPES)
   const [fileListWidth, setFileListWidth] = useState(LIBRARY_LIST_DEFAULT_WIDTH)
@@ -456,6 +485,7 @@ export default function LibraryPage({
       setHabits(bundle.habits as HabitItem[])
       setFiles(bundle.files as FileItem[])
       setScriptures(bundle.scriptures as ScriptureItem[])
+      setScriptureChapters(bundle.scriptureChapters as ScriptureChapterItem[])
       setHasLoadedOnce(true)
     } finally {
       if (latestLoadRequestRef.current === requestId) {
@@ -565,6 +595,11 @@ export default function LibraryPage({
     }
   }, [handleSelectItem, onPendingSelectionHandled, pendingSelection])
 
+  // DEC-77: stepping between adjacent chapters from inside the chapter panel.
+  const handleOpenChapter = useCallback(async (chapterId: string) => {
+    await openObjectInPanel(chapterId, 'scripture-chapter')
+  }, [openObjectInPanel])
+
   const handleNavigateToObject = useCallback(async (target: ResolvedObjectRef) => {
     setPendingBlockId(target.blockId)
     const opened = await openObjectInPanel(target.id, target.type)
@@ -588,6 +623,24 @@ export default function LibraryPage({
     setCreateHasUnsavedChanges(false)
     setCreateKey((k) => k + 1)
   }, [])
+
+  // DEC-71: projects and reference materials are added by linking a folder that already
+  // exists on disk. Nothing is copied, moved, or written into it.
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  const handleLinkDirectory = useCallback(async (
+    objectType: 'project' | 'ref-material',
+    label: string,
+  ) => {
+    try {
+      const created = await linkDirectoryViaPicker(objectType, label)
+      if (!created) return
+      await loadAll()
+      await openObjectInPanel(created.id, objectType)
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : String(e))
+    }
+  }, [loadAll, openObjectInPanel])
 
   useEffect(() => {
     if (!pendingCreate) return
@@ -747,6 +800,31 @@ export default function LibraryPage({
     return visibleObjectTypeSet
   }, [showInbox, visibleObjectTypeSet])
   const hasActiveBoardFilters = isObjectTypeFilterCustomized || isTagFilterCustomized
+
+  // DEC-79: search the document index alongside the board. Debounced because
+  // every query shells out to the CLI, and cleared when the query is emptied so
+  // documents never pad an unfiltered board.
+  const documentsAreVisible = effectiveVisibleObjectTypeSet.has('document')
+  useEffect(() => {
+    const query = normalizeSearchQuery(deferredBoardFilter)
+    if (!documentsAreVisible || query.length < 2) {
+      setDocumentMatches([])
+      return
+    }
+
+    let cancelled = false
+    const timeoutId = window.setTimeout(() => {
+      void searchDocuments(query).then((results) => {
+        if (!cancelled) setDocumentMatches(results)
+      })
+    }, 180)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [deferredBoardFilter, documentsAreVisible])
+
   const allCards = useMemo((): BoardCard[] => {
     const normalizedBoardFilter = normalizeSearchQuery(deferredBoardFilter)
     const topicCards: BoardCard[] = topicNotes
@@ -829,6 +907,34 @@ export default function LibraryPage({
         sortTimestamp: 0,
       }))
 
+    // DEC-77: chapters read as "N notes across N references" — the rollup is the
+    // point, so both numbers belong on the card.
+    const scriptureChapterCards: BoardCard[] = scriptureChapters
+      .map((c) => ({
+        id: c.id,
+        type: 'scripture-chapter' as const,
+        title: c.reference,
+        metadata: `${c.noteCount === 1 ? '1 note' : `${c.noteCount} notes`} · ${c.referenceCount === 1 ? '1 reference' : `${c.referenceCount} references`}`,
+        snippet: undefined,
+        tags: [],
+        sortTimestamp: c.noteCount,
+      }))
+
+    // Only ever populated while a query is active; a document is a search
+    // result pointing at a file, not a browsable library object.
+    const documentCards: BoardCard[] = documentMatches.map((match) => ({
+      id: match.id,
+      type: 'document' as const,
+      title: match.fileName,
+      metadata: match.objectName || match.relativePath,
+      snippet: match.snippet,
+      contentSearch: match.snippet,
+      filePath: match.filePath,
+      tags: [],
+      hideTags: true,
+      sortTimestamp: 0,
+    }))
+
     const tagCountMap = new Map<string, number>()
     for (const card of [...topicCards, ...dailyCards, ...habitCards, ...fileCards]) {
       for (const tag of card.tags ?? []) {
@@ -846,7 +952,7 @@ export default function LibraryPage({
       sortTimestamp: count,
     }))
 
-    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...scriptureCards, ...tagCards].filter((card) => {
+    const cards = [...topicCards, ...dailyCards, ...habitCards, ...fileCards, ...documentCards, ...scriptureChapterCards, ...scriptureCards, ...tagCards].filter((card) => {
       if (!effectiveVisibleObjectTypeSet.has(card.type)) return false
 
       if (showInbox) {
@@ -880,9 +986,15 @@ export default function LibraryPage({
                   ? 3
                   : card.type === 'daily-note'
                     ? 4
-                    : card.type === 'scripture'
+                    // DEC-79: documents rank below the objects that hold them,
+                    // so a folder still wins over a file buried inside it.
+                    : card.type === 'document'
                       ? 5
-                      : 6,
+                      : card.type === 'scripture-chapter'
+                        ? 6
+                        : card.type === 'scripture'
+                          ? 7
+                          : 8,
           card,
         })),
       )
@@ -894,7 +1006,7 @@ export default function LibraryPage({
     if (boardSort === 'title-desc') return cards.sort((a, b) => compareByTitle(b, a))
     if (boardSort === 'oldest') return cards.sort((a, b) => a.sortTimestamp - b.sortTimestamp || compareByTitle(a, b))
     return cards.sort((a, b) => b.sortTimestamp - a.sortTimestamp || compareByTitle(a, b))
-  }, [topicNotes, dailyNotes, habits, files, scriptures, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
+  }, [topicNotes, dailyNotes, habits, files, documentMatches, scriptures, scriptureChapters, showInbox, deferredBoardFilter, boardSort, tagFilters, effectiveVisibleObjectTypeSet])
 
   useEffect(() => {
     cardMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -1017,6 +1129,20 @@ export default function LibraryPage({
     await handleSelectItem(card.id, card.type as EditorObjectType)
   }, [clearCardSelection, handleCardSelectionGesture, handleSelectItem, selectedCardKeys.length])
 
+  // DEC-79: a document card is a file, so it opens in whatever application the
+  // system uses for it rather than in the object editor.
+  const handleOpenDocument = useCallback(async (card: BoardCard) => {
+    if (!card.filePath) {
+      setLinkError('That document has no file path on record. Run a sync and try again.')
+      return
+    }
+    try {
+      await openPathInDefaultApp(card.filePath)
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
   const activeObjectType = activeObject?.type
   const activeObjectId = activeObject?.objectId
   const activeObjectIsDirty = activeObject?.isDirty
@@ -1121,7 +1247,7 @@ export default function LibraryPage({
   ), [allCards])
   const activeEditorNavigationIndex = useMemo(() => {
     if (!activeObject) return -1
-    if (activeObject.type === 'scripture' || activeObject.type === 'tag') return -1
+    if (activeObject.type === 'scripture' || activeObject.type === 'scripture-chapter' || activeObject.type === 'tag') return -1
     return editorNavigationCards.findIndex((card) => card.id === activeObject.objectId && card.type === activeObject.type)
   }, [activeObject, editorNavigationCards])
   const previousEditorNavigationTarget = activeEditorNavigationIndex > 0
@@ -1149,12 +1275,14 @@ export default function LibraryPage({
     || cardType === 'project'
     || cardType === 'ref-material'
     || cardType === 'scripture'
+    || cardType === 'scripture-chapter'
     || cardType === 'tag'
   )
 
   const renderBoardCard = (entry: RenderedBoardCard, options?: { gallery?: boolean }) => {
     const { card, key, phase } = entry
     const gallery = Boolean(options?.gallery)
+    const isDocument = card.type === 'document'
     const isOpenable = isCardOpenable(card.type)
     const isSelectedCard = selectedCardKeySet.has(key) || (activeNoteId === card.id && activeNoteType === card.type)
 
@@ -1168,8 +1296,16 @@ export default function LibraryPage({
         <NoteCard
           card={card}
           isSelected={isSelectedCard}
-          onClick={isOpenable ? (event) => { void handleCardClick(card, event) } : undefined}
-          title={isOpenable ? 'Click to open. Shift-click or Cmd/Ctrl-click to select.' : undefined}
+          onClick={isDocument
+            ? () => { void handleOpenDocument(card) }
+            : isOpenable
+              ? (event) => { void handleCardClick(card, event) }
+              : undefined}
+          title={isDocument
+            ? `Click to open ${card.filePath ?? card.title}`
+            : isOpenable
+              ? 'Click to open. Shift-click or Cmd/Ctrl-click to select.'
+              : undefined}
         />
       </div>
     )
@@ -1226,6 +1362,24 @@ export default function LibraryPage({
                           Habit
                         </span>
                         <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void handleLinkDirectory('project', 'Project')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <FolderKanban className="h-4 w-4" />
+                          Project
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Choose a folder to add as a project</span>
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void handleLinkDirectory('ref-material', 'Reference Material')}>
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                          <BookOpen className="h-4 w-4" />
+                          Reference Material
+                        </span>
+                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Choose a folder to add as reference material</span>
                       </span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -1370,7 +1524,15 @@ export default function LibraryPage({
                 />
               ) : activeObject ? (
                 <EditorErrorBoundary>
-                  {activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
+                  {activeObject.type === 'scripture-chapter' ? (
+                    <ScriptureChapterPanel
+                      key={activeObject.objectId}
+                      object={activeObject.object}
+                      flatTop
+                      onNavigateToObject={handleNavigateToObject}
+                      onOpenChapter={handleOpenChapter}
+                    />
+                  ) : activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
                     <ObjectMetaDetailPanel
                       object={activeObject.object}
                       type={activeObject.type}
@@ -1401,6 +1563,18 @@ export default function LibraryPage({
         }
       />
 
+
+      <Dialog open={linkError !== null} onOpenChange={(open) => { if (!open) setLinkError(null) }}>
+        <DialogContent className="max-w-lg" aria-label="Could not add folder">
+          <DialogHeader>
+            <DialogTitle>Could not add that folder</DialogTitle>
+            <DialogDescription>{linkError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkError(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showBulkTagDialog} onOpenChange={(open) => {
         setShowBulkTagDialog(open)

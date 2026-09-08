@@ -93,6 +93,8 @@ export function createProjectRepository(deps) {
       syncObjectTags(db, id, 'project', []);
       db.prepare('DELETE FROM object_links WHERE source_id = ? OR target_id = ?').run(id, id);
       deps.clearSyncState(db, 'project', id);
+      // DEC-79: the folder's indexed document text goes with the record.
+      deps.clearDocumentIndexForObject(db, 'project', id);
       const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
       deps.cleanupDailyNotesIfEligible(db, linkedDailyNoteIds);
       return result.changes > 0;

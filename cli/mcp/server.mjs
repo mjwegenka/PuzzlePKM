@@ -21,6 +21,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import process, { stdin, stdout, stderr } from 'node:process';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -56,6 +57,10 @@ const {
   listTags,
   listScriptures,
   getScripture,
+  searchDocuments,
+  listIndexedDocuments,
+  getIndexedDocument,
+  documentIndexStatus,
   runSync,
 } = mcpInternals;
 
@@ -71,6 +76,11 @@ const MAX_GRAPH_DEPTH = 3;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const ALLOW_WRITES = /^(1|true|yes|on)$/i.test(String(process.env.PUZZLEPKM_MCP_ALLOW_WRITES ?? '').trim());
+
+// Checked once, before anything opens a handle: node:sqlite creates the file on
+// open, so after the first query a wrong path is indistinguishable from an
+// empty knowledge base.
+const databaseExistedAtStartup = existsSync(dbFile);
 
 // The repositories and sync routines log progress with console.log. On an stdio
 // transport stdout is the protocol channel, so anything printed there corrupts
@@ -190,7 +200,9 @@ function searchKnowledgeBase({ query, kinds, limit }) {
   if (!needle) throw new Error('query is required.');
   const max = clampLimit(limit, DEFAULT_SEARCH_LIMIT);
   const wanted = Array.isArray(kinds) && kinds.length > 0
-    ? new Set(kinds.map((kind) => requireKind(kind)))
+    // 'document' is not an object type — it is the file text index of DEC-79 —
+    // so it bypasses object-kind resolution.
+    ? new Set(kinds.map((kind) => (normalizeString(kind) === 'document' ? 'document' : requireKind(kind))))
     : null;
   const wants = (kind) => !wanted || wanted.has(kind);
   const pattern = likePattern(needle);
@@ -282,6 +294,23 @@ function searchKnowledgeBase({ query, kinds, limit }) {
       }
     }
 
+    // DEC-79: the text inside project and reference-material documents, which
+    // is where a lot of a knowledge base actually lives.
+    if (wants('document')) {
+      for (const match of searchDocuments(needle, { limit: max })) {
+        results.push({
+          kind: 'document',
+          id: match.id,
+          matchedOn: 'content',
+          title: match.fileName,
+          snippet: match.snippet,
+          parent: { kind: match.objectType, id: match.objectId, name: match.objectName },
+          relativePath: match.relativePath,
+          filePath: match.filePath,
+        });
+      }
+    }
+
     return {
       query: needle,
       matchCount: Math.min(results.length, max),
@@ -289,6 +318,37 @@ function searchKnowledgeBase({ query, kinds, limit }) {
       results: results.slice(0, max),
     };
   });
+}
+
+/**
+ * DEC-79: the file text index. Search here when the answer is likely to be in
+ * a PDF, Word document or Markdown file rather than in a note.
+ */
+function searchDocumentsTool({ query, limit, parent_id: parentId, parent_kind: parentKind }) {
+  const needle = normalizeString(query);
+  if (!needle) throw new Error('query is required.');
+  const matches = searchDocuments(needle, {
+    limit: clampLimit(limit, DEFAULT_SEARCH_LIMIT),
+    objectId: normalizeString(parentId) || undefined,
+    objectType: parentKind ? requireKind(parentKind) : undefined,
+  });
+  return { query: needle, matchCount: matches.length, results: matches };
+}
+
+function getDocumentTextTool({ id, max_characters: maxCharacters }) {
+  const reference = normalizeString(id);
+  if (!reference) throw new Error('id is required.');
+  const document = getIndexedDocument(reference, { maxCharacters: Number.parseInt(maxCharacters, 10) || 0 });
+  if (!document) throw new Error(`No indexed document found for "${reference}". Use search_documents to find one.`);
+  return document;
+}
+
+function listDocumentsTool({ parent_id: parentId, limit }) {
+  const documents = listIndexedDocuments({
+    objectId: normalizeString(parentId) || undefined,
+    limit: clampLimit(limit, DEFAULT_LIST_LIMIT),
+  });
+  return { total: documents.length, index: documentIndexStatus(), documents };
 }
 
 function listObjectsTool({ kind, limit, offset }) {
@@ -561,6 +621,7 @@ function getStatus() {
       tag: count('tags'),
       link: count('object_links'),
       block: count('note_blocks'),
+      document: count('document_texts'),
     };
 
     const orphanNotes = db.prepare(`
@@ -588,6 +649,9 @@ function getStatus() {
     return {
       product: PRIMARY_PRODUCT_NAME,
       databasePath: dbFile,
+      // Opening a database creates it when absent, so an empty knowledge base
+      // and a misconfigured path look identical without this flag.
+      databaseExistedBeforeThisSession: databaseExistedAtStartup,
       syncRootFolder: getSyncRootFolder(),
       writesEnabled: ALLOW_WRITES,
       today: localDateString(),
@@ -747,21 +811,67 @@ async function syncNow() {
 // ── Tool registry ───────────────────────────────────────────────────────────
 
 const KIND_ENUM = ['topic-note', 'daily-note', 'project', 'ref-material', 'habit', 'scripture', 'tag', 'link'];
+// Documents are indexed file text rather than an object type, so they widen
+// search without becoming a listable/gettable kind.
+const SEARCH_KIND_ENUM = [...KIND_ENUM, 'document'];
 
 const TOOLS = [
   {
     name: 'search_knowledge_base',
-    description: 'Substring search across the whole PuzzlePKM database — note titles, individual note blocks, project and reference-material names, habit text, scripture references, and tags. Block matches include the block id and a surrounding snippet. Start here when you do not already know an object id.',
+    description: 'Substring search across the whole PuzzlePKM database — note titles, individual note blocks, project and reference-material names, habit text, scripture references, tags, and the text inside indexed documents (PDF, Word, PowerPoint, Pages, Markdown, plain text). Block matches include the block id and a surrounding snippet. Start here when you do not already know an object id.',
     write: false,
     handler: searchKnowledgeBase,
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Text to look for. Case-insensitive substring match.' },
-        kinds: { type: 'array', items: { type: 'string', enum: KIND_ENUM }, description: 'Restrict the search to these object kinds. Omit to search everything.' },
+        kinds: { type: 'array', items: { type: 'string', enum: SEARCH_KIND_ENUM }, description: 'Restrict the search to these object kinds. "document" covers file text inside project and reference-material folders. Omit to search everything.' },
         limit: { type: 'integer', description: `Maximum results to return (default ${DEFAULT_SEARCH_LIMIT}, max 200).` },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'search_documents',
+    description: 'Full-text search inside the files stored in project and reference-material folders — PDFs, Word documents (.doc/.docx), PowerPoint decks, Pages documents, Markdown and plain text, indexed recursively on every sync. Returns the containing object, the path within its folder, and a snippet around the match. Use this when the answer lives in an attachment rather than in a note.',
+    write: false,
+    handler: searchDocumentsTool,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Words or a phrase to look for inside the documents.' },
+        parent_id: { type: 'string', description: 'Restrict to one project or reference material by id.' },
+        parent_kind: { type: 'string', enum: ['project', 'ref-material'], description: 'Restrict to documents held by projects or by reference materials.' },
+        limit: { type: 'integer', description: `Maximum matches to return (default ${DEFAULT_SEARCH_LIMIT}, max 200).` },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_document_text',
+    description: 'Read the extracted text of one indexed document by its document id (from search_documents or list_documents). Use it to quote or summarize a PDF or Word file without leaving the machine.',
+    write: false,
+    handler: getDocumentTextTool,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Document id from search_documents or list_documents.' },
+        max_characters: { type: 'integer', description: 'Truncate the returned text to this many characters. Omit for the whole document.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'list_documents',
+    description: 'List indexed documents with their status, newest first, plus index totals. Good for checking what is searchable — including files that yielded no text, such as scanned PDFs.',
+    write: false,
+    handler: listDocumentsTool,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_id: { type: 'string', description: 'Only documents inside this project or reference material.' },
+        limit: { type: 'integer', description: `Maximum documents to return (default ${DEFAULT_LIST_LIMIT}, max 200).` },
+      },
     },
   },
   {
@@ -1023,7 +1133,7 @@ async function handleRequest(message) {
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
         instructions: [
           `${PRIMARY_PRODUCT_NAME} is a local-first personal knowledge base of notes, daily journal entries, habits, projects, reference materials, tags, and automatically extracted scripture references, all connected by a link graph.`,
-          'Start with search_knowledge_base or get_status when you do not have an object id. Use get_note_context rather than get_object when reasoning about a note, since it returns backlinks and citations in the same call.',
+          'Start with search_knowledge_base or get_status when you do not have an object id. Use get_note_context rather than get_object when reasoning about a note, since it returns backlinks and citations in the same call. The text of PDFs, Word documents, PowerPoint decks, Pages documents, Markdown and plain text inside project and reference-material folders is indexed too: search_documents finds it, and get_document_text reads one in full.',
           ALLOW_WRITES
             ? 'Writes are enabled. append_to_daily_note is always safe; update_topic_note replaces a note body, so read it first.'
             : 'This server is read-only right now. Write tools will refuse until "Allow writes" is turned on in its settings.',
@@ -1065,6 +1175,9 @@ async function handleRequest(message) {
 export async function startServer() {
   redirectConsoleToStderr();
   stderr.write(`[${SERVER_NAME}] ready — database ${dbFile}, writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}\n`);
+  if (!databaseExistedAtStartup) {
+    stderr.write(`[${SERVER_NAME}] WARNING: no database file at ${dbFile}. An empty one will be created, so every tool will report an empty knowledge base. If ${PRIMARY_PRODUCT_NAME} already has data, either clear the "Database file" setting to use the default location, or point it at the real file.\n`);
+  }
 
   const reader = createInterface({ input: stdin });
   // Requests are handled in arrival order. The SQLite handle is opened and

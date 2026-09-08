@@ -88,10 +88,14 @@ export async function handleObjectsCommand(action, args, ctx) {
           const id = input.id ?? ctx.randomUUID();
           const rootFolder = ctx.getSyncRootFolder();
           const canonicalSyncPath = ctx.canonicalProjectSyncPath(rootFolder, input.name ?? 'Untitled', id);
-          if (input.id && ctx.getProject(db, input.id)) {
+          const existingProject = input.id ? ctx.getProject(db, input.id) : null;
+          if (existingProject) {
+            // DEC-70: a linked directory keeps its own path; renaming the record must
+            // not point it at the managed root (and never renames the folder on disk).
+            const linked = ctx.isLinkedObject(db, 'project', existingProject.id);
             return ctx.updateProjectRecord(db, input.id, {
               name: input.name,
-              syncPath: canonicalSyncPath,
+              syncPath: linked ? existingProject.syncPath : canonicalSyncPath,
               startDate: input.startDate,
               endDate: input.endDate,
               tags: input.tags,
@@ -113,11 +117,14 @@ export async function handleObjectsCommand(action, args, ctx) {
           const id = input.id ?? ctx.randomUUID();
           const rootFolder = ctx.getSyncRootFolder();
           const canonicalSyncPath = ctx.canonicalRefMaterialSyncPath(rootFolder, input.name ?? 'Untitled', id);
-          if (input.id && ctx.getRefMat(db, input.id)) {
+          const existingRefMat = input.id ? ctx.getRefMat(db, input.id) : null;
+          if (existingRefMat) {
+            // DEC-70: see the project case — linked directories keep their own path.
+            const linked = ctx.isLinkedObject(db, 'ref-material', existingRefMat.id);
             return ctx.updateRefMatRecord(db, input.id, {
               name: input.name,
               author: input.author,
-              syncPath: canonicalSyncPath,
+              syncPath: linked ? existingRefMat.syncPath : canonicalSyncPath,
               tags: input.tags,
               updatedAt: now,
             });
@@ -240,16 +247,24 @@ export async function handleObjectsCommand(action, args, ctx) {
         case 'project': {
           const existing = ctx.getProject(db, reference);
           if (!existing) return null;
+          // DEC-70: a linked directory lives outside the sync root and is read-only;
+          // deleting the record must not delete the user's folder.
+          const linked = ctx.isLinkedObject(db, 'project', existing.id);
           return {
-            path: existing.syncPath || '',
+            objectId: existing.id,
+            linked,
+            path: linked ? '' : (existing.syncPath || ''),
             requiresRemoteDelete: ctx.hasKnownRemoteCopy(db, 'project', existing.id),
           };
         }
         case 'ref-material': {
           const existing = ctx.getRefMat(db, reference);
           if (!existing) return null;
+          const linked = ctx.isLinkedObject(db, 'ref-material', existing.id);
           return {
-            path: existing.syncPath || '',
+            objectId: existing.id,
+            linked,
+            path: linked ? '' : (existing.syncPath || ''),
             requiresRemoteDelete: ctx.hasKnownRemoteCopy(db, 'ref-material', existing.id),
           };
         }
@@ -276,6 +291,10 @@ export async function handleObjectsCommand(action, args, ctx) {
     });
 
     if (!deleted) throw new Error(`${type} not found: ${reference}`);
+
+    if (remoteDeleteTarget?.linked && remoteDeleteTarget.objectId) {
+      ctx.removeLinkedSourceForObject(type, remoteDeleteTarget.objectId);
+    }
     console.log(`Deleted ${type} ${reference}`);
     return true;
   }

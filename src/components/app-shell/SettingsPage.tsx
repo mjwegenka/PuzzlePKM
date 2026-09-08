@@ -1,7 +1,30 @@
 import { Alert, Button, Input } from 'aslan-ui';
-import React, { useState, useEffect } from 'react'
-import { AlertCircle, CheckCircle2, Cloud, HardDrive, Info, Loader2, Settings } from 'lucide-react'
-import { runPuzzlePKMCli } from '../../lib/cliService'
+import React, { useState, useEffect, useCallback } from 'react'
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  Cloud,
+  FolderKanban,
+  FolderOpen,
+  FolderSymlink,
+  HardDrive,
+  Info,
+  Loader2,
+  Settings,
+  Trash2,
+} from 'lucide-react'
+import {
+  addLinkedSources,
+  listLinkedSources,
+  pickDirectory,
+  removeLinkedSource,
+  runPuzzlePKMCli,
+  scanLinkCandidates,
+  type LinkCandidate,
+  type LinkedSource,
+  type LinkedSourceType,
+} from '../../lib/cliService'
 
 interface ConfigState {
   dbPath?: string
@@ -49,12 +72,44 @@ function getSyncRootValidationError(value: string): string | null {
   return null
 }
 
+// DEC-70: a linked directory becomes exactly one object, so the choice between
+// Project and Reference Material is deliberate and required — never defaulted.
+const LINKED_SOURCE_TYPE_META: Record<
+  LinkedSourceType,
+  { label: string; description: string; Icon: typeof FolderKanban }
+> = {
+  project: {
+    label: 'Project',
+    description: 'Active work you are producing — appears under Projects.',
+    Icon: FolderKanban,
+  },
+  'ref-material': {
+    label: 'Reference Material',
+    description: 'Source material you read from — appears under Reference Materials.',
+    Icon: BookOpen,
+  },
+}
+
 export default function SettingsPage() {
   const [config, setConfig] = useState<ConfigState>({ loaded: false })
   const [cliStatus, setCliStatus] = useState<CliStatus>({ ok: false, checked: false })
   const [syncRoot, setSyncRoot] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  // ── Linked directories (DEC-70) ───────────────────────────────────────────
+  const [linkedSources, setLinkedSources] = useState<LinkedSource[]>([])
+  const [linkedLoaded, setLinkedLoaded] = useState(false)
+  const [linkResult, setLinkResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null)
+
+  // Bulk add: scan a parent folder, review its subfolders, link the checked ones.
+  const [scanParent, setScanParent] = useState<string | null>(null)
+  const [candidates, setCandidates] = useState<LinkCandidate[]>([])
+  const [checkedPaths, setCheckedPaths] = useState<Set<string>>(new Set())
+  const [bulkType, setBulkType] = useState<LinkedSourceType | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [bulkAdding, setBulkAdding] = useState(false)
 
   // ── Load current config and CLI status ────────────────────────────────────
   useEffect(() => {
@@ -100,6 +155,88 @@ export default function SettingsPage() {
     checkCli()
     loadConfig()
   }, [])
+
+  const refreshLinkedSources = useCallback(async () => {
+    try {
+      setLinkedSources(await listLinkedSources())
+    } catch {
+      setLinkedSources([])
+    } finally {
+      setLinkedLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshLinkedSources()
+  }, [refreshLinkedSources])
+
+  const handleChooseParent = async () => {
+    setLinkResult(null)
+    setScanning(true)
+    try {
+      const parent = await pickDirectory('Choose a folder whose subfolders you want to add')
+      if (!parent) return
+      const scan = await scanLinkCandidates(parent)
+      setScanParent(scan.parent)
+      setCandidates(scan.candidates)
+      setCheckedPaths(new Set(
+        scan.candidates.filter((c) => c.status === 'eligible').map((c) => c.path),
+      ))
+    } catch (e) {
+      setLinkResult({ ok: false, msg: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const toggleCandidate = (path: string) => {
+    setCheckedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  const clearScan = () => {
+    setScanParent(null)
+    setCandidates([])
+    setCheckedPaths(new Set())
+    setBulkType(null)
+  }
+
+  const handleBulkAdd = async () => {
+    if (!bulkType || checkedPaths.size === 0) return
+    setBulkAdding(true)
+    setLinkResult(null)
+    try {
+      const paths = candidates.filter((c) => checkedPaths.has(c.path)).map((c) => c.path)
+      const { added, failed } = await addLinkedSources(paths, bulkType)
+      const label = LINKED_SOURCE_TYPE_META[bulkType].label
+      const summary = failed.length === 0
+        ? `Added ${added.length} ${label}${added.length === 1 ? '' : 's'}. No folders were moved or modified.`
+        : `Added ${added.length}, skipped ${failed.length}: ${failed.map((f) => f.error).join(' ')}`
+      setLinkResult({ ok: failed.length === 0, msg: summary })
+      clearScan()
+      await refreshLinkedSources()
+    } catch (e) {
+      setLinkResult({ ok: false, msg: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBulkAdding(false)
+    }
+  }
+
+  const handleUnlink = async (source: LinkedSource) => {
+    setLinkResult(null)
+    try {
+      await removeLinkedSource(source.path)
+      setConfirmUnlink(null)
+      setLinkResult({ ok: true, msg: `Unlinked "${source.name}". The folder is still on disk, untouched.` })
+      await refreshLinkedSources()
+    } catch (e) {
+      setLinkResult({ ok: false, msg: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   const handleSaveSyncRoot = async () => {
     const inputError = getSyncRootValidationError(syncRoot)
@@ -304,17 +441,236 @@ export default function SettingsPage() {
           </p>
           <pre className="m-0 overflow-auto rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-4 text-xs leading-6 text-[var(--color-text-secondary)]">
             {`<sync-root>/
-└── ...
-    ├── projects/      ← each sub-folder = one Project
-    ├── ref-materials/ ← each sub-folder = one Ref Material
-    ├── daily-notes/
-    ├── topic-notes/
-    └── habits/`}
+├── daily-notes/
+├── topic-notes/
+├── habits/
+├── projects/       ← optional, created only when a project lives in the sync root
+└── ref-materials/  ← optional, created only when a ref material lives in the sync root`}
           </pre>
           <p className="block text-sm leading-6 text-[var(--color-text-disabled)]">
-            New projects and reference materials are added by creating folders in the sync root, not through
-            the app.
+            Projects and reference materials are normally added by linking a folder wherever it already lives,
+            from the new-object button in the library toolbar. The two folders above are not created up front;
+            they appear only if a project or reference material is stored inside the sync root itself.
           </p>
+        </div>
+      </section>
+
+      {/* ── Linked directories (DEC-70) ────────────────────────────────────── */}
+      <section className="space-y-6 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
+        <div className="flex items-center gap-2">
+          <FolderSymlink className="h-4 w-4 text-[var(--color-accent-selected)]" />
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
+            Linked Directories
+          </p>
+        </div>
+
+        <p className="text-sm leading-6 text-[var(--color-text-secondary)]">
+          Add a folder from anywhere on this Mac without moving it into the sync root. Each linked
+          folder becomes exactly one Project or Reference Material, and PuzzlePKM never writes to it,
+          renames it, or deletes it.
+        </p>
+
+        {/* Existing links */}
+        {!linkedLoaded ? (
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--color-text-secondary)]" />
+        ) : linkedSources.length === 0 ? (
+          <p className="text-sm leading-6 text-[var(--color-text-disabled)]">No linked directories yet.</p>
+        ) : (
+          <ul className="m-0 list-none space-y-2 p-0">
+            {linkedSources.map((source) => {
+              const meta = LINKED_SOURCE_TYPE_META[source.objectType]
+              const TypeIcon = meta?.Icon ?? FolderKanban
+              const confirming = confirmUnlink === source.path
+              return (
+                <li
+                  key={source.path}
+                  className="flex items-start gap-3 rounded-[10px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] p-3"
+                >
+                  <TypeIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-accent-selected)]" />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--color-text-primary)]">{source.name}</span>
+                      <span className="inline-flex items-center rounded-full border border-[var(--color-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+                        {meta?.label ?? source.objectType}
+                      </span>
+                      {!source.available && (
+                        <span
+                          className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]"
+                          style={{
+                            backgroundColor: 'rgba(226,89,89,0.14)',
+                            borderColor: 'rgba(226,89,89,0.34)',
+                            color: 'rgb(252, 178, 178)',
+                          }}
+                        >
+                          Unavailable
+                        </span>
+                      )}
+                    </div>
+                    <p className="break-all font-mono text-xs leading-5 text-[var(--color-text-secondary)]">
+                      {source.path}
+                    </p>
+                    {!source.available && (
+                      <p className="text-xs leading-5 text-[var(--color-text-disabled)]">
+                        Not reachable right now. Sync skips it and keeps the record.
+                      </p>
+                    )}
+                  </div>
+                  {confirming ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button size="sm" variant="destructive" onClick={() => handleUnlink(source)}>
+                        Unlink
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmUnlink(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0"
+                      aria-label={`Unlink ${source.name}`}
+                      onClick={() => setConfirmUnlink(source.path)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        {linkResult && (
+          <Alert variant={linkResult.ok ? 'success' : 'destructive'} className="text-xs">
+            {linkResult.msg}
+          </Alert>
+        )}
+
+        <p className="text-sm leading-6 text-[var(--color-text-disabled)]">
+          To add one folder, use the new-object button in the library toolbar and choose Project or
+          Reference Material.
+        </p>
+
+        <div className="h-px bg-[var(--color-border-subtle)]" />
+
+        {/* Bulk add: one parent folder, review, then link the checked subfolders */}
+        <div className="space-y-4">
+          <p className="block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
+            Add several at once
+          </p>
+
+          {!scanParent ? (
+            <div className="space-y-2">
+              <p className="text-sm leading-6 text-[var(--color-text-secondary)]">
+                Choose a folder and every subfolder inside it becomes a candidate. You pick which ones to
+                add before anything happens.
+              </p>
+              <Button size="sm" variant="secondary" disabled={scanning} onClick={handleChooseParent}>
+                {scanning
+                  ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  : <FolderOpen className="mr-1 h-3.5 w-3.5" />}
+                Choose Parent Folder…
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="break-all text-sm leading-6 text-[var(--color-text-secondary)]">
+                Subfolders of <span className="font-mono text-[var(--color-text-primary)]">{scanParent}</span>
+              </p>
+
+              {candidates.length === 0 ? (
+                <p className="text-sm leading-6 text-[var(--color-text-disabled)]">
+                  That folder has no subfolders to add.
+                </p>
+              ) : (
+                <ul className="m-0 max-h-[260px] list-none space-y-1 overflow-auto p-0">
+                  {candidates.map((candidate) => {
+                    const selectable = candidate.status === 'eligible'
+                    const checked = checkedPaths.has(candidate.path)
+                    return (
+                      <li key={candidate.path}>
+                        <label
+                          className={`flex items-start gap-2.5 rounded-[8px] border p-2.5 ${selectable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                          style={{
+                            borderColor: checked ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
+                            backgroundColor: 'var(--color-surface-app)',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            disabled={!selectable}
+                            onChange={() => toggleCandidate(candidate.path)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm text-[var(--color-text-primary)]">{candidate.name}</span>
+                            {!selectable && (
+                              <span className="mt-0.5 block text-xs leading-5 text-[var(--color-text-disabled)]">
+                                {candidate.reason}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
+                  Add the checked folders as
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(Object.keys(LINKED_SOURCE_TYPE_META) as LinkedSourceType[]).map((type) => {
+                    const meta = LINKED_SOURCE_TYPE_META[type]
+                    const selected = bulkType === type
+                    const TypeIcon = meta.Icon
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setBulkType(type)}
+                        className="flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors"
+                        style={{
+                          borderColor: selected ? 'var(--color-accent-selected)' : 'var(--color-border-subtle)',
+                          backgroundColor: selected ? 'rgba(255,255,255,0.04)' : 'var(--color-surface-app)',
+                        }}
+                      >
+                        <TypeIcon
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: selected ? 'var(--color-accent-selected)' : 'var(--color-text-secondary)' }}
+                        />
+                        <span className="text-sm font-medium text-[var(--color-text-primary)]">{meta.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                {checkedPaths.size > 0 && !bulkType && (
+                  <p className="text-sm leading-6 text-[var(--color-text-disabled)]">
+                    Choose Project or Reference Material to continue. One type applies to the whole batch.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 pb-2">
+                <Button
+                  size="sm"
+                  disabled={bulkAdding || checkedPaths.size === 0 || !bulkType}
+                  onClick={handleBulkAdd}
+                >
+                  {bulkAdding ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  {bulkType
+                    ? `Add ${checkedPaths.size} as ${LINKED_SOURCE_TYPE_META[bulkType].label}${checkedPaths.size === 1 ? '' : 's'}`
+                    : `Add ${checkedPaths.size} folder${checkedPaths.size === 1 ? '' : 's'}`}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={clearScan}>Cancel</Button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

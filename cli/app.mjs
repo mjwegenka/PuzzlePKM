@@ -11,9 +11,12 @@ import { createInterface } from 'node:readline/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { URL } from 'node:url';
 import { handleNotesCommand } from './commands/notes.mjs';
+import { handleDocumentsCommand } from './commands/documents.mjs';
 import { handleObjectsCommand } from './commands/objects.mjs';
 import { handleSettingsCommand } from './commands/settings.mjs';
+import { handleSourcesCommand } from './commands/sources.mjs';
 import { handleSyncCommand } from './commands/sync.mjs';
+import { documentFingerprint, extractDocumentText, isPackageDocument, isSupportedDocument, SUPPORTED_DOCUMENT_EXTENSIONS } from './documents/index.mjs';
 import { createDailyNoteRepository } from './objects/daily-note/repository.mjs';
 import { createDailyNoteService } from './objects/daily-note/service.mjs';
 import { createHabitRepository } from './objects/habit/repository.mjs';
@@ -209,12 +212,68 @@ const schema = `
     book_name TEXT NOT NULL,
     book_order INTEGER NOT NULL,
     passage_url TEXT NOT NULL,
+    chapter_id TEXT,
+    chapter INTEGER,
+    end_chapter INTEGER,
+    verse_start INTEGER,
+    verse_end INTEGER,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS scripture_chapters (
+    id TEXT PRIMARY KEY,
+    reference TEXT NOT NULL UNIQUE,
+    book_name TEXT NOT NULL,
+    book_order INTEGER NOT NULL,
+    chapter INTEGER NOT NULL,
+    passage_url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(book_name, chapter)
+  );
+
+  CREATE TABLE IF NOT EXISTS scripture_chapter_links (
+    scripture_id TEXT NOT NULL,
+    chapter_id TEXT NOT NULL,
+    verse_start INTEGER,
+    verse_end INTEGER,
+    PRIMARY KEY (scripture_id, chapter_id)
+  );
+
   CREATE TABLE IF NOT EXISTS authors (
     name TEXT PRIMARY KEY
+  );
+
+  CREATE TABLE IF NOT EXISTS sync_sources (
+    id TEXT PRIMARY KEY,
+    object_type TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    read_only INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    UNIQUE(object_type, object_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS document_texts (
+    id TEXT PRIMARY KEY,
+    object_type TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    extension TEXT NOT NULL DEFAULT '',
+    file_path TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    modified_at TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    character_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ok',
+    detail TEXT NOT NULL DEFAULT '',
+    truncated INTEGER NOT NULL DEFAULT 0,
+    indexed_at TEXT NOT NULL,
+    UNIQUE(object_type, object_id, relative_path)
   );
 
   CREATE INDEX IF NOT EXISTS idx_daily_notes_date ON daily_notes(date);
@@ -235,6 +294,12 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_note_blocks_note_id ON note_blocks(note_id);
   CREATE INDEX IF NOT EXISTS idx_note_blocks_position ON note_blocks(note_id, position);
   CREATE INDEX IF NOT EXISTS idx_scriptures_book_order ON scriptures(book_order, reference);
+  CREATE INDEX IF NOT EXISTS idx_scripture_chapters_order ON scripture_chapters(book_order, chapter);
+  CREATE INDEX IF NOT EXISTS idx_scripture_chapter_links_chapter ON scripture_chapter_links(chapter_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_sources_path ON sync_sources(lower(path));
+  CREATE INDEX IF NOT EXISTS idx_sync_sources_object ON sync_sources(object_type, object_id);
+  CREATE INDEX IF NOT EXISTS idx_document_texts_object ON document_texts(object_type, object_id);
+  CREATE INDEX IF NOT EXISTS idx_document_texts_status ON document_texts(status);
  `;
 
  // DEC-20: Ensure schema is migrated for new sync_path columns (DEC-21)
@@ -308,6 +373,31 @@ const schema = `
       }
     } catch (e) {
       // Column may already exist or table doesn't exist yet
+    }
+
+    try {
+      // DEC-75: scriptures carry an explicit chapter/verse decomposition so
+      // references can be rolled up to the chapter their reader actually thinks in.
+      const scriptureColumns = db.prepare('PRAGMA table_info(scriptures)').all();
+      const hasScriptureColumn = (name) => scriptureColumns.some((c) => c.name === name);
+      if (!hasScriptureColumn('chapter_id')) {
+        db.prepare('ALTER TABLE scriptures ADD COLUMN chapter_id TEXT').run();
+      }
+      if (!hasScriptureColumn('chapter')) {
+        db.prepare('ALTER TABLE scriptures ADD COLUMN chapter INTEGER').run();
+      }
+      if (!hasScriptureColumn('end_chapter')) {
+        db.prepare('ALTER TABLE scriptures ADD COLUMN end_chapter INTEGER').run();
+      }
+      if (!hasScriptureColumn('verse_start')) {
+        db.prepare('ALTER TABLE scriptures ADD COLUMN verse_start INTEGER').run();
+      }
+      if (!hasScriptureColumn('verse_end')) {
+        db.prepare('ALTER TABLE scriptures ADD COLUMN verse_end INTEGER').run();
+      }
+      db.prepare('CREATE INDEX IF NOT EXISTS idx_scriptures_chapter_id ON scriptures(chapter_id)').run();
+    } catch (e) {
+      // Columns may already exist or table doesn't exist yet
     }
 
     try {
@@ -580,6 +670,41 @@ const SCRIPTURE_VOLUME_NORMALIZATION = new Map([
   ['1', '1'], ['i', '1'], ['1st', '1'], ['first', '1'],
   ['2', '2'], ['ii', '2'], ['2nd', '2'], ['second', '2'],
   ['3', '3'], ['iii', '3'], ['3rd', '3'], ['third', '3'],
+  ['4', '4'], ['iv', '4'], ['4th', '4'], ['fourth', '4'],
+]);
+
+// DEC-78: Douay-Rheims / Vulgate numbering for Kings, still common in patristic
+// and older Jesuit sources ("Cf. 4 Kings 13:17"). Only the 3/4 forms are mapped:
+// Douay's 1 and 2 Kings are Samuel, which would collide with modern usage, so a
+// bare "1 Kings"/"2 Kings" is always read as the modern book.
+const SCRIPTURE_DOUAY_VOLUME_BOOKS = new Map([
+  ['3 Kings', '1 Kings'],
+  ['4 Kings', '2 Kings'],
+]);
+
+// DEC-78: Books whose bare name is not itself a book — a volume is required.
+// John is deliberately absent: "John" alone is the Gospel.
+const SCRIPTURE_VOLUME_REQUIRED_BOOKS = new Set([
+  'Samuel', 'Kings', 'Chronicles', 'Maccabees', 'Corinthians', 'Thessalonians', 'Timothy', 'Peter',
+]);
+
+// DEC-78: Books with a single chapter, where a bare number is a VERSE, not a
+// chapter ("Jude 20" = verse 20). An explicit "Jude 1:10" is still chapter 1.
+const SCRIPTURE_SINGLE_CHAPTER_BOOKS = new Set([
+  'Obadiah', 'Philemon', '2 John', '3 John', 'Jude',
+]);
+
+// DEC-78: Abbreviations that are also ordinary English words or common
+// non-scriptural abbreviations. "Feeding of the 5,000" parsed as Thessalonians
+// 5,000, and "the program is 12 weeks" as Isaiah 12, because `the` and `is` are
+// aliases. These require a trailing period ("1 Thess." / "Is.") or a volume
+// prefix ("1 Sam 17") to read as a citation; unambiguous abbreviations such as
+// "Mt", "Jn" and "Rom" are unaffected.
+const SCRIPTURE_AMBIGUOUS_ABBREVIATIONS = new Set([
+  'the', 'th', 'is', 'am', 'ex', 'act', 'jo', 'ju', 'jud', 'jb',
+  'pt', 'pe', 'pet', 'pr', 'pro', 'est', 'col', 'dt', 'ki', 'kin', 'kn',
+  'sam', 'dan', 'da', 'mac', 'macc', 'nah', 'rut', 'tit', 'wis', 'lam',
+  'mal', 'jon', 'joe', 'mic', 'gal', 'jam', 'ti', 'tim', 'num', 'nmb',
 ]);
 const SCRIPTURE_BOOK_ALIASES = new Map([
   ['gen', 'Genesis'], ['genesis', 'Genesis'],
@@ -645,7 +770,21 @@ const SCRIPTURE_BOOK_ALIASES = new Map([
   ['rev', 'Revelation'], ['revelation', 'Revelation'], ['revelations', 'Revelation'],
 ]);
 const SCRIPTURE_BOOK_MATCH_PATTERN = '(?:Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|Samuel|Kings|Chronicles|Ezra|Nehemiah|Esther|Job|Psalms?|Proverbs?|Ecclesiastes|Songs? of Solomon|Song of Songs|Isaiah|Jeremiah|Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|Wisdom|Maccabees|Sirach|Judith|Tobit|Matthew|Mark|Luke|John|Acts?|Acts of the Apostles|Romans|Corinthians|Galatians|Ephesians|Philippians|Colossians|Thessalonians|Timothy|Titus|Philemon|Hebrews|James|Peter|Jude|Revelation(?:s?)?|Gen|Ex|Exo|Lev|Num|Nmb|Deut?|Dt|Josh?|Judg?|Jdg|Rut|Sam|Ki|Kin|Kn|Kgs|Chr(?:on?)?|Ezr|Neh|Est|Jb|Psa?|Pr(?:ov?)?|Eccl?|Song?|Isa|Is|Jer|Lam|Eze|Da?n|Hos|Joe|Amo?|Oba|Jon|Mic|Nah|Hab|Zeph?|Hag|Zech?|Mal|Wis|Sir|Mac|Macc|Jud|Tob|M(?:at)?t|Mr?k|Lu?k|Jh?n|Jo|Act|Rom|Cor|Gal|Eph|Col|Phi(?:l?)?|The?|Thess?|Ti?m|Tit|Phile|Heb|Ja?m|Pe?t|Pt|Ju|Rev)\\.?';
-const SCRIPTURE_PASSAGE_REGEX = new RegExp(`\\b(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)`, 'gi');
+// DEC-78: ordered longest-first so "III" is not truncated to "II", and
+// including the Douay 4/IV forms (see SCRIPTURE_DOUAY_VOLUME_BOOKS).
+const SCRIPTURE_VOLUME_ALTERNATIVES = [
+  'First', 'Second', 'Third', 'Fourth',
+  '1st', '2nd', '3rd', '4th',
+  'III', 'IV', 'II', 'I',
+  '1', '2', '3', '4',
+];
+// DEC-78: A verse list may continue across "," / ";" ("Genesis 2:7,25"), but a
+// continuation segment must not swallow the volume of the citation that follows
+// it: in "John 17:9-16; 1 John 2:15-17" the "1" belongs to 1 John, and absorbing
+// it produced "John 17:9-16;1" plus a demoted "John 2:15-17". The lookahead
+// declines any segment whose number is followed by a book and another number.
+const SCRIPTURE_VERSE_MATCH_PATTERN = `[0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*(?![0-9]{1,3}\\s+${SCRIPTURE_BOOK_MATCH_PATTERN}\\s+[0-9])[0-9]{1,3}(?:[:.][0-9]{1,3})?)*`;
+const SCRIPTURE_PASSAGE_REGEX = new RegExp(`\\b(?:(${SCRIPTURE_VOLUME_ALTERNATIVES.join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+(${SCRIPTURE_VERSE_MATCH_PATTERN})`, 'gi');
 const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(([^)]+)\)/g;
 
 function normalizeScriptureVolume(volumeRaw) {
@@ -668,9 +807,25 @@ function buildCanonicalScriptureBook(volumeRaw, bookRaw) {
   const volume = normalizeScriptureVolume(volumeRaw);
   const book = normalizeScriptureBook(bookRaw);
   if (!book) return null;
-  if (!volume) return book;
+
+  if (!volume) {
+    // DEC-78: "Thessalonians 5" / "Kings 13:17" name no actual book. These used
+    // to be accepted with a sentinel book order that sorted them after
+    // Revelation; they are now rejected outright.
+    if (SCRIPTURE_VOLUME_REQUIRED_BOOKS.has(book)) return null;
+    return book;
+  }
+
   if (!SCRIPTURE_VOLUME_BOOKS.has(book)) return book;
-  return `${volume} ${book}`;
+
+  const candidate = `${volume} ${book}`;
+  const douay = SCRIPTURE_DOUAY_VOLUME_BOOKS.get(candidate);
+  if (douay) return douay;
+
+  // DEC-78: a volume that does not name a real book (3 Maccabees, 4 Corinthians)
+  // is rejected rather than assigned a sentinel canonical position.
+  if (!SCRIPTURE_BOOK_ORDER_INDEX.has(candidate)) return null;
+  return candidate;
 }
 
 function buildScripturePassageUrl(reference) {
@@ -678,7 +833,140 @@ function buildScripturePassageUrl(reference) {
   return `https://www.biblegateway.com/passage/?search=${search}&version=RSVCE&interface=print`;
 }
 
+// DEC-75: Decompose the verse portion of a canonical reference into the chapters
+// it actually touches, so a citation can be rolled up to chapter level.
+// Input is an already-normalized verse part (no whitespace, "." collapsed to ":").
+// Handles the shapes that occur in practice:
+//   "10"            → chapter 10, whole chapter
+//   "1-7"           → chapters 1 through 7 (no colon anywhere ⇒ a chapter range)
+//   "3:16"          → chapter 3, verse 16
+//   "3:1-12"        → chapter 3, verses 1-12
+//   "12:31-13:13"   → chapters 12 and 13 (a span crossing a chapter boundary)
+//   "13:1-11,15:1-17" → chapters 13 and 15 (two independent citations)
+//   "2:7,25"        → chapter 2, verses 7 and 25 (bare number inherits the chapter)
+// Chapters beyond the book's real maximum are dropped, matching DEC-68.
+function parseScriptureChapterSegments(canonicalBook, versePart) {
+  const verse = String(versePart ?? '').trim();
+  if (!verse) return [];
+
+  // DEC-78: a single-chapter book has only chapter 1, and its bare numbers are
+  // verses ("Jude 20" = 1:20). Seeding the current chapter makes every bare
+  // number below fall through to the verse branches.
+  const isSingleChapterBook = SCRIPTURE_SINGLE_CHAPTER_BOOKS.has(canonicalBook);
+
+  const maxChapter = SCRIPTURE_BOOK_MAX_CHAPTERS.get(canonicalBook);
+  const isValidChapter = (chapter) => Number.isInteger(chapter)
+    && chapter >= 1
+    && (maxChapter === undefined || chapter <= maxChapter);
+
+  const segments = [];
+  const push = (chapter, verseStart, verseEnd) => {
+    if (!isValidChapter(chapter)) return;
+    segments.push({ chapter, verseStart: verseStart ?? null, verseEnd: verseEnd ?? null });
+  };
+
+  let currentChapter = isSingleChapterBook ? 1 : null;
+  for (const part of verse.split(/[,;&]/)) {
+    const piece = part.trim();
+    if (!piece) continue;
+
+    // "12:31-13:13" — a span that crosses a chapter boundary.
+    let match = /^(\d+):(\d+)-(\d+):(\d+)$/.exec(piece);
+    if (match) {
+      const from = parseInt(match[1], 10);
+      const to = parseInt(match[3], 10);
+      if (to >= from) {
+        push(from, parseInt(match[2], 10), null);
+        for (let chapter = from + 1; chapter < to; chapter += 1) push(chapter, null, null);
+        if (to > from) push(to, 1, parseInt(match[4], 10));
+      }
+      currentChapter = to;
+      continue;
+    }
+
+    // "3:1-12" — a verse range inside one chapter.
+    match = /^(\d+):(\d+)-(\d+)$/.exec(piece);
+    if (match) {
+      currentChapter = parseInt(match[1], 10);
+      push(currentChapter, parseInt(match[2], 10), parseInt(match[3], 10));
+      continue;
+    }
+
+    // "3:16" — a single verse.
+    match = /^(\d+):(\d+)$/.exec(piece);
+    if (match) {
+      currentChapter = parseInt(match[1], 10);
+      const verseNumber = parseInt(match[2], 10);
+      push(currentChapter, verseNumber, verseNumber);
+      continue;
+    }
+
+    // "1-7" — chapters when nothing has established a chapter yet, verses otherwise.
+    match = /^(\d+)-(\d+)$/.exec(piece);
+    if (match) {
+      const from = parseInt(match[1], 10);
+      const to = parseInt(match[2], 10);
+      if (currentChapter === null) {
+        if (to >= from) {
+          for (let chapter = from; chapter <= to; chapter += 1) push(chapter, null, null);
+          currentChapter = to;
+        }
+      } else {
+        push(currentChapter, from, to);
+      }
+      continue;
+    }
+
+    // "10" — a chapter on its own, or a verse continuing the current chapter.
+    match = /^(\d+)$/.exec(piece);
+    if (match) {
+      const value = parseInt(match[1], 10);
+      if (currentChapter === null) {
+        currentChapter = value;
+        push(value, null, null);
+      } else {
+        push(currentChapter, value, value);
+      }
+    }
+  }
+
+  // Collapse repeated chapters into one span. A segment covering the whole
+  // chapter (null verses) wins over any narrower span for that chapter.
+  const byChapter = new Map();
+  for (const segment of segments) {
+    const existing = byChapter.get(segment.chapter);
+    if (!existing) {
+      byChapter.set(segment.chapter, { ...segment });
+      continue;
+    }
+    if (existing.verseStart === null || segment.verseStart === null) {
+      existing.verseStart = null;
+      existing.verseEnd = null;
+      continue;
+    }
+    existing.verseStart = Math.min(existing.verseStart, segment.verseStart);
+    if (existing.verseEnd === null || segment.verseEnd === null) existing.verseEnd = null;
+    else existing.verseEnd = Math.max(existing.verseEnd, segment.verseEnd);
+  }
+
+  return Array.from(byChapter.values()).sort((a, b) => a.chapter - b.chapter);
+}
+
+/**
+ * DEC-78: Whether an abbreviated book name is written as a citation rather than
+ * as ordinary prose. Ambiguous abbreviations ("the", "is", "am") need either a
+ * trailing period or a volume prefix; everything else is taken at face value.
+ */
+function isScriptureBookTokenCitational(volumeRaw, bookRaw) {
+  const token = normalize(bookRaw);
+  if (token.endsWith('.')) return true;
+  if (normalizeScriptureVolume(volumeRaw)) return true;
+  return !SCRIPTURE_AMBIGUOUS_ABBREVIATIONS.has(token.toLowerCase());
+}
+
 function parseScriptureMatch(volumeRaw, bookRaw, verseRaw) {
+  if (!isScriptureBookTokenCitational(volumeRaw, bookRaw)) return null;
+
   const canonicalBook = buildCanonicalScriptureBook(volumeRaw, bookRaw);
   if (!canonicalBook) return null;
   const verse = normalizeScriptureVersePart(verseRaw);
@@ -686,7 +974,12 @@ function parseScriptureMatch(volumeRaw, bookRaw, verseRaw) {
 
   // DEC-48 chapter validation: reject references whose chapter number exceeds
   // the real maximum for that book (e.g. "Thessalonians 500" → chapter 500 > 5).
-  const chapterMatch = /^(\d+)/.exec(verse);
+  // DEC-78: in a single-chapter book a bare leading number is a verse, not a
+  // chapter, so there is no chapter to bounds-check unless one is written out.
+  const isSingleChapterBook = SCRIPTURE_SINGLE_CHAPTER_BOOKS.has(canonicalBook);
+  const chapterMatch = isSingleChapterBook
+    ? /^(\d+):/.exec(verse)
+    : /^(\d+)/.exec(verse);
   if (chapterMatch) {
     const chapter = parseInt(chapterMatch[1], 10);
     const maxChapter = SCRIPTURE_BOOK_MAX_CHAPTERS.get(canonicalBook);
@@ -695,11 +988,13 @@ function parseScriptureMatch(volumeRaw, bookRaw, verseRaw) {
 
   const reference = `${canonicalBook} ${verse}`;
   const bookOrder = SCRIPTURE_BOOK_ORDER_INDEX.get(canonicalBook) ?? Number.MAX_SAFE_INTEGER;
+  const chapters = parseScriptureChapterSegments(canonicalBook, verse);
   return {
     reference,
     bookName: canonicalBook,
     bookOrder,
     passageUrl: buildScripturePassageUrl(reference),
+    chapters,
   };
 }
 
@@ -720,7 +1015,7 @@ function indexWithinRanges(index, ranges) {
 function normalizeStandaloneScriptureReference(text) {
   const candidate = normalize(text);
   if (!candidate) return null;
-  const regex = new RegExp(`^(?:(${['1', '2', '3', 'I', 'II', 'III', '1st', '2nd', '3rd', 'First', 'Second', 'Third'].join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+([0-9]{1,3}(?:[:.][0-9]{1,3})?(?:\\s*[-&,;]\\s*[0-9]{1,3}(?:[:.][0-9]{1,3})?)*)$`, 'i');
+  const regex = new RegExp(`^(?:(${SCRIPTURE_VOLUME_ALTERNATIVES.join('|')})\\s*)?(${SCRIPTURE_BOOK_MATCH_PATTERN})\\s+(${SCRIPTURE_VERSE_MATCH_PATTERN})$`, 'i');
   const match = regex.exec(candidate);
   if (!match) return null;
   return parseScriptureMatch(match[1] ?? '', match[2] ?? '', match[3] ?? '');
@@ -993,10 +1288,62 @@ function cleanupOrphanedScriptures(db) {
     LEFT JOIN object_links ol ON ol.target_id = s.id AND ol.target_type = ?
     WHERE ol.target_id IS NULL
   `).all(SCRIPTURE_TYPE);
-  if (orphans.length === 0) return [];
   const del = db.prepare('DELETE FROM scriptures WHERE id = ?');
-  for (const row of orphans) del.run(row.id);
+  const delChapterLinks = db.prepare('DELETE FROM scripture_chapter_links WHERE scripture_id = ?');
+  for (const row of orphans) {
+    delChapterLinks.run(row.id);
+    del.run(row.id);
+  }
+  // DEC-78: swept unconditionally — chapters are also orphaned by the reference
+  // repair that runs before this, which removes scriptures on its own.
+  cleanupOrphanedScriptureChapters(db);
   return orphans;
+}
+
+// DEC-75: A chapter only exists because something cites it; drop chapters whose
+// last citation has gone away.
+function cleanupOrphanedScriptureChapters(db) {
+  return db.prepare(`
+    DELETE FROM scripture_chapters
+    WHERE id NOT IN (SELECT DISTINCT chapter_id FROM scripture_chapter_links)
+  `).run();
+}
+
+// DEC-75: Populate the chapter rollup for scripture records created before
+// chapter decomposition existed. Reuses the same write path as live parsing so
+// backfilled rows are indistinguishable from newly written ones.
+function backfillScriptureChapters(db) {
+  const pending = db.prepare(`
+    SELECT id, reference, book_name, book_order
+    FROM scriptures
+    WHERE chapter IS NULL
+  `).all();
+  if (pending.length === 0) return 0;
+
+  let backfilled = 0;
+  for (const row of pending) {
+    const bookName = String(row.book_name ?? '').trim();
+    const reference = String(row.reference ?? '').trim();
+    if (!bookName || !reference.startsWith(`${bookName} `)) continue;
+
+    const versePart = reference.slice(bookName.length + 1);
+    const chapters = parseScriptureChapterSegments(bookName, versePart);
+    if (chapters.length === 0) continue;
+
+    syncScriptureChapters(db, row.id, {
+      reference,
+      bookName,
+      bookOrder: row.book_order,
+      chapters,
+    });
+    backfilled += 1;
+  }
+
+  if (backfilled > 0) {
+    const chapterCount = db.prepare('SELECT COUNT(*) AS count FROM scripture_chapters').get()?.count ?? 0;
+    console.warn(`[scripture-chapters] Backfilled ${backfilled} scripture record(s) into ${chapterCount} chapter(s).`);
+  }
+  return backfilled;
 }
 
 // DEC-48: Remove scripture records whose chapter numbers exceed the real
@@ -1004,7 +1351,7 @@ function cleanupOrphanedScriptures(db) {
 // validation was introduced).  Also scrubs the embedded BibleGateway markdown
 // link from any note_blocks that contain it, reverting to plain text.
 function repairInvalidScriptureChapters(db) {
-  const all = db.prepare('SELECT id, reference, passage_url FROM scriptures').all();
+  const all = db.prepare('SELECT id, reference, book_name, passage_url FROM scriptures').all();
   if (all.length === 0) return [];
 
   const removed = [];
@@ -1012,30 +1359,37 @@ function repairInvalidScriptureChapters(db) {
   for (const row of all) {
     const ref = String(row.reference ?? '').trim();
 
-    // Re-validate: parse the reference against the chapter map.
-    // A reference looks like "1 Thessalonians 5" or "Psalm 150:3".
-    const refMatch = /^(?:(1|2|3)\s+)?(.+?)\s+(\d+)(?:[:.]\d+)?/.exec(ref);
+    // DEC-78: re-validate the stored reference through the live parser rather
+    // than a private copy of the rules, so every tightening of scripture
+    // detection retroactively cleans records the old rules let through.
+    // A reference is always canonical here ("1 Thessalonians 5", "Psalm 150:3").
+    const refMatch = /^(?:([1-4])\s+)?(.+?)\s+(\S+)$/.exec(ref);
     if (!refMatch) continue; // can't parse → skip cautiously
 
-    const volumeRaw = refMatch[1] ?? '';
-    const bookRaw = refMatch[2] ?? '';
-    const chapter = parseInt(refMatch[3], 10);
+    const parsed = parseScriptureMatch(refMatch[1] ?? '', refMatch[2] ?? '', refMatch[3] ?? '');
+    if (parsed) continue;
 
-    const canonicalBook = buildCanonicalScriptureBook(volumeRaw, bookRaw);
-    if (!canonicalBook) {
-      removed.push({ id: row.id, reference: ref, passage_url: row.passage_url ?? '', reason: 'unresolvable book' });
-    } else {
-      const maxChapter = SCRIPTURE_BOOK_MAX_CHAPTERS.get(canonicalBook);
-      if (maxChapter !== undefined && chapter > maxChapter) {
-        removed.push({ id: row.id, reference: ref, passage_url: row.passage_url ?? '', reason: `chapter ${chapter} > max ${maxChapter}` });
-      }
-    }
+    const bookName = String(row.book_name ?? '').trim();
+    removed.push({
+      id: row.id,
+      reference: ref,
+      passage_url: row.passage_url ?? '',
+      // DEC-78: a volume-less numbered book is the signature of the `the` alias
+      // firing on prose ("Feeding of the 5,000" → "Thessalonians 5,000").
+      // Restoring the article keeps the sentence readable; every other rejected
+      // reference keeps its label, which reads correctly as plain text.
+      proseReplacement: bookName === 'Thessalonians' ? ref.slice(bookName.length + 1) : null,
+      reason: SCRIPTURE_VOLUME_REQUIRED_BOOKS.has(bookName)
+        ? `"${bookName}" needs a volume`
+        : 'no longer parses as a reference',
+    });
   }
 
   if (removed.length === 0) return [];
 
   const deleteLinks = db.prepare('DELETE FROM object_links WHERE target_id = ? AND target_type = ?');
   const deleteScripture = db.prepare('DELETE FROM scriptures WHERE id = ?');
+  const deleteChapterLinks = db.prepare('DELETE FROM scripture_chapter_links WHERE scripture_id = ?');
   const updateBlock = db.prepare('UPDATE note_blocks SET content_markdown = ?, updated_at = ? WHERE note_id = ? AND block_id = ?');
   const now = getIsoNow();
 
@@ -1053,7 +1407,15 @@ function repairInvalidScriptureChapters(db) {
         const escapedUrl = passageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const cleaned = block.content_markdown.replace(
           new RegExp(`\\[([^\\]]+)\\]\\(${escapedUrl}\\)`, 'g'),
-          '$1',
+          (full, label, offset) => {
+            if (!item.proseReplacement) return label;
+            // DEC-78: restore the article that was misread as a book name,
+            // capitalised as its position requires ("The 3 Questions" at the
+            // start of a heading, "Feeding of the 5,000" mid-sentence).
+            const before = block.content_markdown.slice(0, offset);
+            const startsSentence = /(^|[\n>#*_\-]\s*|[.!?:]\s+)$/.test(before);
+            return `${startsSentence ? 'The' : 'the'} ${item.proseReplacement}`;
+          },
         );
         if (cleaned !== block.content_markdown) {
           updateBlock.run(cleaned, now, block.note_id, block.block_id);
@@ -1062,6 +1424,7 @@ function repairInvalidScriptureChapters(db) {
     }
 
     deleteLinks.run(item.id, SCRIPTURE_TYPE);
+    deleteChapterLinks.run(item.id);
     deleteScripture.run(item.id);
   }
 
@@ -1089,6 +1452,7 @@ function openDb() {
   repairNoteBlocksIntegrity(db);
   repairInvalidScriptureChapters(db);
   cleanupOrphanedScriptures(db);
+  backfillScriptureChapters(db);
   return db;
 }
 
@@ -1098,6 +1462,9 @@ function ensureSchema(db) {
   }
   // DEC-20, DEC-21: Ensure schema is migrated for new sync_path columns
   ensureSchemaMigrations(db);
+  // DEC-79: the document text index is a virtual table, so it is created apart
+  // from the plain schema and degrades to a substring scan if FTS5 is missing.
+  ensureDocumentSearchIndex(db);
 }
 
 function isMissingSyncPath(path) {
@@ -1107,6 +1474,9 @@ function isMissingSyncPath(path) {
 
 function backfillMissingSyncPaths(db) {
   const rootFolder = getSyncRootFolder();
+  // DEC-70: linked directories keep their own absolute path and are never renamed.
+  const linkedProjectIds = linkedObjectIdSet(db, 'project');
+  const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
 
   const missingDaily = db.prepare("SELECT id, date, sync_path FROM daily_notes WHERE TRIM(COALESCE(sync_path, '')) = ''").all();
   for (const row of missingDaily) {
@@ -1132,6 +1502,7 @@ function backfillMissingSyncPaths(db) {
   // instead of the canonical slug-backed sync directory (README / DEC-10).
   const projectRows = db.prepare("SELECT id, name, sync_path FROM projects WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of projectRows) {
+    if (linkedProjectIds.has(row.id)) continue;
     const legacyPath = projectDirectoryPath(rootFolder, slugify(row.name || row.id));
     const canonicalPath = canonicalProjectSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
@@ -1151,6 +1522,7 @@ function backfillMissingSyncPaths(db) {
 
   const refMatRows = db.prepare("SELECT id, name, sync_path FROM ref_materials WHERE TRIM(COALESCE(sync_path, '')) <> ''").all();
   for (const row of refMatRows) {
+    if (linkedRefMaterialIds.has(row.id)) continue;
     const legacyPath = refMaterialDirectoryPath(rootFolder, slugify(row.name || row.id));
     const canonicalPath = canonicalRefMaterialSyncPath(rootFolder, row.name || row.id, row.id);
     const currentPath = String(row.sync_path ?? '').trim();
@@ -2100,16 +2472,18 @@ const objectTypeAliasMap = createObjectTypeAliasMap();
 
 const scriptureService = createScriptureService({
   SCRIPTURE_TYPE,
+  buildScripturePassageUrl,
   getIsoNow,
+  parseScriptureChapterSegments,
   randomUUID,
 });
-const { collectScriptureLinkTargets } = scriptureService;
+const { collectScriptureLinkTargets, syncScriptureChapters } = scriptureService;
 const scriptureRepository = createScriptureRepository({
   SCRIPTURE_TYPE,
   lookupObjectSummary,
   sortRelatedObjectsStable,
 });
-const { getScripture, listScriptures } = scriptureRepository;
+const { getScripture, getScriptureChapter, listScriptureChapters, listScriptures } = scriptureRepository;
 
 let dailyNoteService;
 const dailyNoteRepository = createDailyNoteRepository({
@@ -2159,6 +2533,7 @@ dailyNoteService = createDailyNoteService({
   withTransaction,
 });
 const {
+  autoDeleteDailyNoteIfEligible,
   cleanupDailyNotesIfEligible,
   createDailyNoteInteractive,
   deleteDailyNoteRecord,
@@ -2225,6 +2600,7 @@ const {
 } = topicNoteRepository;
 
 const projectRepository = createProjectRepository({
+  clearDocumentIndexForObject,
   clearSyncState,
   cleanupDailyNotesIfEligible,
   collectDateLinkTargets,
@@ -2259,6 +2635,7 @@ const {
 } = projectRepository;
 
 const refMaterialRepository = createRefMaterialRepository({
+  clearDocumentIndexForObject,
   clearSyncState,
   getIsoNow,
   getRelatedObjects,
@@ -2406,6 +2783,7 @@ function listObjects(type) {
       case 'ref-material': return listRefMats(db);
       case 'habit': return listHabits(db);
       case 'scripture': return listScriptures(db);
+      case 'scripture-chapter': return listScriptureChapters(db);
       case 'tag': return listTags(db);
       case 'link': return getLinks(db);
       default: throw new Error(`Unsupported type: ${type}`);
@@ -2453,6 +2831,12 @@ function listMetaBundle() {
       .prepare('SELECT source_id, target_id FROM object_links')
       .all()
       .map((row) => ({ sourceId: row.source_id, targetId: row.target_id }));
+    // DEC-75: the scripture→chapter mapping lets consumers roll note citations
+    // up to chapter level without a second round trip.
+    const scriptureChapterLinks = db
+      .prepare('SELECT scripture_id, chapter_id FROM scripture_chapter_links')
+      .all()
+      .map((row) => ({ scriptureId: row.scripture_id, chapterId: row.chapter_id }));
     return {
       syncRootFolder: getSyncRootFolder(),
       topicNotes,
@@ -2460,6 +2844,8 @@ function listMetaBundle() {
       habits: listHabits(db),
       files: [...projects, ...refMaterials],
       scriptures: listScriptures(db),
+      scriptureChapters: listScriptureChapters(db),
+      scriptureChapterLinks,
       tags: listTags(db),
       objectLinks,
       noteBlocks,
@@ -2476,6 +2862,7 @@ function getObject(type, reference) {
       case 'ref-material': return getRefMat(db, reference);
       case 'habit': return getHabit(db, reference);
       case 'scripture': return getScripture(db, reference);
+      case 'scripture-chapter': return getScriptureChapter(db, reference);
       case 'tag': return getTag(db, reference);
       case 'link': return getLinks(db).find((link) => link.id === reference) ?? null;
       default: throw new Error(`Unsupported type: ${type}`);
@@ -2519,6 +2906,9 @@ function printRecords(type, rows) {
         break;
       case 'scripture':
         console.log(`${row.id}\t${listField(row.reference)}\t${row.passageUrl}\t${row.noteCount ?? 0}`);
+        break;
+      case 'scripture-chapter':
+        console.log(`${row.id}\t${listField(row.reference)}\t${row.noteCount ?? 0} notes\t${row.referenceCount ?? 0} refs`);
         break;
        case 'habit':
          console.log(`${row.id}\t${row.date}\t${row.status}\t${listField(row.text)}\t${row.syncPath || '(no path)'}${row.tags.length ? `\t#${row.tags.join(', #')}` : ''}`);
@@ -2736,6 +3126,12 @@ function getSettingsState() {
   const store = readSecretStore();
   const configuredRootFolder = decodeUnencryptedSecret(store.values[KEYCHAIN_ROOT_FOLDER]) ?? undefined;
   const effectiveRootFolder = getSyncRootFolder();
+  let linkedSources = [];
+  try {
+    linkedSources = listLinkedSourcesWithStatus();
+  } catch {
+    // Settings stay readable even when the database is unavailable.
+  }
   return {
     dbPath: dbFile,
     secretsPath: secretsFilePath(),
@@ -2743,8 +3139,241 @@ function getSettingsState() {
       rootFolder: configuredRootFolder,
       effectiveRootFolder,
       resolvedRootFolder: resolveLocalSyncPath(effectiveRootFolder),
+      linkedSources: linkedSources.map((source) => ({
+        objectType: source.objectType,
+        objectId: source.objectId,
+        name: source.name,
+        path: source.path,
+        readOnly: source.readOnly,
+        available: source.available,
+      })),
     },
   };
+}
+
+// ── Linked sync sources ───────────────────────────────────────────────────────
+// DEC-70: A linked source is a directory that lives outside the managed sync
+// root and backs exactly one project or ref-material. Its metadata is kept in
+// SQLite only — nothing is ever written into the directory — and sync treats it
+// as read-only: no renames, no moves, no deletions of its contents.
+
+const LINKED_SOURCE_TYPES = new Set(['project', 'ref-material']);
+
+function normalizeLinkedSourcePath(inputPath) {
+  const raw = normalize(inputPath).replace(/\\/g, '/');
+  if (!raw) return '';
+  const expanded = raw === '~' || raw.startsWith('~/') ? join(homedir(), raw.slice(1)) : raw;
+  const absolute = resolve(expanded).replace(/\\/g, '/');
+  return absolute === '/' ? '/' : absolute.replace(/\/+$/, '');
+}
+
+function validateLinkedSourcePath(inputPath) {
+  const normalized = normalizeLinkedSourcePath(inputPath);
+  if (!normalized) throw new Error('Directory path is required.');
+  if (normalized === '/') throw new Error('Cannot link "/". Choose a specific directory.');
+  if (!existsSync(normalized)) throw new Error(`Directory not found: ${normalized}`);
+  if (!statSync(normalized).isDirectory()) throw new Error(`Not a directory: ${normalized}`);
+  return normalized;
+}
+
+/** Case-insensitive containment test for local filesystem paths. */
+function isPathInside(childPath, parentPath) {
+  const child = String(childPath ?? '').replace(/\/+$/, '').toLowerCase();
+  const parent = String(parentPath ?? '').replace(/\/+$/, '').toLowerCase();
+  if (!child || !parent) return false;
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+function mapLinkedSourceRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    objectType: row.object_type,
+    objectId: row.object_id,
+    path: row.path,
+    readOnly: row.read_only !== 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastSeenAt: row.last_seen_at ?? '',
+  };
+}
+
+function listLinkedSources(db) {
+  return db.prepare('SELECT * FROM sync_sources ORDER BY path ASC').all().map(mapLinkedSourceRow);
+}
+
+function getLinkedSourceForObject(db, objectType, objectId) {
+  if (!objectId) return null;
+  return mapLinkedSourceRow(
+    db.prepare('SELECT * FROM sync_sources WHERE object_type = ? AND object_id = ?').get(objectType, objectId),
+  );
+}
+
+function getLinkedSourceByPath(db, path) {
+  const normalized = normalizeLinkedSourcePath(path);
+  if (!normalized) return null;
+  return mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE lower(path) = lower(?)').get(normalized));
+}
+
+function linkedObjectIdSet(db, objectType) {
+  const rows = db.prepare('SELECT object_id FROM sync_sources WHERE object_type = ?').all(objectType);
+  return new Set(rows.map((row) => row.object_id));
+}
+
+function isLinkedObject(db, objectType, objectId) {
+  return Boolean(getLinkedSourceForObject(db, objectType, objectId));
+}
+
+function markLinkedSourceSeen(db, id, seenAt = getIsoNow()) {
+  db.prepare('UPDATE sync_sources SET last_seen_at = ?, updated_at = ? WHERE id = ?').run(seenAt, seenAt, id);
+}
+
+function removeLinkedSourceRow(db, objectType, objectId) {
+  const result = db.prepare('DELETE FROM sync_sources WHERE object_type = ? AND object_id = ?').run(objectType, objectId);
+  return result.changes > 0;
+}
+
+function removeLinkedSourceForObject(objectType, objectId) {
+  return withDb((db) => removeLinkedSourceRow(db, objectType, objectId));
+}
+
+function getLinkedSourceRecord(db, source) {
+  return source.objectType === 'project' ? getProject(db, source.objectId) : getRefMat(db, source.objectId);
+}
+
+/** Register an existing directory as a project or ref-material, leaving it in place. */
+function attachLinkedDirectory({ path, objectType, name, tags = [] } = {}) {
+  const type = normalize(objectType).toLowerCase() || 'project';
+  if (!LINKED_SOURCE_TYPES.has(type)) {
+    throw new Error(`Linked directories support these types: ${[...LINKED_SOURCE_TYPES].join(', ')}.`);
+  }
+
+  const directoryPath = validateLinkedSourcePath(path);
+  const managedRootPath = resolveLocalSyncPath(getSyncRootFolder());
+  if (isPathInside(directoryPath, managedRootPath)) {
+    throw new Error(`${directoryPath} is inside the sync root (${managedRootPath}); it is scanned automatically.`);
+  }
+
+  return withDb((db) => {
+    for (const existing of listLinkedSources(db)) {
+      if (existing.path.toLowerCase() === directoryPath.toLowerCase()) {
+        throw new Error(`${directoryPath} is already linked as a ${existing.objectType}.`);
+      }
+      if (isPathInside(directoryPath, existing.path) || isPathInside(existing.path, directoryPath)) {
+        throw new Error(`${directoryPath} overlaps the linked directory ${existing.path}.`);
+      }
+    }
+
+    const now = getIsoNow();
+    const displayName = normalize(name) || folderNameToTitle(basename(directoryPath));
+    const objectId = randomUUID();
+    const record = type === 'project'
+      ? createProjectRecord(db, {
+        id: objectId,
+        name: displayName,
+        syncPath: directoryPath,
+        startDate: null,
+        endDate: null,
+        tags,
+        createdAt: now,
+        updatedAt: now,
+      })
+      : createRefMatRecord(db, {
+        id: objectId,
+        name: displayName,
+        author: '',
+        syncPath: directoryPath,
+        tags,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    db.prepare(`
+      INSERT INTO sync_sources (id, object_type, object_id, path, read_only, created_at, updated_at, last_seen_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(randomUUID(), type, objectId, directoryPath, now, now, now);
+    markRemotePresence(db, type, objectId, now);
+
+    return { source: getLinkedSourceForObject(db, type, objectId), record };
+  });
+}
+
+/** Unregister a linked directory. Deletes the record only; the directory is untouched. */
+function detachLinkedDirectory(reference) {
+  const lookup = normalize(reference);
+  if (!lookup) throw new Error('A linked directory path or id is required.');
+
+  return withDb((db) => {
+    const source = getLinkedSourceByPath(db, lookup)
+      ?? mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE id = ? OR object_id = ?').get(lookup, lookup));
+    if (!source) throw new Error(`Linked directory not found: ${lookup}`);
+
+    removeLinkedSourceRow(db, source.objectType, source.objectId);
+    if (source.objectType === 'project') deleteProjectRecord(db, source.objectId);
+    else deleteRefMatRecord(db, source.objectId);
+    return source;
+  });
+}
+
+/**
+ * Lists the immediate subdirectories of a parent folder as bulk-link candidates,
+ * each tagged with why it can or cannot be linked. Read-only: nothing is created.
+ */
+function scanLinkedSourceCandidates(parentPath) {
+  const parent = validateLinkedSourcePath(parentPath);
+  const managedRootPath = resolveLocalSyncPath(getSyncRootFolder());
+
+  return withDb((db) => {
+    const existingSources = listLinkedSources(db);
+    const candidates = readdirSync(parent, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => {
+        const path = `${parent}/${entry.name}`;
+        const exact = existingSources.find((source) => source.path.toLowerCase() === path.toLowerCase());
+        if (exact) {
+          return { name: entry.name, path, status: 'linked', reason: `Already linked as a ${exact.objectType}.` };
+        }
+        if (isPathInside(path, managedRootPath)) {
+          return { name: entry.name, path, status: 'inside-root', reason: 'Inside the sync root; it is scanned automatically.' };
+        }
+        const overlap = existingSources.find(
+          (source) => isPathInside(path, source.path) || isPathInside(source.path, path),
+        );
+        if (overlap) {
+          return { name: entry.name, path, status: 'overlaps', reason: `Overlaps the linked directory ${overlap.path}.` };
+        }
+        return { name: entry.name, path, status: 'eligible', reason: '' };
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    return { parent, candidates };
+  });
+}
+
+/** Links several directories in one pass, reporting each outcome separately. */
+function attachLinkedDirectories(paths, objectType) {
+  const added = [];
+  const failed = [];
+  for (const path of paths) {
+    try {
+      const { record } = attachLinkedDirectory({ path, objectType });
+      added.push({ path, id: record.id, name: record.name });
+    } catch (e) {
+      failed.push({ path, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { added, failed };
+}
+
+function listLinkedSourcesWithStatus() {
+  return withDb((db) => listLinkedSources(db).map((source) => {
+    const record = getLinkedSourceRecord(db, source);
+    return {
+      ...source,
+      name: record?.name ?? '(missing record)',
+      available: existsSync(source.path) && statSync(source.path).isDirectory(),
+    };
+  }));
 }
 
 // ── Note sync: path helpers ───────────────────────────────────────────────────
@@ -2838,14 +3467,16 @@ function habitSyncPath(rootFolder, id, date, tagNames) {
   return `${habitsFolderPath(rootFolder)}/${filename}`;
 }
 
+// DEC-71: projects/ and ref-materials/ are deliberately absent. Linking a directory
+// in place is now the default way to add them, so an empty managed folder would be
+// clutter. They are created on demand only when a root-backed object is written into
+// one (mkdir is recursive), and an existing folder keeps working exactly as before.
 function allSyncFolderPaths(rootFolder) {
   const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
   return [
     root,
     dailyNotesFolderPath(rootFolder),
     topicNotesFolderPath(rootFolder),
-    projectsFolderPath(rootFolder),
-    refMaterialsFolderPath(rootFolder),
     habitsFolderPath(rootFolder),
   ].filter((path) => path && path !== '/');
 }
@@ -3098,7 +3729,8 @@ function shouldApplyRemoteDailyNote(existing, remote) {
   // If timestamps are equal, detect actual content changes
   if (remote.contentMarkdown !== existing.contentMarkdown) return true;
   if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
-  if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
+  const effectiveRemoteTags = mergeRemoteTagsPreservingImportedInbox(existing.tags, remote.tagNames);
+  if (!sameStringArrayAsSet(effectiveRemoteTags, existing.tags)) return true;
   return false;
 }
 
@@ -3264,6 +3896,11 @@ async function moveSyncFolder(fromPath, toPath) {
 
 async function deleteSyncPath(path) {
   const target = resolveLocalSyncPath(path);
+  // DEC-70: linked directories are read-only; unlinking must go through `sources remove`.
+  const linkedSource = withDb((db) => getLinkedSourceByPath(db, target));
+  if (linkedSource) {
+    throw new Error(`Refusing to delete linked directory ${target}. Use "${PRIMARY_CLI_COMMAND} sources remove ${target}" to unlink it.`);
+  }
   rmSync(target, { recursive: true, force: true });
 }
 
@@ -3459,7 +4096,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
            syncPath: fields.syncPath || dailyNoteSyncPath(rootFolder, existing.date),
-           tags: fields.tagNames,
+           tags: mergeRemoteTagsPreservingImportedInbox(existing.tags, fields.tagNames),
            updatedAt: fields.updatedAt,
          });
          result.updated++;
@@ -3606,6 +4243,18 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
 async function reconcileProjectsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
+  // DEC-70: records backed by a linked directory are reconciled separately and must
+  // never be uploaded into, renamed within, or deleted by the managed root pass.
+  const linkedProjectIds = linkedObjectIdSet(db, 'project');
+  const localItems = listProjectsForSync(db).filter((item) => !linkedProjectIds.has(item.id));
+
+  // DEC-71: the managed projects/ folder is created only when a root-backed project
+  // needs somewhere to live. Doing it before the scan keeps reconciliation identical to
+  // the old always-created behaviour; with no such projects the folder never appears.
+  if (localItems.length > 0) {
+    await ensureSyncFolder(projectsFolderPath(rootFolder));
+  }
+
   const { items: syncItems, stubs, folderFound } = await fetchAllProjectsFromSyncFolder(token, rootFolder);
   const syncById = new Map(syncItems.map((item) => [item.id, item]));
 
@@ -3684,12 +4333,8 @@ async function reconcileProjectsDb(db, token, rootFolder) {
     }
   }
 
-  const localItems = listProjectsForSync(db);
   if (!folderFound) {
-    await ensureSyncFolder(projectsFolderPath(rootFolder));
-    if (localItems.length > 0) {
-      result.warnings.push('Sync projects folder was missing and has been created; skipped remote-deletion reconciliation for local projects.');
-    }
+    // No managed projects/ folder and nothing to put in one: nothing to reconcile.
     return result;
   }
 
@@ -3746,6 +4391,13 @@ async function reconcileProjectsDb(db, token, rootFolder) {
 
 async function reconcileRefMaterialsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  // DEC-70/DEC-71: see reconcileProjectsDb.
+  const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
+  const localItems = listRefMaterialsForSync(db).filter((item) => !linkedRefMaterialIds.has(item.id));
+  if (localItems.length > 0) {
+    await ensureSyncFolder(refMaterialsFolderPath(rootFolder));
+  }
 
   const { items: syncItems, stubs, folderFound } = await fetchAllRefMaterialsFromSyncFolder(token, rootFolder);
   const syncById = new Map(syncItems.map((item) => [item.id, item]));
@@ -3818,12 +4470,8 @@ async function reconcileRefMaterialsDb(db, token, rootFolder) {
     }
   }
 
-  const localItems = listRefMaterialsForSync(db);
   if (!folderFound) {
-    await ensureSyncFolder(refMaterialsFolderPath(rootFolder));
-    if (localItems.length > 0) {
-      result.warnings.push('Sync ref-materials folder was missing and has been created; skipped remote-deletion reconciliation for local reference materials.');
-    }
+    // No managed ref-materials/ folder and nothing to put in one: nothing to reconcile.
     return result;
   }
 
@@ -3965,18 +4613,593 @@ async function reconcileHabitsDb(db, token, rootFolder) {
 const DAILY_NOTE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastDailyNoteCleanupAt = 0;
 
+// DEC-70: Linked directories are read-only. Reconciliation only confirms they are
+// still reachable — an unavailable path (unmounted volume, moved folder) is reported
+// and skipped, never treated as a remote deletion.
+async function reconcileLinkedSourcesDb(db) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  for (const source of listLinkedSources(db)) {
+    try {
+      const record = getLinkedSourceRecord(db, source);
+      if (!record) {
+        // The object was deleted in the app; drop the registration, leave the directory alone.
+        removeLinkedSourceRow(db, source.objectType, source.objectId);
+        continue;
+      }
+
+      if (!existsSync(source.path) || !statSync(source.path).isDirectory()) {
+        result.warnings.push(`Linked directory unavailable, skipped (record kept): ${source.path}`);
+        continue;
+      }
+
+      if (record.syncPath !== source.path) {
+        const updateRecord = source.objectType === 'project' ? updateProjectRecord : updateRefMatRecord;
+        updateRecord(db, source.objectId, { syncPath: source.path, updatedAt: record.updatedAt });
+        result.updated++;
+      }
+
+      markLinkedSourceSeen(db, source.id);
+      markRemotePresence(db, source.objectType, source.objectId, getIsoNow());
+    } catch (e) {
+      result.errors.push(`linked source ${source.path}: ${String(e)}`);
+    }
+  }
+
+  return result;
+}
+
+// Best-effort: the record is already gone, so a file we cannot remove only means
+// the next sweep tries again.
+function removeDailyNoteSyncFile(syncPath) {
+  const path = normalizeSyncPath(syncPath);
+  if (!path) return;
+  try {
+    const localPath = resolveLocalSyncPath(path);
+    if (!existsSync(localPath) || !statSync(localPath).isFile()) return;
+    unlinkSync(localPath);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function maybeCleanupStaleDailyNotes(db) {
   const now = Date.now();
   if (now - lastDailyNoteCleanupAt < DAILY_NOTE_CLEANUP_INTERVAL_MS) return 0;
   lastDailyNoteCleanupAt = now;
 
-  const eligibleDailyNoteIds = listDailyNotes(db)
+  const rootFolder = getSyncRootFolder();
+  const eligible = listDailyNotes(db)
     .filter((note) => isDailyNoteDeleteEligible(db, note.id))
-    .map((note) => note.id);
+    .map((note) => ({
+      id: note.id,
+      syncPath: note.syncPath || dailyNoteSyncPath(rootFolder, note.date),
+    }));
 
-  if (eligibleDailyNoteIds.length === 0) return 0;
-  cleanupDailyNotesIfEligible(db, eligibleDailyNoteIds);
-  return eligibleDailyNoteIds.length;
+  let deleted = 0;
+  for (const note of eligible) {
+    if (!autoDeleteDailyNoteIfEligible(db, note.id)) continue;
+    deleted++;
+    // Drop the orphaned markdown as well; otherwise the next sync re-imports the
+    // blank note straight back out of the sync folder.
+    removeDailyNoteSyncFile(note.syncPath);
+  }
+  return deleted;
+}
+
+// ── Document text index (DEC-79) ────────────────────────────────────────────
+
+// Folder-backed objects — projects, reference materials, and the linked
+// directories of DEC-70 — are walked recursively so the documents inside them
+// are searchable by their contents and not just by file name. Extraction is
+// keyed on size plus modification time, so the expensive parse happens once per
+// file version and every later sync is a stat per file.
+
+const DOCUMENT_INDEX_MAX_DEPTH = 12;
+const DOCUMENT_INDEX_MAX_FILES_PER_OBJECT = 5000;
+const DOCUMENT_SNIPPET_RADIUS = 120;
+const DOCUMENT_SEARCH_DEFAULT_LIMIT = 25;
+const DOCUMENT_SEARCH_MAX_LIMIT = 200;
+const DOCUMENT_INDEXED_OBJECT_TYPES = new Set(['project', 'ref-material']);
+const DOCUMENT_IGNORED_DIRECTORY_NAMES = new Set([
+  'node_modules', '.git', '.svn', '.hg', '__macosx', '.trash', '.obsidian', '.tmp',
+]);
+
+let documentSearchIndexAvailable = false;
+
+// FTS5 ships with Node's bundled SQLite, but the fallback keeps the feature
+// working (just slower) if a build ever lands without it.
+function ensureDocumentSearchIndex(db) {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS document_search USING fts5(
+        body,
+        document_id UNINDEXED,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+    documentSearchIndexAvailable = true;
+  } catch {
+    documentSearchIndexAvailable = false;
+  }
+  return documentSearchIndexAvailable;
+}
+
+function documentIndexTargets(db) {
+  const targets = [];
+  const sources = [
+    ['project', listProjects(db)],
+    ['ref-material', listRefMats(db)],
+  ];
+  for (const [objectType, rows] of sources) {
+    for (const row of rows) {
+      const syncPath = normalizeSyncPath(row.syncPath);
+      if (!syncPath) continue;
+      targets.push({
+        objectType,
+        objectId: row.id,
+        name: row.name,
+        syncPath,
+        localPath: resolveLocalSyncPath(syncPath),
+      });
+    }
+  }
+  return targets;
+}
+
+// Symlinked directories are skipped rather than followed: a loop would walk
+// forever, and the linked-directory feature already covers the case where a
+// folder elsewhere on disk should be part of the knowledge base.
+function* walkDocumentFiles(rootPath) {
+  const queue = [{ directory: rootPath, prefix: '', depth: 0 }];
+  let emitted = 0;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    let entries;
+    try {
+      entries = readdirSync(current.directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const absolutePath = join(current.directory, entry.name);
+      const relativePath = current.prefix ? `${current.prefix}/${entry.name}` : entry.name;
+
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stats = statSync(absolutePath);
+          isDirectory = stats.isDirectory();
+          isFile = stats.isFile();
+        } catch {
+          continue;
+        }
+        if (isDirectory) continue;
+      }
+
+      // A macOS package (.pages) is a directory the user sees as one document,
+      // so it is handed over whole rather than walked into.
+      if (isDirectory && isPackageDocument(entry.name)) {
+        if (emitted >= DOCUMENT_INDEX_MAX_FILES_PER_OBJECT) return;
+        emitted++;
+        yield { absolutePath, relativePath, fileName: entry.name };
+        continue;
+      }
+
+      if (isDirectory) {
+        if (current.depth >= DOCUMENT_INDEX_MAX_DEPTH) continue;
+        if (DOCUMENT_IGNORED_DIRECTORY_NAMES.has(entry.name.toLowerCase())) continue;
+        queue.push({ directory: absolutePath, prefix: relativePath, depth: current.depth + 1 });
+        continue;
+      }
+      if (!isFile || !isSupportedDocument(entry.name)) continue;
+      if (emitted >= DOCUMENT_INDEX_MAX_FILES_PER_OBJECT) return;
+      emitted++;
+      yield { absolutePath, relativePath, fileName: entry.name };
+    }
+  }
+}
+
+function deleteDocumentRow(db, documentId) {
+  if (documentSearchIndexAvailable) {
+    db.prepare('DELETE FROM document_search WHERE document_id = ?').run(documentId);
+  }
+  db.prepare('DELETE FROM document_texts WHERE id = ?').run(documentId);
+}
+
+function upsertDocumentText(db, entry) {
+  return withTransaction(db, () => {
+    const existing = db
+      .prepare('SELECT id FROM document_texts WHERE object_type = ? AND object_id = ? AND relative_path = ?')
+      .get(entry.objectType, entry.objectId, entry.relativePath);
+    const id = existing?.id ?? randomUUID();
+    const now = getIsoNow();
+
+    if (existing) {
+      db.prepare(`
+        UPDATE document_texts
+        SET file_name = ?, extension = ?, file_path = ?, size = ?, modified_at = ?,
+            content = ?, character_count = ?, status = ?, detail = ?, truncated = ?, indexed_at = ?
+        WHERE id = ?
+      `).run(
+        entry.fileName, entry.extension, entry.filePath, entry.size, entry.modifiedAt,
+        entry.content, entry.content.length, entry.status, entry.detail, entry.truncated ? 1 : 0, now, id,
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO document_texts (
+          id, object_type, object_id, relative_path, file_name, extension, file_path,
+          size, modified_at, content, character_count, status, detail, truncated, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, entry.objectType, entry.objectId, entry.relativePath, entry.fileName, entry.extension, entry.filePath,
+        entry.size, entry.modifiedAt, entry.content, entry.content.length, entry.status, entry.detail,
+        entry.truncated ? 1 : 0, now,
+      );
+    }
+
+    if (documentSearchIndexAvailable) {
+      db.prepare('DELETE FROM document_search WHERE document_id = ?').run(id);
+      if (entry.content) {
+        db.prepare('INSERT INTO document_search (body, document_id) VALUES (?, ?)').run(entry.content, id);
+      }
+    }
+    return id;
+  });
+}
+
+function clearDocumentIndexForObject(db, objectType, objectId) {
+  if (!DOCUMENT_INDEXED_OBJECT_TYPES.has(objectType)) return 0;
+  const rows = db
+    .prepare('SELECT id FROM document_texts WHERE object_type = ? AND object_id = ?')
+    .all(objectType, objectId);
+  for (const row of rows) deleteDocumentRow(db, row.id);
+  return rows.length;
+}
+
+function pruneMissingDocuments(db, target, seenRelativePaths) {
+  const rows = db
+    .prepare('SELECT id, relative_path FROM document_texts WHERE object_type = ? AND object_id = ?')
+    .all(target.objectType, target.objectId);
+  let removed = 0;
+  for (const row of rows) {
+    if (seenRelativePaths.has(row.relative_path)) continue;
+    deleteDocumentRow(db, row.id);
+    removed++;
+  }
+  return removed;
+}
+
+// Rows whose object was deleted, unlinked, or lost its folder path.
+function pruneOrphanDocuments(db, targets) {
+  const known = new Set(targets.map((target) => `${target.objectType}:${target.objectId}`));
+  const rows = db.prepare('SELECT id, object_type, object_id FROM document_texts').all();
+  let removed = 0;
+  for (const row of rows) {
+    if (known.has(`${row.object_type}:${row.object_id}`)) continue;
+    deleteDocumentRow(db, row.id);
+    removed++;
+  }
+  return removed;
+}
+
+function indexDocumentsForObject(db, target, { force = false } = {}) {
+  const result = { indexed: 0, updated: 0, removed: 0, unchanged: 0, unreadable: 0, warnings: [] };
+
+  let folderExists = false;
+  try {
+    folderExists = existsSync(target.localPath) && statSync(target.localPath).isDirectory();
+  } catch {
+    folderExists = false;
+  }
+  if (!folderExists) {
+    // Cloud folders go missing while they sync; keep what we already indexed.
+    result.warnings.push(`Folder unavailable, document index kept: ${target.localPath}`);
+    return result;
+  }
+
+  const readExisting = db.prepare(
+    'SELECT id, size, modified_at FROM document_texts WHERE object_type = ? AND object_id = ? AND relative_path = ?',
+  );
+  const seenRelativePaths = new Set();
+
+  for (const file of walkDocumentFiles(target.localPath)) {
+    seenRelativePaths.add(file.relativePath);
+
+    let fingerprint;
+    try {
+      fingerprint = documentFingerprint(file.absolutePath);
+    } catch {
+      continue;
+    }
+    const existing = readExisting.get(target.objectType, target.objectId, file.relativePath);
+    if (existing && !force && Number(existing.size) === fingerprint.size && existing.modified_at === fingerprint.modifiedAt) {
+      result.unchanged++;
+      continue;
+    }
+
+    const extraction = extractDocumentText(file.absolutePath);
+    if (extraction.status === 'error') {
+      result.unreadable++;
+      result.warnings.push(`${target.name}: ${file.relativePath} — ${extraction.detail}`);
+    }
+
+    upsertDocumentText(db, {
+      objectType: target.objectType,
+      objectId: target.objectId,
+      relativePath: file.relativePath,
+      fileName: file.fileName,
+      extension: extname(file.fileName).toLowerCase(),
+      filePath: file.absolutePath,
+      size: extraction.size || fingerprint.size,
+      modifiedAt: extraction.modifiedAt || fingerprint.modifiedAt,
+      content: extraction.text,
+      status: extraction.status,
+      detail: extraction.detail,
+      truncated: extraction.truncated,
+    });
+
+    if (existing) result.updated++;
+    else result.indexed++;
+  }
+
+  result.removed = pruneMissingDocuments(db, target, seenRelativePaths);
+  return result;
+}
+
+function reconcileDocumentIndex(db, { force = false } = {}) {
+  const result = { indexed: 0, updated: 0, removed: 0, unchanged: 0, unreadable: 0, warnings: [], errors: [] };
+  const targets = documentIndexTargets(db);
+
+  for (const target of targets) {
+    try {
+      const objectResult = indexDocumentsForObject(db, target, { force });
+      result.indexed += objectResult.indexed;
+      result.updated += objectResult.updated;
+      result.removed += objectResult.removed;
+      result.unchanged += objectResult.unchanged;
+      result.unreadable += objectResult.unreadable;
+      result.warnings.push(...objectResult.warnings);
+    } catch (e) {
+      result.errors.push(`document index ${target.objectType} ${target.name}: ${String(e)}`);
+    }
+  }
+
+  try {
+    result.removed += pruneOrphanDocuments(db, targets);
+  } catch (e) {
+    result.errors.push(`document index cleanup: ${String(e)}`);
+  }
+
+  return result;
+}
+
+function documentIndexStatus(db) {
+  const byStatus = db
+    .prepare('SELECT status, COUNT(*) AS count FROM document_texts GROUP BY status')
+    .all()
+    .reduce((totals, row) => ({ ...totals, [row.status]: Number(row.count) }), {});
+  const byExtension = db
+    .prepare('SELECT extension, COUNT(*) AS count FROM document_texts GROUP BY extension ORDER BY count DESC')
+    .all()
+    .map((row) => ({ extension: row.extension, count: Number(row.count) }));
+  const totals = db
+    .prepare('SELECT COUNT(*) AS documents, COALESCE(SUM(character_count), 0) AS characters FROM document_texts')
+    .get();
+
+  return {
+    documents: Number(totals?.documents ?? 0),
+    characters: Number(totals?.characters ?? 0),
+    searchIndex: documentSearchIndexAvailable ? 'fts5' : 'scan',
+    supportedExtensions: [...SUPPORTED_DOCUMENT_EXTENSIONS].sort(),
+    byStatus,
+    byExtension,
+    folders: documentIndexTargets(db).length,
+  };
+}
+
+function documentQueryTokens(query) {
+  return (String(query ?? '').toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).slice(0, 12);
+}
+
+// The trailing token is prefix-matched so search keeps up with typing.
+function documentMatchExpression(tokens) {
+  return tokens
+    .map((token, index) => {
+      const quoted = `"${token.replace(/"/g, '""')}"`;
+      return index === tokens.length - 1 ? `${quoted}*` : quoted;
+    })
+    .join(' AND ');
+}
+
+function documentSnippet(content, query, tokens) {
+  const text = String(content ?? '');
+  if (!text) return '';
+
+  const haystack = text.toLowerCase();
+  const phrase = normalize(query).toLowerCase();
+  let index = phrase ? haystack.indexOf(phrase) : -1;
+  let matchLength = index >= 0 ? phrase.length : 0;
+
+  if (index < 0) {
+    for (const token of tokens) {
+      const found = haystack.indexOf(token);
+      if (found < 0) continue;
+      index = found;
+      matchLength = token.length;
+      break;
+    }
+  }
+  if (index < 0) {
+    index = 0;
+    matchLength = 0;
+  }
+
+  const start = Math.max(0, index - DOCUMENT_SNIPPET_RADIUS);
+  const end = Math.min(text.length, index + matchLength + DOCUMENT_SNIPPET_RADIUS);
+  const body = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`;
+}
+
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function mapDocumentSearchRow(row, query, tokens) {
+  return {
+    id: row.id,
+    objectType: row.object_type,
+    objectId: row.object_id,
+    objectName: row.object_name || '',
+    fileName: row.file_name,
+    relativePath: row.relative_path,
+    filePath: row.file_path,
+    extension: row.extension,
+    characterCount: Number(row.character_count ?? 0),
+    indexedAt: row.indexed_at,
+    snippet: documentSnippet(row.content, query, tokens),
+  };
+}
+
+/**
+ * Full-text search across indexed project and reference-material documents.
+ * Falls back to a substring scan when FTS5 is unavailable.
+ */
+function searchDocuments(query, { limit = DOCUMENT_SEARCH_DEFAULT_LIMIT, objectType, objectId } = {}) {
+  const tokens = documentQueryTokens(query);
+  if (tokens.length === 0) return [];
+  const cappedLimit = Math.min(Math.max(1, Number(limit) || DOCUMENT_SEARCH_DEFAULT_LIMIT), DOCUMENT_SEARCH_MAX_LIMIT);
+
+  return withDb((db) => {
+    const filters = [];
+    const filterValues = [];
+    if (objectType && DOCUMENT_INDEXED_OBJECT_TYPES.has(objectType)) {
+      filters.push('d.object_type = ?');
+      filterValues.push(objectType);
+    }
+    if (objectId) {
+      filters.push('d.object_id = ?');
+      filterValues.push(objectId);
+    }
+
+    const selection = `
+      d.id, d.object_type, d.object_id, d.relative_path, d.file_name, d.extension,
+      d.file_path, d.content, d.character_count, d.indexed_at,
+      COALESCE(p.name, r.name, '') AS object_name
+    `;
+    const joins = `
+      LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+      LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+    `;
+
+    if (documentSearchIndexAvailable) {
+      const where = ['document_search MATCH ?', ...filters].join(' AND ');
+      const rows = db.prepare(`
+        SELECT ${selection}, bm25(document_search) AS rank
+        FROM document_search
+        JOIN document_texts d ON d.id = document_search.document_id
+        ${joins}
+        WHERE ${where}
+        ORDER BY rank
+        LIMIT ?
+      `).all(documentMatchExpression(tokens), ...filterValues, cappedLimit);
+      return rows.map((row) => mapDocumentSearchRow(row, query, tokens));
+    }
+
+    const where = ["d.content LIKE ? ESCAPE '\\'", ...filters].join(' AND ');
+    const rows = db.prepare(`
+      SELECT ${selection}
+      FROM document_texts d
+      ${joins}
+      WHERE ${where}
+      ORDER BY d.indexed_at DESC
+      LIMIT ?
+    `).all(`%${escapeLikePattern(normalize(query))}%`, ...filterValues, cappedLimit);
+    return rows.map((row) => mapDocumentSearchRow(row, query, tokens));
+  });
+}
+
+function listIndexedDocuments({ objectId, limit = 200 } = {}) {
+  return withDb((db) => {
+    const rows = objectId
+      ? db.prepare(`
+          SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+          FROM document_texts d
+          LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+          LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+          WHERE d.object_id = ?
+          ORDER BY d.relative_path ASC
+          LIMIT ?
+        `).all(objectId, limit)
+      : db.prepare(`
+          SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+          FROM document_texts d
+          LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+          LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+          ORDER BY d.indexed_at DESC
+          LIMIT ?
+        `).all(limit);
+
+    return rows.map((row) => ({
+      id: row.id,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      objectName: row.object_name || '',
+      fileName: row.file_name,
+      relativePath: row.relative_path,
+      filePath: row.file_path,
+      extension: row.extension,
+      status: row.status,
+      detail: row.detail,
+      characterCount: Number(row.character_count ?? 0),
+      indexedAt: row.indexed_at,
+    }));
+  });
+}
+
+/** One indexed document, including its extracted text. */
+function getIndexedDocument(documentId, { maxCharacters = 0 } = {}) {
+  return withDb((db) => {
+    const row = db.prepare(`
+      SELECT d.*, COALESCE(p.name, r.name, '') AS object_name
+      FROM document_texts d
+      LEFT JOIN projects p ON d.object_type = 'project' AND p.id = d.object_id
+      LEFT JOIN ref_materials r ON d.object_type = 'ref-material' AND r.id = d.object_id
+      WHERE d.id = ?
+    `).get(documentId);
+    if (!row) return null;
+
+    const limit = Number(maxCharacters) > 0 ? Number(maxCharacters) : row.content.length;
+    return {
+      id: row.id,
+      objectType: row.object_type,
+      objectId: row.object_id,
+      objectName: row.object_name || '',
+      fileName: row.file_name,
+      relativePath: row.relative_path,
+      filePath: row.file_path,
+      extension: row.extension,
+      status: row.status,
+      detail: row.detail,
+      characterCount: Number(row.character_count ?? 0),
+      truncated: Boolean(row.truncated) || row.content.length > limit,
+      indexedAt: row.indexed_at,
+      text: row.content.slice(0, limit),
+    };
+  });
+}
+
+function runDocumentIndex({ force = false } = {}) {
+  return withDb((db) => reconcileDocumentIndex(db, { force }));
+}
+
+function documentIndexStatusReport() {
+  return withDb((db) => documentIndexStatus(db));
 }
 
 async function runSync() {
@@ -3989,15 +5212,21 @@ async function runSync() {
     const projectResult = await reconcileProjectsDb(db, token, rootFolder);
     const refMaterialResult = await reconcileRefMaterialsDb(db, token, rootFolder);
     const habitResult = await reconcileHabitsDb(db, token, rootFolder);
+    const linkedSourceResult = await reconcileLinkedSourcesDb(db);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
+    // DEC-79: runs after folder reconciliation so newly imported projects and
+    // reference materials are indexed in the same pass that discovered them.
+    const documentResult = reconcileDocumentIndex(db);
     return {
-      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported,
-      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated,
-      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded,
-      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + staleDailyNoteCleanupResult,
-      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...metadataCleanupResult.errors],
+      documentsIndexed: documentResult.indexed + documentResult.updated,
+      documentsRemoved: documentResult.removed,
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + linkedSourceResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + linkedSourceResult.updated,
+      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded + linkedSourceResult.uploaded,
+      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + linkedSourceResult.deleted + staleDailyNoteCleanupResult,
+      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings, ...documentResult.warnings],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...metadataCleanupResult.errors, ...documentResult.errors],
     };
   });
 }
@@ -4212,7 +5441,7 @@ async function runSyncWatch(intervalMinutes) {
   console.log(`Starting sync watch mode (${safeIntervalMinutes} minute interval). Press Ctrl+C to stop.`);
   while (!process.exitCode) {
     const result = await runSync();
-    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
+    console.log(`Sync complete — imported: ${result.imported}, updated: ${result.updated}, uploaded: ${result.uploaded}, deleted: ${result.deleted}, documents indexed: ${result.documentsIndexed ?? 0}, warnings: ${result.warnings.length}, errors: ${result.errors.length}`);
     if (result.warnings.length > 0) {
       for (const warning of result.warnings) console.warn(`  [warning] ${warning}`);
     }
@@ -4355,6 +5584,16 @@ Usage:
                            Delete an object
   ${PRIMARY_CLI_COMMAND} browse [target] Browse notes, directories, files, or all objects
 
+Documents (text inside project / ref-material folders, indexed on every sync):
+  ${PRIMARY_CLI_COMMAND} documents search <query> [--limit N] [--type project|ref-material] [--object <id>] [--json]
+                             Full-text search inside indexed PDFs, Word files, and Markdown
+  ${PRIMARY_CLI_COMMAND} documents index [--force]
+                             Re-scan folders now; --force re-reads unchanged files
+  ${PRIMARY_CLI_COMMAND} documents list [--object <id>] [--json]
+                             List indexed documents and their extraction status
+  ${PRIMARY_CLI_COMMAND} documents status [--json]
+                             Index totals and the file formats this build can read
+
 Sync:
   ${PRIMARY_CLI_COMMAND} sync            Sync notes, habits, and directories to local sync folder (one-shot)
   ${PRIMARY_CLI_COMMAND} sync --watch    Run background sync daemon (default interval: ${SYNC_INTERVAL_MINUTES_DEFAULT}m)
@@ -4364,6 +5603,15 @@ Settings:
   ${PRIMARY_CLI_COMMAND} settings show   Show CLI-visible app settings
   ${PRIMARY_CLI_COMMAND} settings set root-folder [path]
                              Set sync root folder (default: ${DEFAULT_NOTES_ROOT} -> ${DEFAULT_LOCAL_STORAGE_DIR}/PuzzlePKM)
+
+Linked directories (kept in place, scanned on every sync, never written to):
+  ${PRIMARY_CLI_COMMAND} sources list    List linked directories and their availability
+  ${PRIMARY_CLI_COMMAND} sources scan <parent-path>
+                             List a folder's subdirectories as bulk-link candidates
+  ${PRIMARY_CLI_COMMAND} sources add <path...> [--type project|ref-material] [--name "Name"] [--tags a,b]
+                             Link one or more existing directories, one object each
+  ${PRIMARY_CLI_COMMAND} sources remove <path-or-id>
+                             Unlink a directory (the directory itself is left untouched)
 
 Object types:
   topic-note, daily-note, project, ref-material, habit, scripture, tag, link
@@ -4437,6 +5685,13 @@ function createCommandContext(rl) {
     browseTarget,
     getSettingsState,
     saveSyncRootFolder,
+    attachLinkedDirectory,
+    detachLinkedDirectory,
+    listLinkedSourcesWithStatus,
+    scanLinkedSourceCandidates,
+    attachLinkedDirectories,
+    removeLinkedSourceForObject,
+    isLinkedObject,
     prompt,
     runSync,
     runSyncWatch,
@@ -4445,6 +5700,11 @@ function createCommandContext(rl) {
     createAuthor,
     deleteAuthor,
     convertTopicNoteToProject,
+    runDocumentIndex,
+    searchDocuments,
+    listIndexedDocuments,
+    getIndexedDocument,
+    documentIndexStatus: documentIndexStatusReport,
   };
 }
 
@@ -4471,7 +5731,9 @@ async function executeTokens(tokens, context = {}) {
   const commandContext = createCommandContext(rl);
   if (await handleNotesCommand(action, args, commandContext)) return;
   if (await handleObjectsCommand(action, args, commandContext)) return;
+  if (await handleDocumentsCommand(action, args, commandContext)) return;
   if (await handleSettingsCommand(action, args, commandContext)) return;
+  if (await handleSourcesCommand(action, args, commandContext)) return;
   if (await handleSyncCommand(action, args, commandContext)) return;
 
   throw new Error(`Unknown command: ${command}`);
@@ -4620,6 +5882,13 @@ export const mcpInternals = {
   listRefMats,
   listScriptures,
   getScripture,
+
+  // Documents (DEC-79)
+  searchDocuments,
+  listIndexedDocuments,
+  getIndexedDocument,
+  runDocumentIndex,
+  documentIndexStatus: documentIndexStatusReport,
 
   // Sync
   runSync,

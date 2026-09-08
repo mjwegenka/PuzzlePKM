@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, TopicNote } from '../shared/types';
+import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, ScriptureChapter, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
 import { normalizeNoteBlocks } from './noteBlocks';
 import { formatDatePretty, parseDateQueryToISO } from './dateUtils';
@@ -107,6 +107,21 @@ export interface ScriptureMeta {
   type: 'scripture';
 }
 
+export interface ScriptureChapterMeta {
+  id: string;
+  reference: string;
+  bookName: string;
+  bookOrder: number;
+  chapter: number;
+  passageUrl: string;
+  /** Distinct verse-level references that roll up into this chapter. */
+  referenceCount: number;
+  /** Distinct notes citing this chapter through any of those references. */
+  noteCount: number;
+  displayTitle: string;
+  type: 'scripture-chapter';
+}
+
 export interface NoteBlockMeta {
   noteId: string;
   noteType: 'topic-note' | 'daily-note';
@@ -121,6 +136,8 @@ export interface MetaBundle {
   habits: HabitMeta[];
   files: FileMeta[];
   scriptures: ScriptureMeta[];
+  scriptureChapters: ScriptureChapterMeta[];
+  scriptureChapterLinks: Array<{ scriptureId: string; chapterId: string }>;
   tags: TagSummary[];
   objectLinks: Array<{ sourceId: string; targetId: string }>;
   noteBlocks: NoteBlockMeta[];
@@ -209,7 +226,7 @@ if (typeof window !== 'undefined') {
 
 export interface ResolvedObjectRef {
   id: string;
-  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
+  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'scripture-chapter' | 'tag';
   syncPath: string;
   /** Block fragment extracted from a `objectId#blockId` link, if present. */
   blockId?: string;
@@ -222,7 +239,7 @@ export interface TagSummary {
   objectCount: number;
 }
 
-type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'tag';
+type CliObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'scripture-chapter' | 'tag';
 
 type CliObjectByType = {
   'topic-note': TopicNote;
@@ -231,6 +248,7 @@ type CliObjectByType = {
   'ref-material': ReferenceMaterial;
   habit: Habit;
   scripture: Scripture;
+  'scripture-chapter': ScriptureChapter;
   tag: Record<string, unknown>;
 };
 
@@ -418,7 +436,7 @@ export async function runPuzzlePKMCli(args: string[]): Promise<CliRunResult> {
   };
 }
 
-function isTauriRuntimeAvailable(): boolean {
+export function isTauriRuntimeAvailable(): boolean {
   return typeof window !== 'undefined'
     && typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke === 'function';
 }
@@ -487,6 +505,173 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
   }
   invalidateMetaCaches();
   return true;
+}
+
+/**
+ * DEC-70: Directories outside the sync root, linked in place as a single project
+ * or reference material. Nothing is ever written into a linked directory.
+ */
+export type LinkedSourceType = 'project' | 'ref-material';
+
+export interface LinkedSource {
+  objectType: LinkedSourceType;
+  objectId: string;
+  name: string;
+  path: string;
+  readOnly: boolean;
+  available: boolean;
+}
+
+export async function listLinkedSources(): Promise<LinkedSource[]> {
+  const result = await runPuzzlePKMCli(['settings', 'show']);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'settings show failed');
+  const parsed = JSON.parse(result.stdout) as { sync?: { linkedSources?: LinkedSource[] } };
+  return parsed.sync?.linkedSources ?? [];
+}
+
+export async function addLinkedSource(
+  path: string,
+  objectType: LinkedSourceType,
+  name?: string,
+): Promise<{ id: string; name: string; syncPath: string }> {
+  const args = ['sources', 'add', path, '--type', objectType];
+  const trimmedName = String(name ?? '').trim();
+  if (trimmedName) args.push('--name', trimmedName);
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not link that directory');
+  invalidateMetaCaches();
+  // `sources add` prints a confirmation line followed by the created record.
+  const start = result.stdout.indexOf('{');
+  const end = result.stdout.lastIndexOf('}');
+  if (start < 0 || end < start) throw new Error('Linked the folder but could not read back the new record.');
+  return JSON.parse(result.stdout.slice(start, end + 1)) as { id: string; name: string; syncPath: string };
+}
+
+export type LinkCandidateStatus = 'eligible' | 'linked' | 'inside-root' | 'overlaps';
+
+export interface LinkCandidate {
+  name: string;
+  path: string;
+  status: LinkCandidateStatus;
+  reason: string;
+}
+
+export interface BulkLinkResult {
+  added: Array<{ path: string; id: string; name: string }>;
+  failed: Array<{ path: string; error: string }>;
+}
+
+/** Lists a parent folder's immediate subdirectories as bulk-link candidates. Creates nothing. */
+export async function scanLinkCandidates(parentPath: string): Promise<{ parent: string; candidates: LinkCandidate[] }> {
+  const result = await runPuzzlePKMCli(['sources', 'scan', parentPath]);
+  if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not read that folder');
+  return JSON.parse(result.stdout) as { parent: string; candidates: LinkCandidate[] };
+}
+
+/** Links several directories in one CLI pass; partial failures come back per path. */
+export async function addLinkedSources(
+  paths: string[],
+  objectType: LinkedSourceType,
+): Promise<BulkLinkResult> {
+  if (paths.length === 0) return { added: [], failed: [] };
+  if (paths.length === 1) {
+    try {
+      const record = await addLinkedSource(paths[0], objectType);
+      return { added: [{ path: paths[0], id: record.id, name: record.name }], failed: [] };
+    } catch (e) {
+      return { added: [], failed: [{ path: paths[0], error: e instanceof Error ? e.message : String(e) }] };
+    }
+  }
+  const result = await runPuzzlePKMCli(['sources', 'add', ...paths, '--type', objectType]);
+  if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not link those directories');
+  invalidateMetaCaches();
+  const start = result.stdout.indexOf('{');
+  const end = result.stdout.lastIndexOf('}');
+  if (start < 0 || end < start) throw new Error('Linked the folders but could not read back the result.');
+  return JSON.parse(result.stdout.slice(start, end + 1)) as BulkLinkResult;
+}
+
+/**
+ * DEC-79: one match inside a file held by a project or reference material.
+ * `id` addresses the indexed document, not an object in the knowledge base.
+ */
+export interface DocumentSearchResult {
+  id: string;
+  objectType: LinkedSourceType;
+  objectId: string;
+  objectName: string;
+  fileName: string;
+  relativePath: string;
+  filePath: string;
+  extension: string;
+  characterCount: number;
+  indexedAt: string;
+  snippet: string;
+}
+
+/**
+ * Full-text search across the PDFs, Word documents and Markdown files indexed
+ * from project and reference-material folders. Returns [] rather than throwing:
+ * document hits widen the Library board, so a failure here should never take
+ * the rest of the search results down with it.
+ */
+export async function searchDocuments(query: string, limit = 30): Promise<DocumentSearchResult[]> {
+  const trimmed = String(query ?? '').trim();
+  if (!trimmed) return [];
+
+  try {
+    const result = await runPuzzlePKMCli(['documents', 'search', trimmed, '--limit', String(limit), '--json']);
+    if (result.exitCode !== 0) return [];
+    const start = result.stdout.indexOf('[');
+    const end = result.stdout.lastIndexOf(']');
+    if (start < 0 || end < start) return [];
+    const parsed = JSON.parse(result.stdout.slice(start, end + 1)) as DocumentSearchResult[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Opens the native folder picker and returns the chosen directory, or null if dismissed. */
+export async function pickDirectory(title: string): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({ directory: true, multiple: false, title });
+  return typeof selected === 'string' ? selected : null;
+}
+
+/**
+ * Opens the native folder picker and links the chosen directory as one project or
+ * reference material. Resolves to null when the picker is dismissed.
+ */
+export async function linkDirectoryViaPicker(
+  objectType: LinkedSourceType,
+  label: string,
+): Promise<{ id: string; name: string; syncPath: string } | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: `Choose a folder to add as a ${label}`,
+  });
+  if (typeof selected !== 'string') return null;
+  return addLinkedSource(selected, objectType);
+}
+
+export async function removeLinkedSource(pathOrId: string): Promise<void> {
+  const result = await runPuzzlePKMCli(['sources', 'remove', pathOrId]);
+  if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not unlink that directory');
+  invalidateMetaCaches();
+}
+
+/** CLI errors arrive as "Error: <message>" across one or more lines; show just the message. */
+function cleanCliError(stderr: string): string {
+  return String(stderr ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^Error:\s*/i, ''))
+    .join(' ')
+    .trim();
 }
 
 export async function convertTopicNoteToProject(id: string): Promise<Record<string, unknown>> {
@@ -1136,6 +1321,8 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       habits?: Array<Record<string, unknown>>;
       files?: Array<Record<string, unknown>>;
       scriptures?: Array<Record<string, unknown>>;
+      scriptureChapters?: Array<Record<string, unknown>>;
+      scriptureChapterLinks?: Array<Record<string, unknown>>;
       tags?: Array<Record<string, unknown>>;
       objectLinks?: Array<Record<string, unknown>>;
       noteBlocks?: Array<Record<string, unknown>>;
@@ -1239,6 +1426,32 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       })
       .filter((row) => row.id);
 
+    const scriptureChapters: ScriptureChapterMeta[] = (Array.isArray(raw.scriptureChapters) ? raw.scriptureChapters : [])
+      .map((row) => {
+        const reference = String(row.reference ?? '');
+        return {
+          id: String(row.id ?? ''),
+          reference,
+          bookName: String(row.bookName ?? ''),
+          bookOrder: Number.parseInt(String(row.bookOrder ?? '0'), 10) || 0,
+          chapter: Number.parseInt(String(row.chapter ?? '0'), 10) || 0,
+          passageUrl: String(row.passageUrl ?? ''),
+          referenceCount: Number.parseInt(String(row.referenceCount ?? '0'), 10) || 0,
+          noteCount: Number.parseInt(String(row.noteCount ?? '0'), 10) || 0,
+          displayTitle: reference,
+          type: 'scripture-chapter' as const,
+        };
+      })
+      .filter((row) => row.id);
+
+    const scriptureChapterLinks: Array<{ scriptureId: string; chapterId: string }> =
+      (Array.isArray(raw.scriptureChapterLinks) ? raw.scriptureChapterLinks : [])
+        .map((row) => ({
+          scriptureId: String(row.scriptureId ?? ''),
+          chapterId: String(row.chapterId ?? ''),
+        }))
+        .filter((row) => row.scriptureId && row.chapterId);
+
     const tags: TagSummary[] = (Array.isArray(raw.tags) ? raw.tags : [])
       .map((row) => {
         const id = String(row.id ?? '');
@@ -1274,7 +1487,18 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       })
       .filter((row) => row.noteId && row.blockId);
 
-    const bundle = { topicNotes, dailyNotes, habits, files, scriptures, tags, objectLinks, noteBlocks };
+    const bundle = {
+      topicNotes,
+      dailyNotes,
+      habits,
+      files,
+      scriptures,
+      scriptureChapters,
+      scriptureChapterLinks,
+      tags,
+      objectLinks,
+      noteBlocks,
+    };
     metaBundleCache = bundle;
     mentionIndexCache = null;
     return bundle;

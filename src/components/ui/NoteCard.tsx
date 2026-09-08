@@ -1,15 +1,22 @@
 import { cn, Badge } from 'aslan-ui';
 import React from 'react'
-import { BookOpenText, CalendarDays, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
+import { BookOpenText, CalendarDays, FileText, Folder, Hash, NotebookPen, Repeat, ScrollText } from 'lucide-react'
 import type { ObjectType } from '@shared/types'
 import { getObjectColor } from '@/lib/objectColors'
 import { withAlpha } from '@/lib/colorUtils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+/**
+ * DEC-79: 'document' is a file inside a project or reference-material folder,
+ * not an object in the knowledge base. It renders as a card so search results
+ * can point at the file itself, but it is deliberately not an `ObjectType`.
+ */
+export type NoteCardType = ObjectType | 'document'
+
 export interface NoteCardData {
   id: string
-  type: ObjectType
+  type: NoteCardType
   /** Optional weekday label rendered above the primary title/date. */
   weekdayLabel?: string
   /**
@@ -43,14 +50,16 @@ export interface NoteCardProps {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-const TYPE_LABELS: Partial<Record<ObjectType, string>> = {
+const TYPE_LABELS: Partial<Record<NoteCardType, string>> = {
   'topic-note': 'Topic Note',
   'daily-note': 'Daily Note',
   'habit': 'Habit',
   'project': 'Project',
   'ref-material': 'Reference',
   'scripture': 'Scripture',
+  'scripture-chapter': 'Chapter',
   'tag': 'Tag',
+  'document': 'Document',
 }
 
 const CARD_TRANSITION = 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease'
@@ -183,7 +192,7 @@ function MarkdownSnippet({ text, maxLines = 4 }: { text: string; maxLines?: numb
   )
 }
 
-function TypeIcon({ type }: { type: ObjectType }) {
+function TypeIcon({ type }: { type: NoteCardType }) {
   if (type === 'topic-note') return <NotebookPen className="h-3 w-3" />
   if (type === 'daily-note') return <CalendarDays className="h-3 w-3" />
   if (type === 'habit') return <Repeat className="h-3 w-3" />
@@ -191,6 +200,7 @@ function TypeIcon({ type }: { type: ObjectType }) {
   if (type === 'ref-material') return <BookOpenText className="h-3 w-3" />
   if (type === 'scripture') return <ScrollText className="h-3 w-3" />
   if (type === 'tag') return <Hash className="h-3 w-3" />
+  if (type === 'document') return <FileText className="h-3 w-3" />
   return <NotebookPen className="h-3 w-3" />
 }
 
