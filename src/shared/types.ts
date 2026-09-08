@@ -1,3 +1,24 @@
+/**
+ * A Markdown checkbox inside a daily or topic note (DEC-83). Tasks are derived
+ * from note content, never stored independently, and are not an `ObjectType`:
+ * they have no tags, no sync file, and never appear in the Library board.
+ */
+export interface Task {
+  id: string;
+  noteId: string;
+  noteType: 'daily-note' | 'topic-note';
+  blockId: string;
+  ordinal: number;
+  text: string;
+  dueDate: string | null;
+  done: boolean;
+  /** Set only when this app observed the completion; see DEC-83. */
+  completedAt: string | null;
+  noteTitle: string;
+  noteDate: string;
+  noteSyncPath: string;
+}
+
 export type ObjectType = 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit' | 'scripture' | 'scripture-chapter' | 'tag';
 
 export interface BaseObject {
@@ -47,11 +68,64 @@ export interface ReferenceMaterial extends BaseObject {
   syncPath: string;
 }
 
+/** A dated occurrence of a habit. Logging one means it happened. */
+export interface HabitEntry {
+  id: string;
+  habitId: string;
+  date: string; // YYYY-MM-DD
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Consistency for a habit as of a given date, computed by the CLI
+ * (`cli/objects/habit/stats.mjs`) so the desktop and MCP never disagree.
+ */
+export interface HabitStats {
+  asOfDate: string;
+  cadenceMode: HabitCadenceMode;
+  entryCount: number;
+  totalEntryCount: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  daysSinceLast: number | null;
+  gaps: number[];
+  medianGapDays: number | null;
+  averageGapDays: number | null;
+  targetIntervalDays: number | null;
+  observedIntervalDays: number | null;
+  /** Target when set, otherwise the observed median gap. */
+  intervalDays: number | null;
+  intervalSource: 'target' | 'observed' | null;
+  dueOn: string | null;
+  state: HabitDueState;
+  daysUntilDue: number | null;
+  daysOverdue: number | null;
+}
+
+export type HabitDueState = 'logged' | 'untracked' | 'on-track' | 'due' | 'overdue';
+
+/**
+ * How a habit decides when it is due. `none` never becomes due — a practice
+ * kept as a historical record rather than something to keep up (DEC-82).
+ */
+export type HabitCadenceMode = 'observed' | 'target' | 'none';
+
+export type HabitState = 'active' | 'retired';
+
+/** A repeated practice. Its history lives in `entries`, not in the habit itself. */
 export interface Habit extends BaseObject {
   type: 'habit';
-  text: string; // < 256 chars
-  date: string; // YYYY-MM-DD
-  status: 'planned' | 'accomplished';
+  name: string; // < 256 chars
+  cadenceMode: HabitCadenceMode;
+  /** Intended days between occurrences; only meaningful under the `target` mode. */
+  targetIntervalDays: number | null;
+  state: HabitState;
+  retiredOn: string | null;
+  syncPath: string;
+  entries: HabitEntry[];
+  stats: HabitStats;
 }
 
 export interface Scripture {

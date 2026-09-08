@@ -1,13 +1,17 @@
-import { Button } from 'aslan-ui';
-import React, { useMemo } from 'react'
-import type { ResolvedObjectRef } from '../../lib/cliService'
+import { Alert, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from 'aslan-ui';
+import { Loader2, Trash2 } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { deleteObject, type ResolvedObjectRef } from '../../lib/cliService'
+import { describeHabitCadence, describeHabitRecency, pluralizeDays } from '../../lib/habitFormat'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
 
 interface ObjectMetaDetailPanelProps {
   object?: Record<string, unknown>
-  type: 'scripture' | 'tag'
+  type: 'scripture' | 'tag' | 'habit'
   flatTop?: boolean
   onNavigateToObject?: (target: ResolvedObjectRef, options?: { forceNewTab?: boolean }) => void | Promise<void>
+  /** Called after a habit is deleted, so the surrounding view can close and refresh. */
+  onDeleted?: () => void | Promise<void>
 }
 
 function toTarget(row: Record<string, unknown>): ResolvedObjectRef | null {
@@ -25,19 +29,53 @@ function relationLabel(row: Record<string, unknown>): string {
   return fallback || 'Object'
 }
 
-export default function ObjectMetaDetailPanel({ object, type, flatTop = false, onNavigateToObject }: ObjectMetaDetailPanelProps) {
-  const header = type === 'scripture' ? 'Scripture' : 'Tag'
+export default function ObjectMetaDetailPanel({ object, type, flatTop = false, onNavigateToObject, onDeleted }: ObjectMetaDetailPanelProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const header = type === 'scripture' ? 'Scripture' : type === 'habit' ? 'Habit' : 'Tag'
   const title = useMemo(() => {
     return getObjectDisplayTitle(type, object)
   }, [object, type])
 
   const subtitle = useMemo(() => {
+    if (type === 'habit') {
+      const stats = (object?.stats ?? {}) as Record<string, unknown>
+      const habit = {
+        name: String(object?.name ?? ''),
+        targetIntervalDays: (object?.targetIntervalDays ?? null) as number | null,
+        stats: stats as never,
+      }
+      const parts = [describeHabitRecency(habit)]
+      const cadence = describeHabitCadence(habit)
+      if (cadence) parts.push(cadence)
+      const count = Number(stats.entryCount ?? 0)
+      parts.push(`${count} occurrence${count === 1 ? '' : 's'}`)
+      return parts.join(' · ')
+    }
     if (type === 'scripture') {
       const noteCount = Number(object?.linkedNotes ? (object?.linkedNotes as unknown[]).length : 0)
       return noteCount === 1 ? '1 linked note' : `${noteCount} linked notes`
     }
     const objectCount = Number(object?.objects ? (object?.objects as unknown[]).length : 0)
     return objectCount === 1 ? '1 tagged object' : `${objectCount} tagged objects`
+  }, [object, type])
+
+  /** Occurrences newest-first, each with the interval since the previous one. */
+  const habitLog = useMemo(() => {
+    if (type !== 'habit') return []
+    const entries = (Array.isArray(object?.entries) ? object.entries : []) as Array<Record<string, unknown>>
+    const sorted = entries
+      .map((entry) => ({ date: String(entry.date ?? ''), note: String(entry.note ?? '') }))
+      .filter((entry) => entry.date)
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+    return sorted.map((entry, index) => {
+      const previous = sorted[index + 1]
+      const gap = previous
+        ? Math.round((Date.parse(`${entry.date}T00:00:00Z`) - Date.parse(`${previous.date}T00:00:00Z`)) / 86_400_000)
+        : null
+      return { ...entry, gap }
+    })
   }, [object, type])
 
   const relations = useMemo(() => {
@@ -49,6 +87,22 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
     }
     return []
   }, [object, type])
+
+  const habitEntryCount = Number((object?.stats as Record<string, unknown> | undefined)?.entryCount ?? 0)
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteObject('habit', String(object?.id ?? ''))
+      setConfirmingDelete(false)
+      await onDeleted?.()
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div
@@ -65,6 +119,17 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
           <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
             {subtitle}
           </p>
+          {type === 'habit' && String(object?.id ?? '').trim() && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="mt-4"
+              onClick={() => { setDeleteError(null); setConfirmingDelete(true) }}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete habit
+            </Button>
+          )}
           {type === 'scripture' && String(object?.passageUrl ?? '').trim() && (
             <a
               href={String(object?.passageUrl)}
@@ -79,8 +144,27 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
 
         <div className={flatTop ? 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] px-6 pb-6 pt-6' : 'min-h-0 flex-1 overflow-auto border-t border-[var(--color-border-subtle)] pt-6'}>
           <p className="mb-3 block text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
-            {type === 'scripture' ? 'Linked Notes' : 'Tagged Objects'}
+            {type === 'scripture' ? 'Linked Notes' : type === 'habit' ? 'Log' : 'Tagged Objects'}
           </p>
+          {type === 'habit' ? (
+            habitLog.length === 0 ? (
+              <p className="text-xs italic text-[var(--color-text-disabled)]">Nothing logged yet</p>
+            ) : (
+              <ul className="divide-y divide-[var(--color-border-subtle)]">
+                {habitLog.map((row) => (
+                  <li key={row.date} className="flex items-baseline justify-between gap-3 py-1.5">
+                    <span className="text-sm text-[var(--color-text-primary)]">{row.date}</span>
+                    {row.note && (
+                      <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-secondary)]">{row.note}</span>
+                    )}
+                    <span className="shrink-0 text-xs text-[var(--color-text-disabled)]">
+                      {row.gap === null ? 'first' : `+${pluralizeDays(row.gap)}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
           <div className="space-y-2">
             {relations.length === 0 ? (
               <p className="text-xs italic text-[var(--color-text-disabled)]">
@@ -115,8 +199,37 @@ export default function ObjectMetaDetailPanel({ object, type, flatTop = false, o
               })
             )}
           </div>
+          )}
         </div>
       </div>
+
+      {confirmingDelete && (
+        <Dialog open onOpenChange={(open) => { if (!open && !deleting) setConfirmingDelete(false) }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete this habit?</DialogTitle>
+              <DialogDescription>
+                {`“${String(object?.name ?? 'This habit')}” and its ${habitEntryCount} logged occurrence${habitEntryCount === 1 ? '' : 's'} will be removed from the database and its Markdown file deleted from the sync folder. This cannot be undone — to stop practising something while keeping its history, retire it instead.`}
+              </DialogDescription>
+            </DialogHeader>
+            {deleteError && <Alert variant="destructive" className="py-2 text-xs">{deleteError}</Alert>}
+            <DialogFooter>
+              <Button variant="outline" size="sm" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deleting}
+                onClick={() => { void handleDelete() }}
+              >
+                {deleting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2, Fo
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ProjectFileBrowser from './ProjectFileBrowser';
+import HabitPanel from '../habits/HabitPanel';
 
 import { AuthorSelect } from './AuthorSelect'
 import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary, DATE_MENTION_HREF_PREFIX, convertTopicNoteToProject } from '../../lib/cliService'
@@ -16,7 +17,7 @@ import type { NoteBlock } from '../../shared/types'
 
 interface ObjectEditorProps {
   object?: Record<string, unknown>;
-  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material' | 'habit';
+  type: 'topic-note' | 'daily-note' | 'project' | 'ref-material';
   flatTop?: boolean;
   onSave?: (saved: Record<string, unknown>) => void;
   onSaveAndOpenPrevious?: () => void | Promise<void>;
@@ -157,7 +158,7 @@ function dedupeNormalizedTags(tagNames: string[]): string[] {
 export default function ObjectEditor({ object, type, flatTop = false, onSave, onSaveAndOpenPrevious, onSaveAndOpenNext, onCancel, onDirty, onNavigateToObject, onDateChange, initialBlockId }: ObjectEditorProps) {
   const { triggerSyncInBackground } = useSyncStatus();
   const defaultDate =
-    type === 'daily-note' || type === 'habit' ? getTodayDate() : '';
+    type === 'daily-note' ? getTodayDate() : '';
 
   // Keep a stable ref to the latest onDirty callback so that effects that
   // should only re-run on data changes (not callback identity changes) can
@@ -234,7 +235,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       (object?.startDate as string | undefined) ??
       defaultDate;
     const nextRawContent =
-      (type === 'habit' ? (object?.text as string) : (object?.contentMarkdown as string)) || '';
+      (object?.contentMarkdown as string) || '';
     const nextBlocks =
       type === 'topic-note' || type === 'daily-note'
         ? normalizeNoteBlocks(object?.blocks, nextRawContent)
@@ -362,52 +363,33 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     setTagDialogError(null);
     if (!tag) return false;
 
-    if (type === 'habit' && isPinnedTag(tag)) {
-      setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
-      return false;
-    }
-
     setTagDialogTags((prev) => {
       if (prev.includes(tag)) return prev;
-      if (type === 'habit') return [tag];
       return [...prev, tag];
     });
     setNewTag('');
     return true;
-  }, [newTag, type]);
+  }, [newTag]);
 
   const handleToggleDialogTag = useCallback((rawTag: string) => {
     const tag = normalizeTagValue(rawTag);
     if (!tag) return;
     setTagDialogError(null);
-    if (type === 'habit' && isPinnedTag(tag)) {
-      setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
-      return;
-    }
     setTagDialogTags((prev) => {
       if (prev.includes(tag)) return prev.filter((existing) => existing !== tag);
-      if (type === 'habit') return [tag];
       return [...prev, tag];
     });
-  }, [type]);
+  }, []);
 
   const handleSaveTagDialog = useCallback(() => {
     let nextTags = [...tagDialogTags];
     const pendingTag = normalizeTagValue(newTag);
-    if (pendingTag) {
-      if (type === 'habit' && isPinnedTag(pendingTag)) {
-        setTagDialogError('Habits cannot be pinned. Remove the "pinned" tag.');
-        return;
-      }
-      if (type === 'habit') {
-        nextTags = [pendingTag];
-      } else if (!nextTags.includes(pendingTag)) {
-        nextTags = [...nextTags, pendingTag];
-      }
+    if (pendingTag && !nextTags.includes(pendingTag)) {
+      nextTags = [...nextTags, pendingTag];
     }
     setTags(dedupeNormalizedTags(nextTags));
     closeTagDialog();
-  }, [closeTagDialog, newTag, tagDialogTags, type]);
+  }, [closeTagDialog, newTag, tagDialogTags]);
 
   const handleRemoveTag = (tag: string) => {
     setTags(tags.filter((t) => t !== tag));
@@ -490,9 +472,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
       data.name = title;
       data.author = author || '';
       data.syncPath = (object?.syncPath as string) ?? '';
-    } else if (type === 'habit') {
-      data.text = effectiveContent;
-      data.date = date;
     }
 
     return { data, tagsToPersist };
@@ -550,18 +529,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
 
   const isPinned = tags.some(isPinnedTag);
   const canPin = type === 'topic-note' || type === 'daily-note' || type === 'project' || type === 'ref-material';
-  const canDelete = Boolean(object?.id) && (type === 'topic-note' || type === 'daily-note' || type === 'habit');
-
-  // Habits require exactly one tag and a date before they can be saved.
-  const habitSaveBlocker: string | null =
-    type === 'habit'
-      ? tags.length === 0
-        ? 'Habits require exactly one tag.'
-        : !date
-          ? 'Habits require a date.'
-          : null
-      : null;
-  const canSave = !habitSaveBlocker;
+  const canDelete = Boolean(object?.id) && (type === 'topic-note' || type === 'daily-note');
+  const canSave = true;
   const handleTogglePinned = async () => {
     if (!canPin) return;
     const nextTags = isPinned
@@ -810,13 +779,12 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     if (!target || !onNavigateToObject) return;
     await onNavigateToObject(target, { forceNewTab: event.metaKey || event.ctrlKey });
   };
-  const showTitle = type !== 'daily-note' && type !== 'habit';
-  const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project' || type === 'habit';
+  const showTitle = type !== 'daily-note';
+  const showDate = type === 'daily-note' || type === 'topic-note' || type === 'project';
   const isOptionalDate = type === 'topic-note' || type === 'project';
   // Daily note dates are immutable once created; only allow editing on new (unsaved) daily notes
   const isDateReadOnly = type === 'daily-note' && !!object?.id;
   const showContent = type !== 'project' && type !== 'ref-material';
-  const isHabit = type === 'habit';
   const tagsEditor = (
     <>
       <div className="mb-4 flex items-center gap-2">
@@ -1018,16 +986,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                     {deleting ? 'Deleting…' : 'Delete'}
                   </Button>
                 )}
-                {habitSaveBlocker && (
-                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
-                    {habitSaveBlocker}
-                  </Alert>
-                )}
                 <Button
                   onClick={handleSave}
                   disabled={saving || deleting || !canSave}
                   size="sm"
-                  title={habitSaveBlocker ?? undefined}
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}
@@ -1075,13 +1037,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   </div>
                 )}
 
-                {isNoteType && !isHabit && (
-                  <div className="py-1.5">
-                    {tagsEditor}
-                  </div>
-                )}
-
-                {isHabit && (
+                {isNoteType && (
                   <div className="py-1.5">
                     {tagsEditor}
                   </div>
@@ -1103,23 +1059,16 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               </div>
 
               {/* ── MIDDLE: Main content (fills remaining space) ── */}
+              {/* Habits belong to the day, so the panel sits between the note's
+                  header and its body (DEC-81). */}
+              {type === 'daily-note' && date && (
+                <div className="mb-5">
+                  <HabitPanel date={date} />
+                </div>
+              )}
+
               {showContent && (
-                isHabit ? (
-                  <div className="mb-2 space-y-2">
-                    <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
-                      Habit text (optional)
-                    </label>
-                    <Input
-                      value={content}
-                      onChange={(e) => setContent(e.target.value.replace(/\r?\n/g, ' '))}
-                      placeholder="Habit text…"
-                      maxLength={255}
-                    />
-                    <p className="text-xs text-[var(--color-text-disabled)]">
-                      {content.length}/255
-                    </p>
-                  </div>
-                ) : (
+                (
                   <div className="mb-2">
                     <RichMarkdownEditor
                       label="Content"
@@ -1149,11 +1098,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 {saveError && (
                   <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
                     {saveError}
-                  </Alert>
-                )}
-                {!saveError && habitSaveBlocker && (
-                  <Alert variant="destructive" className="mr-auto flex-1 py-2 text-xs">
-                    {habitSaveBlocker}
                   </Alert>
                 )}
                 {onCancel && (
@@ -1204,7 +1148,6 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   onClick={handleSave}
                   disabled={saving || deleting || !canSave}
                   size="sm"
-                  title={habitSaveBlocker ?? undefined}
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {saving ? 'Saving…' : 'Save'}

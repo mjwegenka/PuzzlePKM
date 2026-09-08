@@ -1,4 +1,43 @@
 export async function handleObjectsCommand(action, args, ctx) {
+  // Occurrences are logged rather than written: `write habit` owns the practice
+  // definition, this owns its history.
+  // Usage: puzzlepkm habit log|unlog <id-or-name> [YYYY-MM-DD] [note…]
+  if (action === 'habit') {
+    const subcommand = String(args[0] ?? '').toLowerCase();
+
+    // Consistency is always relative to a date: opening an old daily note must
+    // report what was true then, not what is true now.
+    if (subcommand === 'list') {
+      const rest = args.slice(1);
+      const asOfIndex = rest.indexOf('--as-of');
+      const asOfDate = asOfIndex >= 0 ? rest[asOfIndex + 1] : undefined;
+      if (asOfDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) {
+        throw new Error('--as-of expects a date in YYYY-MM-DD form.');
+      }
+      const includeRetired = rest.includes('--include-retired');
+      const habits = ctx.withDb((db) => ctx.listHabits(db, { asOfDate, includeRetired }));
+      console.log(ctx.formatCompact(habits));
+      return true;
+    }
+
+    const reference = args[1];
+    if (!reference || (subcommand !== 'log' && subcommand !== 'unlog')) {
+      throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} habit list [--as-of YYYY-MM-DD] [--include-retired] | habit log|unlog <id-or-name> [YYYY-MM-DD] [note]`);
+    }
+    const maybeDate = String(args[2] ?? '').trim();
+    const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(maybeDate);
+    const date = hasDate ? maybeDate : ctx.localDateString();
+    const note = args.slice(hasDate ? 3 : 2).join(' ').trim();
+    const result = ctx.withDb((db) => (
+      subcommand === 'log'
+        ? ctx.addHabitEntry(db, reference, date, note)
+        : ctx.removeHabitEntry(db, reference, date)
+    ));
+    if (!result) throw new Error(`habit not found: ${reference}`);
+    console.log(ctx.formatCompact(result));
+    return true;
+  }
+
   if (action === 'list') {
     const type = ctx.resolveType(args[0] ?? 'topic-note');
     if (!type) throw new Error(`Unknown type: ${args[0]}`);
@@ -143,18 +182,24 @@ export async function handleObjectsCommand(action, args, ctx) {
           const id = input.id;
           if (id && ctx.getHabit(db, id)) {
             return ctx.updateHabitRecord(db, id, {
-              text: input.text,
-              date: input.date,
-              status: input.status,
+              name: input.name,
+              cadenceMode: input.cadenceMode,
+              targetIntervalDays: input.targetIntervalDays,
+              state: input.state,
+              retiredOn: input.retiredOn,
+              entries: input.entries,
               tags: input.tags,
               updatedAt: now,
             });
           }
           return ctx.createHabitRecord(db, {
             id: id ?? ctx.randomUUID(),
-            text: input.text ?? '',
-            date: input.date ?? ctx.localDateString(),
-            status: input.status ?? ctx.HABIT_STATUS_PLANNED,
+            name: input.name ?? 'Untitled habit',
+            cadenceMode: input.cadenceMode,
+            targetIntervalDays: input.targetIntervalDays ?? null,
+            state: input.state ?? ctx.HABIT_STATE_ACTIVE,
+            retiredOn: input.retiredOn,
+            entries: input.entries ?? [],
             tags: input.tags ?? [],
             createdAt: now,
             updatedAt: now,
@@ -240,7 +285,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           const existing = ctx.getHabit(db, reference);
           if (!existing) return null;
           return {
-            path: existing.syncPath || ctx.habitSyncPath(rootFolder, existing.id, existing.date, existing.tags ?? []),
+            path: existing.syncPath || ctx.habitSyncPath(rootFolder, existing.name, existing.id),
             requiresRemoteDelete: ctx.hasKnownRemoteCopy(db, 'habit', existing.id),
           };
         }

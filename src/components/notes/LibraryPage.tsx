@@ -9,7 +9,6 @@ import {
   Inbox,
   Loader2,
   NotebookPen,
-  Repeat2,
   Search,
   SlidersHorizontal,
   SquarePen,
@@ -19,6 +18,7 @@ import ObjectEditor from '../objects/ObjectEditor'
 import ObjectMetaDetailPanel from '../objects/ObjectMetaDetailPanel'
 import ScriptureChapterPanel from '../objects/ScriptureChapterPanel'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
+import TaskInbox from '../tasks/TaskInbox'
 
 import type { NoteCardData } from '../ui/NoteCard'
 
@@ -32,9 +32,12 @@ import {
   rankSearchCandidates,
   searchDocuments,
   writeObject,
+  type DailyNoteMeta,
   type DocumentSearchResult,
+  type HabitMeta,
   type ResolvedObjectRef,
 } from '@/lib/cliService'
+import { describeHabitCadence, describeHabitRecency } from '@/lib/habitFormat'
 import { formatDatePretty, formatWeekdayFull, getTodayDate } from '@/lib/dateUtils'
 import { getObjectDisplayTitle } from '@/lib/objectTypeDefinitions'
 import { hasActiveTagFilters, itemMatchesTagFilters, type TagFilterState } from '@/lib/tagFilters'
@@ -50,6 +53,8 @@ function normalizePathForLookup(path?: string): string {
 }
 
 type NoteType = 'topic-note' | 'daily-note' | 'habit'
+/** Habits are created from the habit panel inside a daily note, not from here. */
+type CreatableNoteType = 'topic-note' | 'daily-note'
 type EditorObjectType = NoteType | 'project' | 'ref-material' | 'scripture' | 'scripture-chapter' | 'tag'
 type EditableObjectType = Exclude<EditorObjectType, 'scripture' | 'scripture-chapter' | 'tag'>
 
@@ -57,7 +62,7 @@ interface LibraryPageProps {
   onSaved?: () => void
   pendingSelection?: { id: string; type: EditorObjectType; nonce: number } | null
   onPendingSelectionHandled?: (nonce: number) => void
-  pendingCreate?: { type: NoteType; date?: string; nonce: number } | null
+  pendingCreate?: { type: CreatableNoteType; date?: string; nonce: number } | null
   onPendingCreateHandled?: (nonce: number) => void
   tagFilters?: TagFilterState
 }
@@ -76,25 +81,9 @@ interface TopicItem {
   type: 'topic-note'
 }
 
-interface DailyItem {
-  id: string
-  date: string
-  preview: string
-  contentSearch?: string
-  tags: string[]
-  displayTitle: string
-  type: 'daily-note'
-}
+type DailyItem = DailyNoteMeta
 
-interface HabitItem {
-  id: string
-  date: string
-  text: string
-  contentSearch?: string
-  tags: string[]
-  displayTitle: string
-  type: 'habit'
-}
+type HabitItem = HabitMeta
 
 interface FileItem {
   id: string
@@ -269,7 +258,7 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
 // ── Create panel (type selector + blank editor) ───────────────────────────────
 
 interface CreatePanelProps {
-  createType: NoteType
+  createType: CreatableNoteType
   initialDate?: string
   createKey: number
   onSave: (saved: Record<string, unknown>) => void
@@ -294,9 +283,7 @@ function CreatePanel({
   const blankObject = useMemo(() => (
     createType === 'daily-note'
       ? { date: initialDate || getTodayDate(), contentMarkdown: '', tags: [], linkedObjectIds: [] }
-      : createType === 'topic-note'
-        ? { title: '', date: initialDate ?? '', contentMarkdown: '', tags: [], linkedObjectIds: [] }
-        : { date: initialDate || getTodayDate(), text: '', tags: [] }
+      : { title: '', date: initialDate ?? '', contentMarkdown: '', tags: [], linkedObjectIds: [] }
   ), [createType, initialDate])
 
   return (
@@ -306,7 +293,7 @@ function CreatePanel({
         <div className="flex min-h-[72px] shrink-0 items-center border-b border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)] px-2.5 py-3.5">
           <div className="min-w-0 flex-1 px-2">
             <div className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--color-text-disabled)]">
-              {createType === 'topic-note' ? 'New Topic Note' : createType === 'daily-note' ? 'New Daily Note' : 'New Habit'}
+              {createType === 'topic-note' ? 'New Topic Note' : 'New Daily Note'}
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className="h-9 w-9 rounded-[10px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-primary)]">
@@ -366,7 +353,7 @@ export default function LibraryPage({
 
   // Create mode
   const [isCreating, setIsCreating] = useState(false)
-  const [createType, setCreateType] = useState<NoteType>('topic-note')
+  const [createType, setCreateType] = useState<CreatableNoteType>('topic-note')
   const [createInitialDate, setCreateInitialDate] = useState<string | undefined>(undefined)
   const [createKey, setCreateKey] = useState(0)
   const [createHasUnsavedChanges, setCreateHasUnsavedChanges] = useState(false)
@@ -616,7 +603,7 @@ export default function LibraryPage({
     }
   }, [openObjectInPanel])
 
-  const handleStartCreate = useCallback((type: NoteType, initialDate?: string) => {
+  const handleStartCreate = useCallback((type: CreatableNoteType, initialDate?: string) => {
     setCreateType(type)
     setCreateInitialDate(initialDate)
     setIsCreating(true)
@@ -861,22 +848,27 @@ export default function LibraryPage({
         snippet: sanitizeCardPreview(n.preview) || undefined,
         contentSearch: sanitizeCardPreview(n.contentSearch ?? n.preview) || undefined,
         tags: n.tags,
+        openTaskCount: n.openTaskCount,
         sortTimestamp: toSortTimestamp(n.date),
       }))
 
+    // A habit card is the practice, not one occurrence: how often, how long
+    // since, and whether it is due.
     const habitCards: BoardCard[] = habits
+      .filter((n) => n.state === 'active')
       .filter((n) => !showInbox || hasInboxTag(n.tags))
       .map((n) => ({
         id: n.id,
         type: 'habit' as NoteType,
-        title: n.displayTitle,
-        date: n.date,
-        weekdayLabel: n.date ? formatWeekdayFull(n.date) : undefined,
-        snippet: sanitizeCardPreview(n.text) || undefined,
-        contentSearch: sanitizeCardPreview(n.contentSearch ?? n.text) || undefined,
+        title: n.name,
+        date: n.stats.lastDate ?? undefined,
+        weekdayLabel: n.stats.lastDate ? formatWeekdayFull(n.stats.lastDate) : undefined,
+        metadata: describeHabitCadence(n),
+        metadataAccent: n.stats.state === 'due' || n.stats.state === 'overdue',
+        snippet: describeHabitRecency(n) || undefined,
+        contentSearch: sanitizeCardPreview(n.contentSearch ?? n.name) || undefined,
         tags: n.tags,
-        hideTags: true,
-        sortTimestamp: toSortTimestamp(n.date),
+        sortTimestamp: toSortTimestamp(n.stats.lastDate ?? undefined),
       }))
 
     const fileCards: BoardCard[] = files
@@ -1355,15 +1347,6 @@ export default function LibraryPage({
                         <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create or open a dated daily note</span>
                       </span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => handleStartCreate('habit')}>
-                      <span className="flex flex-col gap-0.5">
-                        <span className="flex items-center gap-2">
-                          <Repeat2 className="h-4 w-4" />
-                          Habit
-                        </span>
-                        <span className="pl-6 text-xs text-[var(--color-text-disabled)]">Create a dated habit entry</span>
-                      </span>
-                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => void handleLinkDirectory('project', 'Project')}>
                       <span className="flex flex-col gap-0.5">
                         <span className="flex items-center gap-2">
@@ -1454,19 +1437,32 @@ export default function LibraryPage({
           </>
         }
         listContent={
-          loading && !hasLoadedOnce ? (
-            <div className="flex h-full min-h-[240px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
-            </div>
-          ) : renderedCards.length === 0 ? (
-            <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
-              {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
-            </div>
-          ) : isGalleryMode ? (
-            renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
-          ) : (
-            renderedCards.map((entry) => renderBoardCard(entry))
-          )
+          <>
+            {/* DEC-83: the Inbox gathers tasks first, then the items sync
+                flagged for filing. */}
+            {showInbox && (
+              <TaskInbox
+                onOpenSource={async ({ noteId, noteType, blockId }) => {
+                  setPendingBlockId(blockId)
+                  await openObjectInPanel(noteId, noteType)
+                }}
+                onTasksChanged={loadAll}
+              />
+            )}
+            {loading && !hasLoadedOnce ? (
+              <div className="flex h-full min-h-[240px] items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-text-secondary)]" />
+              </div>
+            ) : renderedCards.length === 0 ? (
+              <div className="flex min-h-[240px] items-center justify-center rounded-[16px] border border-dashed border-[var(--color-border-subtle)] bg-[var(--color-surface-sunken)]/80 px-6 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+                {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
+              </div>
+            ) : isGalleryMode ? (
+              renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
+            ) : (
+              renderedCards.map((entry) => renderBoardCard(entry))
+            )}
+          </>
         }
         resultsLabel={
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1482,7 +1478,7 @@ export default function LibraryPage({
             {showInbox && (
               <div className="inline-flex items-center gap-2 rounded-[12px] border border-[rgba(242,203,99,0.16)] bg-[var(--color-selected-fill-soft)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 <Inbox className="h-3.5 w-3.5 text-[var(--color-accent-metadata)]" />
-                Inbox only — imported items tagged Inbox
+                Inbox — open tasks, then imported items tagged Inbox
               </div>
             )}
           </div>
@@ -1532,12 +1528,13 @@ export default function LibraryPage({
                       onNavigateToObject={handleNavigateToObject}
                       onOpenChapter={handleOpenChapter}
                     />
-                  ) : activeObject.type === 'scripture' || activeObject.type === 'tag' ? (
+                  ) : activeObject.type === 'scripture' || activeObject.type === 'tag' || activeObject.type === 'habit' ? (
                     <ObjectMetaDetailPanel
                       object={activeObject.object}
                       type={activeObject.type}
                       flatTop
                       onNavigateToObject={handleNavigateToObject}
+                      onDeleted={async () => { setActiveObject(null); await loadAll() }}
                     />
                   ) : (
                     <ObjectEditor

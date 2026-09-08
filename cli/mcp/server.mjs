@@ -30,8 +30,8 @@ import { mcpInternals } from '../app.mjs';
 
 const {
   PRIMARY_PRODUCT_NAME,
-  HABIT_STATUS_PLANNED,
-  HABIT_STATUS_ACCOMPLISHED,
+  HABIT_STATE_ACTIVE,
+  HABIT_STATE_RETIRED,
   SCRIPTURE_TYPE,
   dbFile,
   withDb,
@@ -50,10 +50,13 @@ const {
   ensureDailyNoteForDate,
   updateDailyNoteRecord,
   getDailyNote,
+  addHabitEntry,
   createHabitRecord,
-  updateHabitRecord,
   getHabit,
   listHabits,
+  removeHabitEntry,
+  resolveHabitRow,
+  updateHabitRecord,
   listTags,
   listScriptures,
   getScripture,
@@ -180,7 +183,16 @@ function summarizeObject(row, kind) {
     case 'daily-note':
       return { id: row.id, kind, date: row.date, tags: row.tags, updatedAt: row.updatedAt };
     case 'habit':
-      return { id: row.id, kind, text: row.text, date: row.date, status: row.status, tags: row.tags };
+      return {
+        id: row.id,
+        kind,
+        name: row.name,
+        state: row.state,
+        tags: row.tags,
+        entryCount: row.stats?.entryCount ?? 0,
+        lastDate: row.stats?.lastDate ?? null,
+        dueState: row.stats?.state ?? null,
+      };
     case 'project':
     case 'ref-material':
       return { id: row.id, kind, name: row.name, author: row.author, tags: row.tags, updatedAt: row.updatedAt };
@@ -273,8 +285,8 @@ function searchKnowledgeBase({ query, kinds, limit }) {
     }
 
     if (wants('habit')) {
-      for (const row of db.prepare(`SELECT id, text, date, status FROM habits WHERE text LIKE ? ESCAPE '\\' ORDER BY date DESC LIMIT ?`).all(pattern, max)) {
-        results.push({ kind: 'habit', id: row.id, matchedOn: 'text', title: row.text, date: row.date, status: row.status });
+      for (const row of db.prepare(`SELECT id, name, state FROM habits WHERE name LIKE ? ESCAPE '\\' ORDER BY name COLLATE NOCASE ASC LIMIT ?`).all(pattern, max)) {
+        results.push({ kind: 'habit', id: row.id, matchedOn: 'name', title: row.name, state: row.state });
       }
     }
 
@@ -524,60 +536,67 @@ function listScriptureReferences({ book, reference, limit }) {
 }
 
 /**
- * Habit history with streaks computed per habit text, which is how a person
- * actually thinks about a habit ("did I keep up morning prayer?") even though
- * the schema stores one row per habit per day.
+ * Consistency per practice: how often it actually happens, the gap since the
+ * last time, and whether it is due. Cadence comes from the habit's own target
+ * when set, otherwise from the median of its observed gaps.
  */
-function getHabitLog({ from, to, tag, limit }) {
+function getHabitLog({ from, to, tag, includeRetired, limit }) {
   const today = localDateString();
   const toDate = to ? requireLocalDate(to, 'to') : today;
-  const fromDate = from ? requireLocalDate(from, 'from') : shiftDate(toDate, -29);
-  if (daysBetween(fromDate, toDate) < 0) throw new Error('"from" must be on or before "to".');
+  const fromDate = from ? requireLocalDate(from, 'from') : null;
+  if (fromDate && daysBetween(fromDate, toDate) < 0) throw new Error('"from" must be on or before "to".');
   const tagFilter = normalizeString(tag).toLowerCase();
-  const max = clampLimit(limit, 500, 2000);
+  const max = clampLimit(limit, 100, 500);
 
   return withDb((db) => {
-    let rows = listHabits(db).filter((row) => row.date >= fromDate && row.date <= toDate);
+    let habits = listHabits(db, { includeRetired: Boolean(includeRetired), asOfDate: toDate });
     if (tagFilter) {
-      rows = rows.filter((row) => (row.tags ?? []).some((name) => String(name).toLowerCase() === tagFilter));
+      habits = habits.filter((habit) => (habit.tags ?? []).some((name) => String(name).toLowerCase() === tagFilter));
     }
-    rows = rows.slice(0, max);
+    habits = habits.slice(0, max);
 
-    const byText = new Map();
-    for (const row of rows) {
-      const key = row.text;
-      if (!byText.has(key)) byText.set(key, []);
-      byText.get(key).push(row);
-    }
-
-    const habits = Array.from(byText.entries()).map(([habitText, entries]) => {
-      const sorted = [...entries].sort((a, b) => (a.date < b.date ? 1 : -1));
-      const accomplished = sorted.filter((entry) => entry.status === HABIT_STATUS_ACCOMPLISHED);
-      // Current streak: consecutive accomplished days ending at the most recent
-      // entry, allowing the run to start either today or yesterday.
-      let streak = 0;
-      let cursor = sorted[0]?.date ?? null;
-      if (cursor && (cursor === toDate || cursor === shiftDate(toDate, -1))) {
-        const statusByDate = new Map(sorted.map((entry) => [entry.date, entry.status]));
-        while (statusByDate.get(cursor) === HABIT_STATUS_ACCOMPLISHED) {
-          streak += 1;
-          cursor = shiftDate(cursor, -1);
-        }
-      }
+    const rows = habits.map((habit) => {
+      const stats = habit.stats ?? {};
+      // Stats always run to `toDate`; `from` only trims the entries listed back.
+      const entries = (habit.entries ?? [])
+        .filter((entry) => entry.date <= toDate && (!fromDate || entry.date >= fromDate))
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
       return {
-        text: habitText,
-        tags: sorted[0]?.tags ?? [],
-        tracked: sorted.length,
-        accomplished: accomplished.length,
-        planned: sorted.length - accomplished.length,
-        completionRate: sorted.length ? Number((accomplished.length / sorted.length).toFixed(2)) : 0,
-        currentStreak: streak,
-        lastDate: sorted[0]?.date ?? null,
-        entries: sorted.map((entry) => ({ id: entry.id, date: entry.date, status: entry.status })),
+        id: habit.id,
+        name: habit.name,
+        state: habit.state,
+        retiredOn: habit.retiredOn,
+        tags: habit.tags ?? [],
+        cadenceMode: habit.cadenceMode,
+        targetIntervalDays: habit.targetIntervalDays,
+        cadenceDays: stats.intervalDays ?? null,
+        cadenceSource: stats.intervalSource ?? null,
+        medianGapDays: stats.medianGapDays ?? null,
+        averageGapDays: stats.averageGapDays ?? null,
+        totalEntries: stats.entryCount ?? 0,
+        firstDate: stats.firstDate ?? null,
+        lastDate: stats.lastDate ?? null,
+        daysSinceLast: stats.daysSinceLast ?? null,
+        dueOn: stats.dueOn ?? null,
+        dueState: stats.state ?? null,
+        daysUntilDue: stats.daysUntilDue ?? null,
+        daysOverdue: stats.daysOverdue ?? null,
+        entries: entries.map((entry) => ({ date: entry.date, note: entry.note ?? '' })),
+        // Gap to the previous occurrence, newest first — the rhythm at a glance.
+        gapsBetweenEntries: [...(stats.gaps ?? [])].reverse(),
       };
-    }).sort((a, b) => b.tracked - a.tracked);
+    }).sort((a, b) => {
+      const rank = (row) => (row.dueState === 'overdue' ? 0 : row.dueState === 'due' ? 1 : 2);
+      return rank(a) - rank(b) || (b.daysSinceLast ?? -1) - (a.daysSinceLast ?? -1);
+    });
 
-    return { range: { from: fromDate, to: toDate }, distinctHabits: habits.length, totalEntries: rows.length, habits };
+    return {
+      asOf: toDate,
+      entriesListedFrom: fromDate,
+      habitCount: rows.length,
+      dueOrOverdue: rows.filter((row) => row.dueState === 'due' || row.dueState === 'overdue').length,
+      habits: rows,
+    };
   });
 }
 
@@ -644,7 +663,10 @@ function getStatus() {
     `).get().n;
     const latestTopic = db.prepare('SELECT title, updated_at FROM topic_notes ORDER BY updated_at DESC LIMIT 1').get();
     const latestDaily = db.prepare('SELECT date, updated_at FROM daily_notes ORDER BY date DESC LIMIT 1').get();
-    const pendingHabits = db.prepare(`SELECT COUNT(*) AS n FROM habits WHERE status = ? AND date <= ?`).get(HABIT_STATUS_PLANNED, localDateString()).n;
+    // Due-ness is derived from cadence, so it has to come from the habit records
+    // rather than from a stored flag.
+    const overdueHabits = listHabits(db, { includeRetired: false })
+      .filter((habit) => habit.stats?.state === 'due' || habit.stats?.state === 'overdue').length;
 
     return {
       product: PRIMARY_PRODUCT_NAME,
@@ -661,7 +683,7 @@ function getStatus() {
         untaggedTopicNotes: untagged,
         objectsTaggedInbox: inbox,
         topicNotesNotInSyncFolder: neverSynced,
-        habitsPlannedAndDue: pendingHabits,
+        habitsDueOrOverdue: overdueHabits,
       },
       mostRecent: {
         topicNote: latestTopic ? { title: latestTopic.title, updatedAt: latestTopic.updated_at } : null,
@@ -768,37 +790,67 @@ function appendToDailyNote({ date, markdown }) {
   });
 }
 
-function setHabit({ id, text: habitText, date, status, tag }) {
+function setHabit({ id, name, cadenceMode, targetIntervalDays, state, tags }) {
   requireWrites('set_habit');
-  const normalizedStatus = normalizeString(status).toLowerCase();
-  if (normalizedStatus && normalizedStatus !== HABIT_STATUS_PLANNED && normalizedStatus !== HABIT_STATUS_ACCOMPLISHED) {
-    throw new Error(`status must be "${HABIT_STATUS_PLANNED}" or "${HABIT_STATUS_ACCOMPLISHED}".`);
+  const normalizedCadence = normalizeString(cadenceMode).toLowerCase();
+  if (normalizedCadence && !['observed', 'target', 'none'].includes(normalizedCadence)) {
+    throw new Error('cadenceMode must be "observed", "target", or "none".');
+  }
+  const normalizedState = normalizeString(state).toLowerCase();
+  if (normalizedState && normalizedState !== HABIT_STATE_ACTIVE && normalizedState !== HABIT_STATE_RETIRED) {
+    throw new Error(`state must be "${HABIT_STATE_ACTIVE}" or "${HABIT_STATE_RETIRED}".`);
+  }
+  if (targetIntervalDays !== undefined && targetIntervalDays !== null) {
+    const parsed = Number(targetIntervalDays);
+    if (!Number.isFinite(parsed) || Math.round(parsed) <= 0) {
+      throw new Error('targetIntervalDays must be a positive number of days, or null for none.');
+    }
   }
   return withDb((db) => {
-    const habitId = normalizeString(id);
-    if (habitId) {
+    const reference = normalizeString(id) || normalizeString(name);
+    const existing = reference ? resolveHabitRow(db, reference) : null;
+    if (existing) {
       const patch = { updatedAt: getIsoNow() };
-      if (habitText !== undefined) patch.text = String(habitText);
-      if (normalizedStatus) patch.status = normalizedStatus;
-      if (date !== undefined) patch.date = requireLocalDate(date, 'date');
-      const updated = updateHabitRecord(db, habitId, patch);
-      if (!updated) throw new Error(`No habit found for "${habitId}".`);
-      return { action: 'updated', habit: getHabit(db, habitId) };
+      if (name !== undefined) patch.name = String(name);
+      if (normalizedCadence) patch.cadenceMode = normalizedCadence;
+      if (targetIntervalDays !== undefined) patch.targetIntervalDays = targetIntervalDays;
+      if (normalizedState) patch.state = normalizedState;
+      if (tags !== undefined) patch.tags = Array.isArray(tags) ? tags.map(String) : [];
+      const updated = updateHabitRecord(db, existing.id, patch);
+      return { action: 'updated', habit: updated };
     }
-    const body = normalizeString(habitText);
-    if (!body) throw new Error('text is required when creating a habit.');
+    const habitName = normalizeString(name);
+    if (!habitName) throw new Error('name is required when creating a habit.');
     const now = getIsoNow();
-    // Habits accept at most one tag (DEC-45); the repository enforces this too.
     const created = createHabitRecord(db, {
       id: randomUUID(),
-      text: body,
-      date: date ? requireLocalDate(date, 'date') : localDateString(),
-      status: normalizedStatus || HABIT_STATUS_PLANNED,
-      tags: normalizeString(tag) ? [normalizeString(tag)] : [],
+      name: habitName,
+      cadenceMode: normalizedCadence || undefined,
+      targetIntervalDays: targetIntervalDays ?? null,
+      state: normalizedState || HABIT_STATE_ACTIVE,
+      tags: Array.isArray(tags) ? tags.map(String) : [],
       createdAt: now,
       updatedAt: now,
     });
     return { action: 'created', habit: created };
+  });
+}
+
+/**
+ * Records that a practice actually happened on a date. Logging the same day
+ * twice is a no-op — the occurrence is already there.
+ */
+function logHabit({ habit, date, note, remove }) {
+  requireWrites('log_habit');
+  const reference = normalizeString(habit);
+  if (!reference) throw new Error('habit is required (an id or the habit\'s exact name).');
+  const day = date ? requireLocalDate(date, 'date') : localDateString();
+  return withDb((db) => {
+    const result = remove
+      ? removeHabitEntry(db, reference, day)
+      : addHabitEntry(db, reference, day, note);
+    if (!result) throw new Error(`No habit found for "${reference}".`);
+    return { action: remove ? 'unlogged' : 'logged', date: day, habit: result };
   });
 }
 
@@ -968,16 +1020,17 @@ const TOOLS = [
   },
   {
     name: 'get_habit_log',
-    description: 'Habit history over a date range, grouped by habit text, with completion rate and current streak per habit. Defaults to the last 30 days.',
+    description: 'Consistency for each habit: how often it actually happens, the gap since the last occurrence, the gaps between past occurrences, and whether it is now due or overdue. Cadence is the habit\'s target interval when set, otherwise the median of its own observed gaps.',
     write: false,
     handler: getHabitLog,
     inputSchema: {
       type: 'object',
       properties: {
-        from: { type: 'string', description: 'Start date YYYY-MM-DD. Defaults to 29 days before "to".' },
-        to: { type: 'string', description: 'End date YYYY-MM-DD. Defaults to today.' },
+        to: { type: 'string', description: 'Evaluate consistency as of this date (YYYY-MM-DD). Defaults to today.' },
+        from: { type: 'string', description: 'Only list occurrences on or after this date (YYYY-MM-DD). Statistics still cover the habit\'s whole history.' },
         tag: { type: 'string', description: 'Only include habits carrying this tag.' },
-        limit: { type: 'integer', description: 'Maximum habit entries to consider (default 500).' },
+        includeRetired: { type: 'boolean', description: 'Include retired habits (default false).' },
+        limit: { type: 'integer', description: 'Maximum habits to return (default 100).' },
       },
     },
   },
@@ -1059,18 +1112,35 @@ const TOOLS = [
   },
   {
     name: 'set_habit',
-    description: 'Create a habit for a date, or update an existing one by id — including marking it accomplished. Habits carry at most one tag. Requires writes to be enabled.',
+    description: 'Create a habit (a named practice), or update an existing one — rename it, change how its cadence is decided, retire it, or bring it back. Does not record occurrences; use log_habit for that. Requires writes to be enabled.',
     write: true,
     handler: setHabit,
     inputSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Existing habit id. Omit to create a new habit.' },
-        text: { type: 'string', description: 'Habit text. Required when creating.' },
-        date: { type: 'string', description: 'YYYY-MM-DD. Defaults to today when creating.' },
-        status: { type: 'string', enum: [HABIT_STATUS_PLANNED, HABIT_STATUS_ACCOMPLISHED], description: 'Habit status.' },
-        tag: { type: 'string', description: 'Single tag display name (habits accept one tag).' },
+        id: { type: 'string', description: 'Existing habit id. Omit to create, or to match an existing habit by name.' },
+        name: { type: 'string', description: 'Habit name. Required when creating.' },
+        cadenceMode: { type: 'string', enum: ['observed', 'target', 'none'], description: '"observed" (default) learns the rhythm from the log, "target" holds to targetIntervalDays, "none" never becomes due — for a practice kept only as a historical record.' },
+        targetIntervalDays: { type: ['integer', 'null'], description: 'Intended days between occurrences. Only meaningful with cadenceMode "target"; supplying it alone selects that mode.' },
+        state: { type: 'string', enum: [HABIT_STATE_ACTIVE, HABIT_STATE_RETIRED], description: 'Retire a habit you no longer practise, or reactivate one.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tag display names.' },
       },
+    },
+  },
+  {
+    name: 'log_habit',
+    description: 'Record that a habit was practised on a date, or remove a logged occurrence. Logging the same day twice is a no-op. Requires writes to be enabled.',
+    write: true,
+    handler: logHabit,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        habit: { type: 'string', description: 'Habit id, or its exact name.' },
+        date: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+        note: { type: 'string', description: 'Optional note about this occurrence.' },
+        remove: { type: 'boolean', description: 'Remove the occurrence on that date instead of adding it.' },
+      },
+      required: ['habit'],
     },
   },
   {

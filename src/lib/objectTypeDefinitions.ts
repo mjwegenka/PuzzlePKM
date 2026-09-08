@@ -46,16 +46,9 @@ function dailyNoteTitle(data: Record<string, unknown>): string {
 }
 
 function habitTitle(data: Record<string, unknown>): string {
-  const primaryTag = getPrimaryTag(data.tags)
-  const date = String(data.date ?? '').trim()
-  const friendlyDate = date ? formatDatePretty(date) : ''
-
-  if (primaryTag && friendlyDate) return `${primaryTag} - ${friendlyDate}`
-  if (primaryTag) return primaryTag
-  if (friendlyDate) return friendlyDate
-
-  const text = sanitizeDisplayText(String(data.text ?? ''))
-  return text || '(no text)'
+  // A habit is named now; the tag is no longer what identifies it.
+  const name = sanitizeDisplayText(String(data.name ?? ''))
+  return name || getPrimaryTag(data.tags) || 'Untitled habit'
 }
 
 function projectTitle(data: Record<string, unknown>): string {

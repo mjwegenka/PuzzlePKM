@@ -62,13 +62,15 @@ PuzzlePKM structures your PKM data into distinct object types. You can create, m
 | :--- | :--- | :--- |
 | `topic-note` | Free-form notes with titles and content. | `topic-note` |
 | `daily-note` | Journal entries tied to a specific date. | `daily-note` |
-| `habit` | Simple checkable habits. | `habit` |
+| `habit` | A repeated practice, with a log of the dates it happened. | `habit` |
 | `project` | Local folder-backed directories for projects. | `project` |
 | `ref-material` | Local folder-backed directories for reference materials. | `ref-material` |
 | `scripture` | Automatically parsed scripture references. | `scripture` |
 | `scripture-chapter` | Chapter-level rollup of the references that cite it. | `scripture-chapter` |
 | `tag` | Organization labels (case-insensitive). | `tag` |
 | `link` | Internal relationships between objects. | `link` |
+
+Tasks are deliberately absent from this table: a task is a Markdown checkbox inside a note rather than an object of its own, with no tags, no sync file of its own, and no card in the Library. See [Tasks](#4-tasks).
 
 The files inside project and reference-material folders are indexed for search (see below), but a document is **not** an object type: it has no id in the object registry and cannot be listed, tagged, or linked. It appears only as a search result pointing at the file.
 
@@ -97,14 +99,48 @@ Daily Notes are journal entries anchored to a specific date (`YYYY-MM-DD`). Only
 * **Via Desktop UI**: Open the **Calendar** tab, click on any date, and begin writing. If a note already exists for that date, it opens automatically.
 
 #### 3. Habits
-Habits represent simple recurring tasks. They support a status of `planned` or `accomplished` and accept a maximum of one tag.
-* **Via CLI (Interactive)**:
-  ```bash
-  npm run cli -- create habit
-  ```
-* **Via Desktop UI**: In the **Library** or **Calendar** tab, click **New** and choose **Habit**. Set its name, date, state, and tag in the fields provided.
+A habit is a practice you repeat — Confession, an examen, spiritual direction. The habit itself carries the name, an optional target interval, and whether it is active or retired; each time you actually do it, you log a dated occurrence. PuzzlePKM works out the gap since the last one, the typical gap between them, and whether the practice is now due or overdue.
 
-#### 4. Projects
+Each habit decides when it is due in one of three ways:
+
+| Cadence | Behaviour |
+| :--- | :--- |
+| **Learn my rhythm** (default) | Due once the gap exceeds the median of your own observed gaps — useful without you having to guess a number. |
+| **Every so many days** | Due on a schedule you set, e.g. every 30 days. |
+| **Don't track — record only** | Never becomes due. For a practice you want a history of but no longer keep up, or one with no rhythm worth holding to. |
+
+* **Via Desktop UI**: Open a daily note. The **Habits** panel sits above the note body; it opens by itself on days when something is due or was logged, and stays collapsed otherwise. Click a habit's circle to log it on that day, use **+** to create one, and a habit's **⋯** menu to see its history, change its cadence, or retire it. You can also add a habit from the **Calendar**'s new-item menu, which offers to log it on the date you were looking at. Retired habits keep their history and can be reactivated; deleting one — from its card in the Library, behind a confirmation — removes it and its whole log for good.
+* **Via CLI**:
+  ```bash
+  npm run cli -- create habit                        # guided prompts
+  npm run cli -- habit list                          # cadence, gaps, and due state as JSON
+  npm run cli -- habit log Confession                # record an occurrence today
+  npm run cli -- habit log Confession 2026-04-18     # …or on a given date
+  npm run cli -- habit unlog Confession 2026-04-18   # remove one
+  ```
+
+#### 4. Tasks
+Tasks are ordinary Markdown checkboxes written inside daily notes and topic notes. Nothing separate is stored: the task *is* the line in your note, and PuzzlePKM keeps a derived index of them so they can be gathered in one place.
+
+```markdown
+- [ ] Email the provincial due:2026-09-15
+- [ ] Read Rahner chapter 3
+- [x] Book flights
+```
+
+A `due:YYYY-MM-DD` anywhere in the line sets a due date and is hidden from the task's text when displayed.
+
+* **Via Desktop UI**: Click the **Inbox** button in the Library toolbar. Tasks come first — soonest and overdue at the top, undated below, recently completed at the bottom — followed by the items sync flagged with the `Inbox` tag. Tick a task to complete it, click its text to edit the wording or its due date, and hover a row for a button that opens the note it came from, scrolled to that exact line. The capture line at the top adds a task to today's daily note. Daily note cards show a badge counting their incomplete tasks.
+* **Via CLI**:
+  ```bash
+  npm run cli -- tasks list                              # every task, in Inbox order
+  npm run cli -- tasks add "Email the provincial" --due 2026-09-15
+  npm run cli -- tasks set <id> --done                   # or --undone, --text, --due, --clear-due
+  ```
+
+Editing a task always rewrites the line in the note that owns it — there is no second copy to fall out of step. A task you complete stays in the Inbox for three days so you can see and undo it; a task PuzzlePKM finds already ticked (written that way, or completed in another editor) is simply done and never appears.
+
+#### 5. Projects
 Projects are folder-backed workspaces designed to hold your local project files (source code, assets, documents) alongside PKM notes.
 * **Filesystem-First Creation (Recommended)**: Simply create a subdirectory under `projects/` in your configured sync root (e.g., `projects/my-new-project/`). PuzzlePKM's sync engine will automatically discover the folder, initialize a managed `meta.yaml` metadata file, and integrate it into your Library.
 * **Via CLI (Interactive)**:
@@ -112,7 +148,7 @@ Projects are folder-backed workspaces designed to hold your local project files 
   npm run cli -- create project
   ```
 
-#### 5. Reference Materials
+#### 6. Reference Materials
 Reference Materials are folder-backed resource records (books, articles, PDFs) integrated with a database-backed author catalog.
 * **Filesystem-First Creation (Recommended)**: Simply create a subdirectory under `ref-materials/` in your configured sync root (e.g., `ref-materials/book-title/`). PuzzlePKM's sync engine will automatically discover the folder, initialize a managed `meta.yaml` metadata file, and integrate it into your Library.
 * **Via CLI (Interactive)**:
@@ -120,11 +156,11 @@ Reference Materials are folder-backed resource records (books, articles, PDFs) i
   npm run cli -- create ref-material
   ```
 
-#### 6. Scriptures
+#### 7. Scriptures
 You do not manually create scriptures! PuzzlePKM automatically scans your topic and daily note bodies for RSVCE Bible citations (e.g. `Romans 3:16`, `1 Corinthians 13:4-8`).
 * **Creation**: Simply mention a valid scripture reference in a note block. On save, PuzzlePKM converts it into an internal scripture object and maintains backlinks to the source notes automatically.
 
-#### 7. Tags
+#### 8. Tags
 Tags organize your PKM database.
 * **Via CLI**:
   ```bash
@@ -132,7 +168,7 @@ Tags organize your PKM database.
   ```
 * **Implicit Creation**: Tags are automatically created when you add them to any note or object via front matter or the editor tag field.
 
-#### 8. Links
+#### 9. Links
 Links represent relationships between objects.
 * **Via CLI**:
   ```bash
@@ -196,7 +232,7 @@ Everything you write is a plain file in the folder you configured, in a layout y
 <sync root>/
 ├── daily-notes/2026-03-14.md
 ├── topic-notes/discernment-notes-5548060a.md
-├── habits/2026-03-14-morning-prayer-e45172.md
+├── habits/morning-prayer-e4517203.md  # one file per practice, log in the body
 ├── projects/<project-slug>/          # your own files, plus meta.yaml
 ├── ref-materials/<material-slug>/    # your own files, plus meta.yaml
 └── mobile-inbox/                     # capture drop-box, consumed on sync
@@ -258,7 +294,8 @@ It does need Node. A GUI app launched from the Dock does not inherit your shell 
 # General Management
 npm run cli -- list topic-note         # List all topic notes
 npm run cli -- get topic-note <id>     # Display detailed object JSON
-npm run cli -- delete habit <id>       # Destructively delete a habit
+npm run cli -- delete habit <id>       # Destructively delete a habit and its whole log
+npm run cli -- tasks list              # Markdown checkboxes gathered from your notes
 
 # Database Migration
 npm run cli -- migrate-links --apply   # Migrate legacy links to canonical UUIDs
@@ -299,14 +336,15 @@ The database lives in the platform application data directory (`~/Library/Applic
 | `get_backlinks` | What links to and from an object. |
 | `get_graph_neighborhood` | Walk the link graph outward from an object, up to 3 hops. |
 | `list_scripture_references` | Extracted scripture references with the notes citing each one. |
-| `get_habit_log` | Habit history with completion rates and current streaks. |
+| `get_habit_log` | Per-habit consistency: cadence, gap since the last occurrence, gaps between past ones, and due state. |
 | `list_tags` | Tags with usage counts broken down by object kind. |
 | `find_stale_notes` | Topic notes not updated in a while, for resurfacing. |
-| `get_status` | Counts, sync root, and what needs attention (unlinked notes, Inbox backlog, habits still due). |
+| `get_status` | Counts, sync root, and what needs attention (unlinked notes, Inbox backlog, habits due or overdue). |
 | `create_topic_note` | Create a topic note from markdown. *Requires writes.* |
 | `update_topic_note` | Update a note's title, body, or tags. *Requires writes.* |
 | `append_to_daily_note` | Append to a day's daily note, creating it if needed. Never overwrites. *Requires writes.* |
-| `set_habit` | Create a habit or mark an existing one accomplished. *Requires writes.* |
+| `set_habit` | Create a habit, rename it, set its target interval, or retire it. *Requires writes.* |
+| `log_habit` | Record that a habit was practised on a date, or remove an occurrence. *Requires writes.* |
 | `sync_now` | Reconcile the database with the sync folder. *Requires writes.* |
 
 ### Install into Claude Desktop

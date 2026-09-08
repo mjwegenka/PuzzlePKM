@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { DailyNote, Habit, Project, ReferenceMaterial, Scripture, ScriptureChapter, TopicNote } from '../shared/types';
+import type { DailyNote, Habit, HabitCadenceMode, HabitEntry, HabitState, HabitStats, Project, ReferenceMaterial, Scripture, ScriptureChapter, Task, TopicNote } from '../shared/types';
 import { getObjectDisplayTitle } from './objectTypeDefinitions';
 import { normalizeNoteBlocks } from './noteBlocks';
 import { formatDatePretty, parseDateQueryToISO } from './dateUtils';
@@ -71,15 +71,21 @@ export interface DailyNoteMeta {
   contentSearch?: string;
   firstBlockId?: string;
   tags: string[];
+  /** DEC-83: incomplete tasks written in this note, shown as a card badge. */
+  openTaskCount: number;
   displayTitle: string;
   type: 'daily-note';
 }
 
 export interface HabitMeta {
   id: string;
-  date: string;
-  status: 'planned' | 'accomplished';
-  text: string;
+  name: string;
+  cadenceMode: HabitCadenceMode;
+  targetIntervalDays: number | null;
+  state: HabitState;
+  retiredOn: string | null;
+  entries: HabitEntry[];
+  stats: HabitStats;
   contentSearch?: string;
   syncPath: string;
   tags: string[];
@@ -1151,13 +1157,14 @@ async function ensureMentionIndex(options: { force?: boolean } = {}): Promise<Me
         id: item.id,
         type: 'habit',
         title: item.displayTitle,
-        date: item.date,
+        // A practice has no single date; its most recent occurrence is the useful one.
+        date: item.stats.lastDate ?? undefined,
         syncPath: item.syncPath,
         matchType: 'object',
         tags: item.tags,
         sourceOrder: sourceOrder++,
         typeOrder: MENTION_TYPE_ORDER.habit,
-        searchFields: [item.displayTitle, item.date, item.text, item.contentSearch, item.tags.join(' ')],
+        searchFields: [item.displayTitle, item.name, item.contentSearch, item.tags.join(' ')],
       }));
     }
 
@@ -1302,6 +1309,77 @@ export async function searchObjects(
  */
 export const DATE_MENTION_HREF_PREFIX = 'date:';
 
+/**
+ * Shapes one habit row from the CLI. Stats are computed CLI-side; this only
+ * fills in defaults so the UI never has to null-check a missing payload.
+ */
+function normalizeHabitMeta(row: Record<string, unknown>): HabitMeta {
+  const id = String(row.id ?? '');
+  const name = String(row.name ?? '').trim();
+  const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
+  const rawStats = (row.stats ?? {}) as Record<string, unknown>;
+  const asNumber = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const cadenceMode = normalizeCadenceMode(row.cadenceMode);
+  const stats: HabitStats = {
+    asOfDate: String(rawStats.asOfDate ?? ''),
+    cadenceMode: normalizeCadenceMode(rawStats.cadenceMode ?? cadenceMode),
+    entryCount: asNumber(rawStats.entryCount) ?? 0,
+    totalEntryCount: asNumber(rawStats.totalEntryCount) ?? 0,
+    firstDate: rawStats.firstDate ? String(rawStats.firstDate) : null,
+    lastDate: rawStats.lastDate ? String(rawStats.lastDate) : null,
+    daysSinceLast: asNumber(rawStats.daysSinceLast),
+    gaps: Array.isArray(rawStats.gaps) ? rawStats.gaps.map((gap) => Number(gap)).filter((gap) => Number.isFinite(gap)) : [],
+    medianGapDays: asNumber(rawStats.medianGapDays),
+    averageGapDays: asNumber(rawStats.averageGapDays),
+    targetIntervalDays: asNumber(rawStats.targetIntervalDays),
+    observedIntervalDays: asNumber(rawStats.observedIntervalDays),
+    intervalDays: asNumber(rawStats.intervalDays),
+    intervalSource: rawStats.intervalSource === 'target' || rawStats.intervalSource === 'observed'
+      ? rawStats.intervalSource
+      : null,
+    dueOn: rawStats.dueOn ? String(rawStats.dueOn) : null,
+    state: HABIT_DUE_STATES.has(String(rawStats.state)) ? String(rawStats.state) as HabitStats['state'] : 'untracked',
+    daysUntilDue: asNumber(rawStats.daysUntilDue),
+    daysOverdue: asNumber(rawStats.daysOverdue),
+  };
+  const entries: HabitEntry[] = (Array.isArray(row.entries) ? row.entries : [])
+    .map((entry) => entry as Record<string, unknown>)
+    .map((entry) => ({
+      id: String(entry.id ?? ''),
+      habitId: String(entry.habitId ?? id),
+      date: String(entry.date ?? ''),
+      note: String(entry.note ?? ''),
+      createdAt: String(entry.createdAt ?? ''),
+      updatedAt: String(entry.updatedAt ?? ''),
+    }))
+    .filter((entry) => entry.date);
+
+  return {
+    id,
+    name,
+    cadenceMode,
+    targetIntervalDays: asNumber(row.targetIntervalDays),
+    state: row.state === 'retired' ? 'retired' : 'active',
+    retiredOn: row.retiredOn ? String(row.retiredOn) : null,
+    entries,
+    stats,
+    contentSearch: String(row.contentSearch ?? name).trim() || undefined,
+    syncPath: String(row.syncPath ?? ''),
+    tags,
+    displayTitle: getObjectDisplayTitle('habit', { name }),
+    type: 'habit' as const,
+  };
+}
+
+const HABIT_DUE_STATES = new Set(['logged', 'untracked', 'on-track', 'due', 'overdue']);
+
+function normalizeCadenceMode(value: unknown): HabitCadenceMode {
+  return value === 'target' || value === 'none' ? value : 'observed';
+}
+
 export async function listMetaBundle(options: { force?: boolean } = {}): Promise<MetaBundle> {
   if (!options.force && metaBundleCache) {
     return metaBundleCache;
@@ -1367,6 +1445,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
           contentSearch,
           firstBlockId,
           tags,
+          openTaskCount: Number(row.openTaskCount ?? 0) || 0,
           displayTitle: getObjectDisplayTitle('daily-note', { date }),
           type: 'daily-note' as const,
         };
@@ -1374,24 +1453,7 @@ export async function listMetaBundle(options: { force?: boolean } = {}): Promise
       .filter((row) => row.id);
 
     const habits: HabitMeta[] = (Array.isArray(raw.habits) ? raw.habits : [])
-      .map((row): HabitMeta => {
-        const date = String(row.date ?? '');
-        const text = String(row.text ?? '');
-        const contentSearch = String(row.contentSearch ?? row.content_search ?? row.text ?? '').trim() || undefined;
-        const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t ?? '').trim()).filter(Boolean) : [];
-        const status: HabitMeta['status'] = row.status === 'accomplished' ? 'accomplished' : 'planned';
-        return {
-          id: String(row.id ?? ''),
-          date,
-          status,
-          text,
-          contentSearch,
-          syncPath: String(row.syncPath ?? ''),
-          tags,
-          displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),
-          type: 'habit' as const,
-        };
-      })
+      .map((row) => normalizeHabitMeta(row))
       .filter((row) => row.id);
 
     const files: FileMeta[] = (Array.isArray(raw.files) ? raw.files : [])
@@ -1534,6 +1596,9 @@ export async function listDailyNoteMeta(): Promise<
           date: parts[1] ?? '',
           preview: parts[2] ?? '',
           tags,
+          // The tab-delimited listing carries no task counts; callers that need
+          // them read the meta bundle instead.
+          openTaskCount: 0,
           displayTitle: getObjectDisplayTitle('daily-note', { date: parts[1] ?? '' }),
           type: 'daily-note' as const,
         };
@@ -1583,42 +1648,94 @@ export async function listTopicNoteMeta(): Promise<
 }
 
 /**
- * List habits for list/calendar views (metadata only).
- * CLI format: id \t date \t status \t text \t syncPath [\t #tag1, #tag2]
+ * List habits (practices, with their occurrence log and consistency stats).
  */
-export async function listHabitMeta(): Promise<
-  HabitMeta[]
-> {
+export async function listHabitMeta(): Promise<HabitMeta[]> {
   try {
-    const stdout = await listObjects('habit');
-    return stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => Boolean(line) && line.includes('\t'))
-      .map((line) => {
-        const parts = line.split('\t');
-        const rawTags = parts[5] ?? '';
-        const tags = rawTags
-          ? rawTags.split(',').map((t) => t.trim().replace(/^#/, ''))
-          : [];
-        const status: 'planned' | 'accomplished' = parts[2] === 'accomplished' ? 'accomplished' : 'planned';
-        const date = parts[1] ?? '';
-        const text = parts[3] ?? '';
-        return {
-          id: parts[0] ?? '',
-          date,
-          status,
-          text,
-          syncPath: parts[4] ?? '',
-          tags,
-          displayTitle: getObjectDisplayTitle('habit', { date, text, tags }),
-          type: 'habit' as const,
-        };
-      })
-      .filter((n) => n.id);
+    const bundle = await listMetaBundle();
+    return bundle.habits;
   } catch {
     return [];
   }
+}
+
+/**
+ * Every task across daily and topic notes, ordered as the Inbox shows them:
+ * due soonest first, then undated, then recently completed. Ordering and the
+ * completed-task cutoff both live in the CLI so nothing recomputes them here.
+ */
+export async function listTasks(): Promise<Task[]> {
+  const result = await runPuzzlePKMCli(['tasks', 'list']);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'tasks list failed');
+  const raw = JSON.parse(result.stdout) as Task[];
+  return Array.isArray(raw) ? raw : [];
+}
+
+/** Edits a task by rewriting its line in the note that owns it. */
+export async function setTask(
+  id: string,
+  patch: { text?: string; dueDate?: string | null; done?: boolean },
+): Promise<Task> {
+  const args = ['tasks', 'set', id];
+  if (patch.text !== undefined) args.push('--text', patch.text);
+  if (patch.dueDate === null) args.push('--clear-due');
+  else if (patch.dueDate !== undefined) args.push('--due', patch.dueDate);
+  if (patch.done === true) args.push('--done');
+  if (patch.done === false) args.push('--undone');
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || `tasks set ${id} failed`);
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as Task;
+}
+
+/** Captures a task by appending it to a day's daily note (today unless given). */
+export async function addTask(
+  text: string,
+  options: { dueDate?: string | null; date?: string } = {},
+): Promise<{ date: string; noteId: string; task: Task | null }> {
+  const args = ['tasks', 'add', text];
+  if (options.dueDate) args.push('--due', options.dueDate);
+  if (options.date) args.push('--date', options.date);
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'tasks add failed');
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as { date: string; noteId: string; task: Task | null };
+}
+
+/**
+ * Habits with their consistency measured as of `asOfDate` — opening an older
+ * daily note must show what was true then, not what is true today.
+ */
+export async function listHabitsAsOf(
+  asOfDate: string,
+  options: { includeRetired?: boolean } = {},
+): Promise<HabitMeta[]> {
+  const args = ['habit', 'list', '--as-of', asOfDate];
+  if (options.includeRetired) args.push('--include-retired');
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || 'habit list failed');
+  const raw = JSON.parse(result.stdout) as Array<Record<string, unknown>>;
+  return (Array.isArray(raw) ? raw : []).map((row) => normalizeHabitMeta(row)).filter((row) => row.id);
+}
+
+/**
+ * Record that a habit was practised on a date. Logging the same day twice is a
+ * no-op, so callers can treat this as "make sure today is logged".
+ */
+export async function logHabitEntry(habitId: string, date: string, note?: string): Promise<Habit> {
+  const args = ['habit', 'log', habitId, date];
+  if (note && note.trim()) args.push(note.trim());
+  const result = await runPuzzlePKMCli(args);
+  if (result.exitCode !== 0) throw new Error(result.stderr || `habit log ${habitId} failed`);
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as Habit;
+}
+
+export async function unlogHabitEntry(habitId: string, date: string): Promise<Habit> {
+  const result = await runPuzzlePKMCli(['habit', 'unlog', habitId, date]);
+  if (result.exitCode !== 0) throw new Error(result.stderr || `habit unlog ${habitId} failed`);
+  invalidateMetaCaches();
+  return JSON.parse(result.stdout) as Habit;
 }
 
 /**
