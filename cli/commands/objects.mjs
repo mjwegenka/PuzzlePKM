@@ -90,7 +90,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           const canonicalSyncPath = ctx.canonicalProjectSyncPath(rootFolder, input.name ?? 'Untitled', id);
           const existingProject = input.id ? ctx.getProject(db, input.id) : null;
           if (existingProject) {
-            // DEC-70: a linked directory keeps its own path; renaming the record must
+            // DEC-80: a linked directory keeps its own path; renaming the record must
             // not point it at the managed root (and never renames the folder on disk).
             const linked = ctx.isLinkedObject(db, 'project', existingProject.id);
             return ctx.updateProjectRecord(db, input.id, {
@@ -119,7 +119,7 @@ export async function handleObjectsCommand(action, args, ctx) {
           const canonicalSyncPath = ctx.canonicalRefMaterialSyncPath(rootFolder, input.name ?? 'Untitled', id);
           const existingRefMat = input.id ? ctx.getRefMat(db, input.id) : null;
           if (existingRefMat) {
-            // DEC-70: see the project case — linked directories keep their own path.
+            // DEC-80: see the project case — linked directories keep their own path.
             const linked = ctx.isLinkedObject(db, 'ref-material', existingRefMat.id);
             return ctx.updateRefMatRecord(db, input.id, {
               name: input.name,
@@ -247,7 +247,7 @@ export async function handleObjectsCommand(action, args, ctx) {
         case 'project': {
           const existing = ctx.getProject(db, reference);
           if (!existing) return null;
-          // DEC-70: a linked directory lives outside the sync root and is read-only;
+          // DEC-80: a linked directory lives outside the sync root and is read-only;
           // deleting the record must not delete the user's folder.
           const linked = ctx.isLinkedObject(db, 'project', existing.id);
           return {

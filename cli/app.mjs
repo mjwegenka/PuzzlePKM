@@ -1474,7 +1474,7 @@ function isMissingSyncPath(path) {
 
 function backfillMissingSyncPaths(db) {
   const rootFolder = getSyncRootFolder();
-  // DEC-70: linked directories keep their own absolute path and are never renamed.
+  // DEC-80: linked directories keep their own absolute path and are never renamed.
   const linkedProjectIds = linkedObjectIdSet(db, 'project');
   const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
 
@@ -3152,7 +3152,7 @@ function getSettingsState() {
 }
 
 // ── Linked sync sources ───────────────────────────────────────────────────────
-// DEC-70: A linked source is a directory that lives outside the managed sync
+// DEC-80: A linked source is a directory that lives outside the managed sync
 // root and backs exactly one project or ref-material. Its metadata is kept in
 // SQLite only — nothing is ever written into the directory — and sync treats it
 // as read-only: no renames, no moves, no deletions of its contents.
@@ -3467,7 +3467,7 @@ function habitSyncPath(rootFolder, id, date, tagNames) {
   return `${habitsFolderPath(rootFolder)}/${filename}`;
 }
 
-// DEC-71: projects/ and ref-materials/ are deliberately absent. Linking a directory
+// DEC-80: projects/ and ref-materials/ are deliberately absent. Linking a directory
 // in place is now the default way to add them, so an empty managed folder would be
 // clutter. They are created on demand only when a root-backed object is written into
 // one (mkdir is recursive), and an existing folder keeps working exactly as before.
@@ -3896,7 +3896,7 @@ async function moveSyncFolder(fromPath, toPath) {
 
 async function deleteSyncPath(path) {
   const target = resolveLocalSyncPath(path);
-  // DEC-70: linked directories are read-only; unlinking must go through `sources remove`.
+  // DEC-80: linked directories are read-only; unlinking must go through `sources remove`.
   const linkedSource = withDb((db) => getLinkedSourceByPath(db, target));
   if (linkedSource) {
     throw new Error(`Refusing to delete linked directory ${target}. Use "${PRIMARY_CLI_COMMAND} sources remove ${target}" to unlink it.`);
@@ -4243,12 +4243,12 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
 async function reconcileProjectsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  // DEC-70: records backed by a linked directory are reconciled separately and must
+  // DEC-80: records backed by a linked directory are reconciled separately and must
   // never be uploaded into, renamed within, or deleted by the managed root pass.
   const linkedProjectIds = linkedObjectIdSet(db, 'project');
   const localItems = listProjectsForSync(db).filter((item) => !linkedProjectIds.has(item.id));
 
-  // DEC-71: the managed projects/ folder is created only when a root-backed project
+  // DEC-80: the managed projects/ folder is created only when a root-backed project
   // needs somewhere to live. Doing it before the scan keeps reconciliation identical to
   // the old always-created behaviour; with no such projects the folder never appears.
   if (localItems.length > 0) {
@@ -4392,7 +4392,7 @@ async function reconcileProjectsDb(db, token, rootFolder) {
 async function reconcileRefMaterialsDb(db, token, rootFolder) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
-  // DEC-70/DEC-71: see reconcileProjectsDb.
+  // DEC-80: see reconcileProjectsDb.
   const linkedRefMaterialIds = linkedObjectIdSet(db, 'ref-material');
   const localItems = listRefMaterialsForSync(db).filter((item) => !linkedRefMaterialIds.has(item.id));
   if (localItems.length > 0) {
@@ -4613,7 +4613,7 @@ async function reconcileHabitsDb(db, token, rootFolder) {
 const DAILY_NOTE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastDailyNoteCleanupAt = 0;
 
-// DEC-70: Linked directories are read-only. Reconciliation only confirms they are
+// DEC-80: Linked directories are read-only. Reconciliation only confirms they are
 // still reachable — an unavailable path (unmounted volume, moved folder) is reported
 // and skipped, never treated as a remote deletion.
 async function reconcileLinkedSourcesDb(db) {
@@ -4690,7 +4690,7 @@ async function maybeCleanupStaleDailyNotes(db) {
 // ── Document text index (DEC-79) ────────────────────────────────────────────
 
 // Folder-backed objects — projects, reference materials, and the linked
-// directories of DEC-70 — are walked recursively so the documents inside them
+// directories of DEC-80 — are walked recursively so the documents inside them
 // are searchable by their contents and not just by file name. Extraction is
 // keyed on size plus modification time, so the expensive parse happens once per
 // file version and every later sync is a stat per file.

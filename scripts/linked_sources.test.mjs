@@ -1,6 +1,6 @@
 /* eslint-env node */
 
-// DEC-70: linked directories stay where they are on disk, are scanned on every
+// DEC-80: linked directories stay where they are on disk, are scanned on every
 // sync alongside the managed root, and are never written to or deleted.
 
 import test from 'node:test';

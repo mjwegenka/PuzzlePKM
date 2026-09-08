@@ -1,4 +1,4 @@
-// DEC-70: Manage directories that stay where they are on disk and are linked into
+// DEC-80: Manage directories that stay where they are on disk and are linked into
 // the knowledge base as a project or ref-material. Linked directories are scanned
 // on every sync alongside the managed sync root, and are never written to.
 export async function handleSourcesCommand(action, args, ctx) {

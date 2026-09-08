@@ -624,7 +624,7 @@ export default function LibraryPage({
     setCreateKey((k) => k + 1)
   }, [])
 
-  // DEC-71: projects and reference materials are added by linking a folder that already
+  // DEC-80: projects and reference materials are added by linking a folder that already
   // exists on disk. Nothing is copied, moved, or written into it.
   const [linkError, setLinkError] = useState<string | null>(null)
 

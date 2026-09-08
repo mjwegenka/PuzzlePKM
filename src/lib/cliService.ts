@@ -508,7 +508,7 @@ export async function deleteObject(type: string, id: string): Promise<boolean> {
 }
 
 /**
- * DEC-70: Directories outside the sync root, linked in place as a single project
+ * DEC-80: Directories outside the sync root, linked in place as a single project
  * or reference material. Nothing is ever written into a linked directory.
  */
 export type LinkedSourceType = 'project' | 'ref-material';

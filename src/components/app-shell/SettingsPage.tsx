@@ -72,7 +72,7 @@ function getSyncRootValidationError(value: string): string | null {
   return null
 }
 
-// DEC-70: a linked directory becomes exactly one object, so the choice between
+// DEC-80: a linked directory becomes exactly one object, so the choice between
 // Project and Reference Material is deliberate and required — never defaulted.
 const LINKED_SOURCE_TYPE_META: Record<
   LinkedSourceType,
@@ -97,7 +97,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
-  // ── Linked directories (DEC-70) ───────────────────────────────────────────
+  // ── Linked directories (DEC-80) ───────────────────────────────────────────
   const [linkedSources, setLinkedSources] = useState<LinkedSource[]>([])
   const [linkedLoaded, setLinkedLoaded] = useState(false)
   const [linkResult, setLinkResult] = useState<{ ok: boolean; msg: string } | null>(null)
@@ -455,7 +455,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ── Linked directories (DEC-70) ────────────────────────────────────── */}
+      {/* ── Linked directories (DEC-80) ────────────────────────────────────── */}
       <section className="space-y-6 rounded-[14px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-elevated)] p-6">
         <div className="flex items-center gap-2">
           <FolderSymlink className="h-4 w-4 text-[var(--color-accent-selected)]" />
