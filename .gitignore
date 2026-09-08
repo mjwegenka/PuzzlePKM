@@ -54,3 +54,9 @@ src-tauri/gen/
 # Exclude all markdown files except README.md from git tracking/commits
 *.md
 !README.md
+
+# Changesets are release inputs, not documentation: the CI workflow reads
+# .changeset/*.md to decide the next version, and `changeset version` writes the
+# collected notes into CHANGELOG.md. Both have to be tracked for that to work.
+!.changeset/*.md
+!CHANGELOG.md
