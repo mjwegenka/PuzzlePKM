@@ -52,7 +52,7 @@ export default function TaskRow({ task, busy, onToggle, onEdit, onOpenSource }: 
   const dueToday = !task.done && task.dueDate === today
 
   return (
-    <li className="group flex items-start gap-2.5 rounded-[10px] px-2 py-1.5 hover:bg-[var(--color-surface-hover)]">
+    <li className="group mb-0.5 flex break-inside-avoid items-start gap-2.5 rounded-[10px] px-2 py-1.5 hover:bg-[var(--color-surface-hover)]">
       <button
         type="button"
         onClick={onToggle}

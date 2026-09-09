@@ -37,12 +37,14 @@ interface HabitEditDialogProps {
    * creating the habit — the Calendar adds a habit from a day for a reason.
    */
   logOnDate?: string
+  /** Pre-fills the name when creating — a search that found nothing becomes the new habit. */
+  initialName?: string
   onClose: () => void
   onSaved: (habit: Habit) => void
 }
 
-export default function HabitEditDialog({ habit, logOnDate, onClose, onSaved }: HabitEditDialogProps) {
-  const [name, setName] = useState(habit?.name ?? '')
+export default function HabitEditDialog({ habit, logOnDate, initialName, onClose, onSaved }: HabitEditDialogProps) {
+  const [name, setName] = useState(habit?.name ?? initialName ?? '')
   const [cadenceMode, setCadenceMode] = useState<HabitCadenceMode>(habit?.cadenceMode ?? 'observed')
   const [interval, setInterval] = useState(
     habit?.targetIntervalDays == null ? '' : String(habit.targetIntervalDays),
