@@ -32,6 +32,19 @@ async function main() {
 
   await runSpctl(appPath);
   console.log(`[macos-verify] Gatekeeper assessment passed for ${appPath}`);
+
+  // The DMG is what actually gets published, and notarizing the app does not
+  // notarize its wrapper: a disk image has to be submitted in its own right and
+  // stapled. Checking only the .app once let an unnotarized DMG ship, which
+  // greets everyone who downloads it with a Gatekeeper warning.
+  const dmgPath = await resolveDmgPath();
+  if (!dmgPath) {
+    console.log('[macos-verify] No DMG found next to the app bundle; skipping disk image checks.');
+    return;
+  }
+  await runSpctlOpen(dmgPath);
+  await runStaplerValidate(dmgPath);
+  console.log(`[macos-verify] Gatekeeper assessment and stapled ticket verified for ${dmgPath}`);
 }
 
 async function resolveAppPath() {
@@ -58,6 +71,58 @@ async function resolveAppPath() {
   }
 
   return appPath;
+}
+
+async function resolveDmgPath() {
+  const scriptDir = dirname(fileURLToPath(import.meta.url));
+  const repoRoot = dirname(scriptDir);
+
+  const explicitDmgArg = process.argv[3];
+  if (explicitDmgArg) {
+    if (!existsSync(explicitDmgArg)) {
+      throw new Error(`DMG path not found: ${explicitDmgArg}`);
+    }
+    return explicitDmgArg;
+  }
+
+  const dmgDir = join(repoRoot, 'src-tauri', 'target', 'release', 'bundle', 'dmg');
+  if (!existsSync(dmgDir)) return null;
+
+  const { stdout } = await execFileAsync('zsh', ['-lc', `ls -td "${dmgDir}"/*.dmg 2>/dev/null | head -n 1`]);
+  return stdout.trim() || null;
+}
+
+async function runSpctlOpen(dmgPath) {
+  // `--type execute` is for executables; a disk image is assessed as something
+  // the user opens, against its own signature.
+  try {
+    await execFileAsync('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '--verbose=4', dmgPath]);
+  } catch (error) {
+    throw new Error(
+      [
+        `Gatekeeper rejected ${dmgPath}.`,
+        'The disk image itself must be notarized, not just the app inside it:',
+        'xcrun notarytool submit <dmg> --apple-id <id> --password <app-specific> --team-id <team> --wait',
+        error.stderr || error.message
+      ].join(' ')
+    );
+  }
+}
+
+async function runStaplerValidate(dmgPath) {
+  // Without a stapled ticket the check depends on Apple being reachable, so a
+  // user offline on first launch still sees a warning.
+  try {
+    await execFileAsync('xcrun', ['stapler', 'validate', dmgPath]);
+  } catch (error) {
+    throw new Error(
+      [
+        `No notarization ticket is stapled to ${dmgPath}.`,
+        'Run: xcrun stapler staple <dmg>',
+        error.stdout || error.stderr || error.message
+      ].join(' ')
+    );
+  }
 }
 
 async function runCodesign(appPath) {
