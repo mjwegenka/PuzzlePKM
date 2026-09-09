@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative } from 'node:path';
@@ -656,6 +656,61 @@ test('CLI scripture detection rejects prose that only looks like a reference', (
     } finally {
       db3.close();
     }
+  } finally {
+    rmSync(sandboxDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI sync converges when a note file names a linked object that no longer exists', () => {
+  // A file whose `linkedObjectIds` has drifted from what the content derives —
+  // normally because the linked object was deleted — used to be re-applied on
+  // every single sync: the comparison looked at a field the write path ignores
+  // and recomputes, so each re-import produced the same mismatch, left the
+  // timestamp equal, and never uploaded a corrected file.
+  const sandboxDir = mkdtempSync(join(tmpdir(), 'puzzlepkm-cli-converge-'));
+  const env = {
+    PUZZLEPKM_DB_PATH: join(sandboxDir, 'converge.sqlite'),
+    PUZZLEPKM_SECRETS_PATH: join(sandboxDir, 'secrets.json'),
+  };
+  const syncRoot = join(sandboxDir, 'sync-root');
+
+  const countsFrom = (stdout) => {
+    const match = /imported:\s*(\d+),\s*updated:\s*(\d+),\s*uploaded:\s*(\d+)/.exec(stdout);
+    if (!match) throw new Error(`Could not read sync counts from:\n${stdout}`);
+    return { imported: Number(match[1]), updated: Number(match[2]), uploaded: Number(match[3]) };
+  };
+
+  try {
+    runCli(['settings', 'set', 'root-folder', syncRoot], { env });
+
+    // Let the app write the file, so the fixture matches its real serialization
+    // (block IDs and all) and the drift below is the only difference.
+    const note = parseLastJson(
+      runCli(['write', 'topic-note', JSON.stringify({ title: 'Dangling', contentMarkdown: 'Body with no links at all.' })], { env }).stdout,
+    );
+    runCli(['sync'], { env });
+
+    const notePath = parseLastJson(runCli(['get', 'topic-note', note.id], { env }).stdout).syncPath;
+    const original = readFileSync(notePath, 'utf8');
+    assert.match(original, /^linkedObjectIds: \[\]$/m, 'the note starts with no links');
+
+    // Simulate the drift: the file names an object that no longer exists, so
+    // nothing in the body can derive it.
+    writeFileSync(
+      notePath,
+      original.replace(/^linkedObjectIds: \[\]$/m, 'linkedObjectIds: ["99999999-8888-7777-6666-555555555555"]'),
+      'utf8',
+    );
+
+    const first = countsFrom(runCli(['sync'], { env }).stdout);
+    assert.equal(first.updated, 0, 'a drifted link list alone is not a change worth re-applying');
+
+    const second = countsFrom(runCli(['sync'], { env }).stdout);
+    assert.equal(second.updated, 0, 'and it stays settled rather than looping');
+
+    // The database keeps deriving links from content, never trusting the file.
+    const after = parseLastJson(runCli(['get', 'topic-note', note.id], { env }).stdout);
+    assert.deepEqual(after.linkedObjectIds, []);
   } finally {
     rmSync(sandboxDir, { recursive: true, force: true });
   }

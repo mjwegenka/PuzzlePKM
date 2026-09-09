@@ -4201,7 +4201,13 @@ function shouldApplyRemoteDailyNote(existing, remote) {
   if (remoteUpdatedAt < localUpdatedAt) return false;
   // If timestamps are equal, detect actual content changes
   if (remote.contentMarkdown !== existing.contentMarkdown) return true;
-  if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
+  // `linkedObjectIds` is deliberately not compared. It is derived from the note's
+  // content on write (DEC-69), so the repositories ignore whatever the file
+  // carries and recompute it. Comparing it made every sync re-apply any file
+  // whose serialized list had drifted — typically because a linked object was
+  // deleted — and the re-apply rederived the same value without changing the
+  // timestamp or uploading, so it never converged. Any genuine change to a
+  // note's links comes from its content, date or scripture, all compared above.
   const effectiveRemoteTags = mergeRemoteTagsPreservingImportedInbox(existing.tags, remote.tagNames);
   if (!sameStringArrayAsSet(effectiveRemoteTags, existing.tags)) return true;
   return false;
@@ -4218,7 +4224,13 @@ function shouldApplyRemoteTopicNote(existing, remote) {
   if ((remote.title ?? '') !== (existing.title ?? '')) return true;
   if ((remote.date ?? '') !== (existing.date ?? '')) return true;
   if (remote.contentMarkdown !== existing.contentMarkdown) return true;
-  if (JSON.stringify(remote.linkedObjectIds ?? []) !== JSON.stringify(existing.linkedObjectIds ?? [])) return true;
+  // `linkedObjectIds` is deliberately not compared. It is derived from the note's
+  // content on write (DEC-69), so the repositories ignore whatever the file
+  // carries and recompute it. Comparing it made every sync re-apply any file
+  // whose serialized list had drifted — typically because a linked object was
+  // deleted — and the re-apply rederived the same value without changing the
+  // timestamp or uploading, so it never converged. Any genuine change to a
+  // note's links comes from its content, date or scripture, all compared above.
   if (!sameStringArrayAsSet(remote.tagNames, existing.tags)) return true;
   return false;
 }
