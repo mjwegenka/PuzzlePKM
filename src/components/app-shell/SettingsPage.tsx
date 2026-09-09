@@ -10,6 +10,7 @@ import {
   FolderSymlink,
   HardDrive,
   Info,
+  FolderSearch,
   Loader2,
   Settings,
   Trash2,
@@ -18,6 +19,7 @@ import {
   addLinkedSources,
   listLinkedSources,
   pickDirectory,
+  relinkSourceViaPicker,
   removeLinkedSource,
   runPuzzlePKMCli,
   scanLinkCandidates,
@@ -102,6 +104,7 @@ export default function SettingsPage() {
   const [linkedLoaded, setLinkedLoaded] = useState(false)
   const [linkResult, setLinkResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null)
+  const [relinkingPath, setRelinkingPath] = useState<string | null>(null)
 
   // Bulk add: scan a parent folder, review its subfolders, link the checked ones.
   const [scanParent, setScanParent] = useState<string | null>(null)
@@ -223,6 +226,25 @@ export default function SettingsPage() {
       setLinkResult({ ok: false, msg: e instanceof Error ? e.message : String(e) })
     } finally {
       setBulkAdding(false)
+    }
+  }
+
+  // DEC-85: a broken link is repaired by pointing the same object at the folder
+  // again — the object keeps its id, tags and links, which relinking preserves
+  // and adding a new link would not.
+  const handleRelink = async (source: LinkedSource) => {
+    setRelinkingPath(source.path)
+    setLinkResult(null)
+    try {
+      const relinked = await relinkSourceViaPicker(source)
+      if (relinked) {
+        setLinkResult({ ok: true, msg: `Relinked "${source.name}". Its notes, tags and links are unchanged.` })
+        await refreshLinkedSources()
+      }
+    } catch (e) {
+      setLinkResult({ ok: false, msg: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setRelinkingPath(null)
     }
   }
 
@@ -511,7 +533,9 @@ export default function SettingsPage() {
                     </p>
                     {!source.available && (
                       <p className="text-xs leading-5 text-[var(--color-text-disabled)]">
-                        Not reachable right now. Sync skips it and keeps the record.
+                        Nothing is at that path on this Mac. The object, its tags and its links are
+                        kept; sync skips the folder until the link is repaired. If the folder moved —
+                        or this link came from another device — point it at the folder again.
                       </p>
                     )}
                   </div>
@@ -525,15 +549,30 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="shrink-0"
-                      aria-label={`Unlink ${source.name}`}
-                      onClick={() => setConfirmUnlink(source.path)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {!source.available && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={relinkingPath === source.path}
+                          onClick={() => { void handleRelink(source) }}
+                        >
+                          {relinkingPath === source.path
+                            ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            : <FolderSearch className="mr-1.5 h-3.5 w-3.5" />}
+                          Relink…
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Unlink ${source.name}`}
+                        title={`Unlink ${source.name}`}
+                        onClick={() => setConfirmUnlink(source.path)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   )}
                 </li>
               )

@@ -13,9 +13,15 @@ export async function handleSourcesCommand(action, args, ctx) {
         `${ctx.PRIMARY_CLI_COMMAND} sources add <path> [--type project|ref-material]`);
       return true;
     }
+    const broken = sources.filter((source) => !source.available);
     for (const source of sources) {
       const status = source.available ? 'ok' : 'unavailable';
       console.log(`${source.objectType}\t${status}\t${source.name}\t${source.path}`);
+    }
+    if (broken.length > 0) {
+      console.log('');
+      console.log(`${broken.length} linked ${broken.length === 1 ? 'directory is' : 'directories are'} not reachable at the recorded path.`);
+      console.log(`Point one at its folder with: ${ctx.PRIMARY_CLI_COMMAND} sources relink <path-or-id> <new-path>`);
     }
     return true;
   }
@@ -60,6 +66,21 @@ export async function handleSourcesCommand(action, args, ctx) {
     });
     console.log(`Linked ${source.objectType} "${record.name}" -> ${source.path}`);
     console.log(ctx.formatCompact(record));
+    return true;
+  }
+
+  // DEC-85: repair a broken link — a folder that moved, or a registration restored
+  // from another device where the path does not exist — without losing the object.
+  if (sourcesAction === 'relink' || sourcesAction === 'repair') {
+    const reference = ctx.normalize(args[1]);
+    const newPath = ctx.normalize(args[2]);
+    if (!reference || !newPath) {
+      throw new Error(`Usage: ${ctx.PRIMARY_CLI_COMMAND} sources relink <path-or-id> <new-path>`);
+    }
+    const { source, previousPath, record } = ctx.relinkLinkedDirectory(reference, newPath);
+    console.log(`Relinked ${source.objectType} "${record.name}"`);
+    console.log(`  was: ${previousPath}`);
+    console.log(`  now: ${source.path}`);
     return true;
   }
 
