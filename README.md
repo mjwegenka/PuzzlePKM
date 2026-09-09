@@ -138,7 +138,9 @@ A `due:YYYY-MM-DD` anywhere in the line sets a due date and is hidden from the t
   npm run cli -- tasks set <id> --done                   # or --undone, --text, --due, --clear-due
   ```
 
-Editing a task always rewrites the line in the note that owns it — there is no second copy to fall out of step. A task you complete stays in the Inbox for three days so you can see and undo it; a task PuzzlePKM finds already ticked (written that way, or completed in another editor) is simply done and never appears.
+Editing a task always rewrites the line in the note that owns it — there is no second copy to fall out of step.
+
+A task you complete **in PuzzlePKM** stays in the Inbox for three days, so you can see what you did and undo it — whether you ticked it in the Inbox or in the note itself. A task PuzzlePKM finds already ticked is simply done and never appears: one written as `- [x]`, or one completed in another editor and picked up by sync. The difference is whether the app was there for the moment it was finished.
 
 #### 5. Projects
 Projects are folder-backed workspaces designed to hold your local project files (source code, assets, documents) alongside PKM notes.
@@ -257,7 +259,9 @@ updatedAt: "2026-03-14T09:31:52.740Z"
 
 The trailing HTML comment on a line is a **block id**. It is what lets another note link to that exact paragraph and survive edits around it; leave it in place when editing files by hand, and omit it when writing new lines — the app assigns one on the next save.
 
-Note that the file does **not** record its own location: sync paths are derived from where a file is actually found, so moving or renaming a folder is something PuzzlePKM follows rather than fights.
+`linkedObjectIds` is **derived, not authoritative**. PuzzlePKM works out a note's links from its content — `@`-mentions, dates, scripture references — and rewrites the list on every save, so editing it by hand achieves nothing and an entry naming a deleted object is simply ignored. It is written into the file so other tools can read the graph, not so PuzzlePKM can read it back.
+
+Note that the file does **not** record its own location either: sync paths are derived from where a file is actually found, so moving or renaming a folder is something PuzzlePKM follows rather than fights.
 
 ### The database is a derived index
 
@@ -343,7 +347,7 @@ The database lives in the platform application data directory (`~/Library/Applic
 | `create_topic_note` | Create a topic note from markdown. *Requires writes.* |
 | `update_topic_note` | Update a note's title, body, or tags. *Requires writes.* |
 | `append_to_daily_note` | Append to a day's daily note, creating it if needed. Never overwrites. *Requires writes.* |
-| `set_habit` | Create a habit, rename it, set its target interval, or retire it. *Requires writes.* |
+| `set_habit` | Create a habit, rename it, change how its cadence is decided, or retire it. *Requires writes.* |
 | `log_habit` | Record that a habit was practised on a date, or remove an occurrence. *Requires writes.* |
 | `sync_now` | Reconcile the database with the sync folder. *Requires writes.* |
 

@@ -114,7 +114,7 @@ export function createDailyNoteRepository(deps) {
       input.updatedAt,
     );
     syncObjectTags(db, input.id, 'daily-note', input.tags ?? []);
-    persistNoteBlocks(db, input.id, 'daily-note', normalizedBlocks, now);
+    persistNoteBlocks(db, input.id, 'daily-note', normalizedBlocks, now, { stampCompletions: !input.external });
     const removedDailyNoteIds = syncNoteObjectLinks(db, input.id, 'daily-note', mergedLinks);
     deps.cleanupDailyNotesIfEligible(db, removedDailyNoteIds);
     return getDailyNote(db, input.id);
@@ -188,7 +188,7 @@ export function createDailyNoteRepository(deps) {
         syncObjectTags(db, existing.id, 'daily-note', input.tags);
       }
       if (updatedBlocks !== undefined) {
-        persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt);
+        persistNoteBlocks(db, existing.id, 'daily-note', updatedBlocks, updatedAt, { stampCompletions: !input.external });
       }
       if (derivedLinks !== undefined) {
         const removedDailyNoteIds = syncNoteObjectLinks(db, existing.id, 'daily-note', derivedLinks);

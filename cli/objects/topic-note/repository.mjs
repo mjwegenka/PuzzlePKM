@@ -99,7 +99,7 @@ export function createTopicNoteRepository(deps) {
         input.updatedAt,
       );
       syncObjectTags(db, input.id, 'topic-note', input.tags ?? []);
-      persistNoteBlocks(db, input.id, 'topic-note', normalizedBlocks, now);
+      persistNoteBlocks(db, input.id, 'topic-note', normalizedBlocks, now, { stampCompletions: !input.external });
       syncNoteObjectLinks(db, input.id, 'topic-note', mergedLinks);
       return getTopicNote(db, input.id);
     });
@@ -174,7 +174,7 @@ export function createTopicNoteRepository(deps) {
         syncObjectTags(db, id, 'topic-note', input.tags);
       }
       if (updatedBlocks !== undefined) {
-        persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt);
+        persistNoteBlocks(db, id, 'topic-note', updatedBlocks, updatedAt, { stampCompletions: !input.external });
       }
       if (derivedLinks !== undefined) {
         const removedDailyNoteIds = syncNoteObjectLinks(db, id, 'topic-note', derivedLinks);
