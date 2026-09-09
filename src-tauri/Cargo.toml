@@ -1,6 +1,6 @@
 [package]
 name = "puzzlepkm_desktop"
-version = "1.6.0"
+version = "1.6.1"
 description = "PuzzlePKM desktop wrapper"
 authors = ["PuzzlePKM"]
 edition = "2021"
