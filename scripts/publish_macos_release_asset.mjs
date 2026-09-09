@@ -4,7 +4,7 @@ import { stat, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -45,7 +45,17 @@ async function main() {
 
 async function verifyMacOSBundleSecurity() {
   // Guardrail: never publish an unsigned/unnotarized build as the public download artifact.
-  await execFileAsync('node', ['./scripts/verify_macos_bundle.mjs']);
+  // stdio is inherited so the checker's own diagnosis — which artifact failed and
+  // the command to put it right — reaches the terminal. Captured, it used to
+  // surface as a bare "exited with code 1" from the publish wrapper.
+  await new Promise((resolve, reject) => {
+    const child = spawn('node', ['./scripts/verify_macos_bundle.mjs'], { stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error('macOS bundle verification failed; see the check output above.'));
+    });
+  });
 }
 
 async function getRepoCoordinates() {
