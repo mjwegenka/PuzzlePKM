@@ -1247,10 +1247,10 @@ function importNotesFromDirectory(type, directoryPath) {
           }
           const existing = getDailyNote(db, parsed.id) ?? getDailyNote(db, parsed.date);
           if (existing) {
-            updateDailyNoteRecord(db, existing.id, parsed);
+            updateDailyNoteRecord(db, existing.id, { ...parsed, external: true });
             updated += 1;
           } else {
-            createDailyNoteRecord(db, parsed);
+            createDailyNoteRecord(db, { ...parsed, external: true });
             created += 1;
           }
           continue;
@@ -1262,10 +1262,10 @@ function importNotesFromDirectory(type, directoryPath) {
         }
         const existing = getTopicNote(db, parsed.id);
         if (existing) {
-          updateTopicNoteRecord(db, parsed.id, parsed);
+          updateTopicNoteRecord(db, parsed.id, { ...parsed, external: true });
           updated += 1;
         } else {
-          createTopicNoteRecord(db, parsed);
+          createTopicNoteRecord(db, { ...parsed, external: true });
           created += 1;
         }
       } catch (error) {
@@ -1961,12 +1961,22 @@ function getCanonicalNoteContentMap(db, noteRows) {
  * in another editor — is simply done, and a done task with no completion time
  * never appears in the Inbox. Only an in-app completion stamps it.
  */
-function indexTasksForNote(db, noteId, noteType, blocks, now) {
+function indexTasksForNote(db, noteId, noteType, blocks, now, options = {}) {
+  // Completions are stamped only when the change came from someone using the
+  // app. A write carrying content from outside — a sync, a folder import —
+  // suppresses the stamp, so a task ticked elsewhere is simply done and never
+  // surfaces in the Inbox (DEC-83).
+  const { stampCompletions = true } = options;
+
   const parsed = parseTasksFromBlocks(blocks);
+  const previous = new Map(
+    db.prepare('SELECT id, done, completed_at FROM tasks WHERE note_id = ?').all(noteId)
+      .map((row) => [row.id, row]),
+  );
   const seen = new Set();
   const upsert = db.prepare(`
     INSERT INTO tasks (id, note_id, note_type, block_id, ordinal, text, due_date, done, completed_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       note_type = excluded.note_type,
       block_id = excluded.block_id,
@@ -1974,12 +1984,24 @@ function indexTasksForNote(db, noteId, noteType, blocks, now) {
       text = excluded.text,
       due_date = excluded.due_date,
       done = excluded.done,
+      completed_at = excluded.completed_at,
       updated_at = excluded.updated_at
   `);
 
   for (const task of parsed) {
     const id = taskId(noteId, task.blockId, task.ordinal);
     seen.add(id);
+    const before = previous.get(id);
+    let completedAt = null;
+    if (task.done) {
+      if (before?.done) {
+        completedAt = before.completed_at; // Already done; keep whatever it had.
+      } else if (before && stampCompletions) {
+        completedAt = now; // Known open a moment ago, so it was finished here.
+      }
+      // A task first seen already done gets nothing: it was done before we
+      // ever knew about it, so there is no moment to record.
+    }
     upsert.run(
       id,
       noteId,
@@ -1989,20 +2011,16 @@ function indexTasksForNote(db, noteId, noteType, blocks, now) {
       task.text,
       task.dueDate,
       task.done ? 1 : 0,
+      completedAt,
       now,
       now,
     );
   }
 
-  const existing = db.prepare('SELECT id FROM tasks WHERE note_id = ?').all(noteId);
   const remove = db.prepare('DELETE FROM tasks WHERE id = ?');
-  for (const row of existing) {
-    if (!seen.has(row.id)) remove.run(row.id);
+  for (const id of previous.keys()) {
+    if (!seen.has(id)) remove.run(id);
   }
-
-  // Unticking anywhere clears the completion time; a task that is not done has
-  // no business carrying one.
-  db.prepare('UPDATE tasks SET completed_at = NULL WHERE note_id = ? AND done = 0 AND completed_at IS NOT NULL').run(noteId);
   return parsed.length;
 }
 
@@ -2120,11 +2138,9 @@ function updateTaskRecord(db, id, patch) {
     updateTopicNoteRecord(db, task.noteId, { blocks: nextBlocks, updatedAt: now });
   }
 
-  // The re-index above deliberately never sets a completion time, so stamping
-  // it is a separate step and only happens for a completion made right here.
-  if (patch.done !== undefined) {
-    db.prepare('UPDATE tasks SET completed_at = ? WHERE id = ?').run(patch.done ? now : null, id);
-  }
+  // No explicit stamping here: the re-index above is an in-app write, so it
+  // records the completion itself. Ticking from the Inbox and ticking in the
+  // note body now go through exactly the same path.
   return getTaskRow(db, id);
 }
 
@@ -2148,7 +2164,7 @@ function addTaskToDailyNote(db, { text, dueDate, date }) {
   return { date: target, noteId: note.id, task: created ?? null };
 }
 
-function persistNoteBlocks(db, noteId, noteType, blocks, now) {
+function persistNoteBlocks(db, noteId, noteType, blocks, now, options = {}) {
   const normalizedBlocks = normalizeBlocksForPersistence(blocks, `persistNoteBlocks(${noteId})`);
   db.prepare('DELETE FROM note_blocks WHERE note_id = ?').run(noteId);
   const insert = db.prepare(
@@ -2159,7 +2175,7 @@ function persistNoteBlocks(db, noteId, noteType, blocks, now) {
   }
   // DEC-83: the one place every writer of note content passes through, so the
   // task index cannot drift from the notes it is derived from.
-  indexTasksForNote(db, noteId, noteType, normalizedBlocks, now);
+  indexTasksForNote(db, noteId, noteType, normalizedBlocks, now, options);
 }
 
 // DEC-36, DEC-37: Backfill note_blocks for legacy notes that have content_markdown but no blocks yet.
@@ -4584,6 +4600,9 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
        const existing = getDailyNote(db, fields.date);
        if (!existing) {
          createDailyNoteRecord(db, {
+           // DEC-83: a completion arriving from the sync folder is not one the
+           // user made here, so it must not be stamped.
+           external: true,
            id: fields.id,
            date: fields.date,
            content: {},
@@ -4597,6 +4616,7 @@ async function reconcileDailyNotesDb(db, token, rootFolder) {
          result.imported++;
        } else if (shouldApplyRemoteDailyNote(existing, fields)) {
          updateDailyNoteRecord(db, existing.id, {
+           external: true,
            contentMarkdown: fields.contentMarkdown,
            linkedObjectIds: fields.linkedObjectIds,
            syncPath: fields.syncPath || dailyNoteSyncPath(rootFolder, existing.date),
@@ -4668,6 +4688,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
        const existing = getTopicNote(db, fields.id);
        if (!existing) {
          createTopicNoteRecord(db, {
+           external: true,
            id: fields.id,
            title: fields.title,
            date: fields.date || '',
@@ -4682,6 +4703,7 @@ async function reconcileTopicNotesDb(db, token, rootFolder) {
          result.imported++;
        } else if (shouldApplyRemoteTopicNote(existing, fields)) {
          updateTopicNoteRecord(db, existing.id, {
+           external: true,
            title: fields.title,
            date: fields.date || '',
            contentMarkdown: fields.contentMarkdown,

@@ -140,7 +140,7 @@ A `due:YYYY-MM-DD` anywhere in the line sets a due date and is hidden from the t
 
 Editing a task always rewrites the line in the note that owns it — there is no second copy to fall out of step.
 
-A task you tick **in the Inbox** stays there for three days, so you can see what you did and undo it. Anything else PuzzlePKM finds already ticked is simply done and never appears: a task written as `- [x]`, one completed in another editor, or one you tick in the note body itself. Only the Inbox checkbox records *when* a task was finished, so only it can show the task afterwards.
+A task you complete **in PuzzlePKM** stays in the Inbox for three days, so you can see what you did and undo it — whether you ticked it in the Inbox or in the note itself. A task PuzzlePKM finds already ticked is simply done and never appears: one written as `- [x]`, or one completed in another editor and picked up by sync. The difference is whether the app was there for the moment it was finished.
 
 #### 5. Projects
 Projects are folder-backed workspaces designed to hold your local project files (source code, assets, documents) alongside PKM notes.

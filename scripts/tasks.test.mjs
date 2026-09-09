@@ -6,7 +6,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -242,6 +242,65 @@ test('deleting a task line drops it from the index', () => {
       contentMarkdown: '- [ ] Keep me',
     })], env);
     assert.deepEqual(runJson(['tasks', 'list'], env).map((task) => task.text), ['Keep me']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ticking a box in the note body counts as completing it here', () => {
+  const { dir, env } = scratch();
+  try {
+    const created = runJson(['write', 'topic-note', JSON.stringify({
+      title: 'In the note',
+      contentMarkdown: '- [ ] Alpha\n- [ ] Beta',
+    })], env);
+    assert.equal(runJson(['tasks', 'list'], env).length, 2);
+
+    // Tick Beta by editing the note, the way the editor does — block IDs and all.
+    const body = runJson(['get', 'topic-note', created.id], env).contentMarkdown;
+    runCli(['write', 'topic-note', JSON.stringify({
+      id: created.id,
+      title: 'In the note',
+      contentMarkdown: body.replace('- [ ] Beta', '- [x] Beta'),
+    })], env);
+
+    const beta = runJson(['tasks', 'list'], env).find((task) => task.text === 'Beta');
+    assert.ok(beta, 'a task ticked in the note stays in the Inbox for its three days');
+    assert.equal(beta.done, true);
+    assert.ok(beta.completedAt, 'and the moment is recorded, exactly as the Inbox checkbox does');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a completion arriving from the sync folder is not stamped and stays hidden', () => {
+  const { dir, env } = scratch();
+  const root = join(dir, 'syncroot');
+  try {
+    runCli(['settings', 'set', 'root-folder', root], env);
+    const created = runJson(['write', 'topic-note', JSON.stringify({
+      title: 'From outside',
+      contentMarkdown: '- [ ] Gamma',
+    })], env);
+    runCli(['sync'], env);
+    assert.equal(runJson(['tasks', 'list'], env).length, 1);
+
+    // Someone ticks it in another editor, and the change arrives by sync. The
+    // file must win, so its updatedAt is moved past the note's.
+    const notePath = runJson(['get', 'topic-note', created.id], env).syncPath;
+    const raw = readFileSync(notePath, 'utf8');
+    writeFileSync(notePath, raw
+      .replace('- [ ] Gamma', '- [x] Gamma')
+      .replace(/^updatedAt: ".*"$/m, 'updatedAt: "2099-01-01T00:00:00.000Z"'), 'utf8');
+    runCli(['sync'], env);
+
+    assert.deepEqual(runJson(['tasks', 'list'], env), [], 'it is simply done, and never appears');
+
+    const db = new DatabaseSync(env.PUZZLEPKM_DB_PATH);
+    const row = db.prepare("SELECT done, completed_at FROM tasks WHERE text = 'Gamma'").get();
+    db.close();
+    assert.equal(row.done, 1, 'the index still knows it is done');
+    assert.equal(row.completed_at, null, 'but records no moment, because none happened here');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
