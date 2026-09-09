@@ -663,6 +663,35 @@ export async function linkDirectoryViaPicker(
   return addLinkedSource(selected, objectType);
 }
 
+/**
+ * DEC-85: repoint a registration whose directory is not where it was recorded —
+ * a folder that moved, or a path restored from another device. The object keeps
+ * its id, tags and links, which is what separates this from linking afresh.
+ */
+export async function relinkSource(pathOrId: string, newPath: string): Promise<void> {
+  const result = await runPuzzlePKMCli(['sources', 'relink', pathOrId, newPath]);
+  if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not relink that directory');
+  invalidateMetaCaches();
+}
+
+/** Opens the native folder picker and repairs the link. Null when dismissed. */
+export async function relinkSourceViaPicker(source: { path: string; name: string }): Promise<boolean> {
+  const selected = await pickDirectory(`Choose the folder for “${source.name}”`);
+  if (!selected) return false;
+  await relinkSource(source.path, selected);
+  return true;
+}
+
+/** The linked directory behind one object, or null when it is root-backed. */
+export async function getLinkedSourceForObject(
+  objectType: LinkedSourceType,
+  objectId: string,
+): Promise<LinkedSource | null> {
+  if (!objectId) return null;
+  const sources = await listLinkedSources();
+  return sources.find((source) => source.objectType === objectType && source.objectId === objectId) ?? null;
+}
+
 export async function removeLinkedSource(pathOrId: string): Promise<void> {
   const result = await runPuzzlePKMCli(['sources', 'remove', pathOrId]);
   if (result.exitCode !== 0) throw new Error(cleanCliError(result.stderr) || 'Could not unlink that directory');

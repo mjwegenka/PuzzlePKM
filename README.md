@@ -190,10 +190,28 @@ In the desktop app, the Library's create menu offers **Project** ("Choose a fold
 npm run cli -- sources list                              # linked folders and whether they are reachable
 npm run cli -- sources scan ~/Documents/Reading          # list a parent folder's subdirectories as candidates
 npm run cli -- sources add ~/Documents/Reading/Augustine --type ref-material --name "Augustine"
+npm run cli -- sources relink ~/Documents/Reading/Augustine ~/Archive/Augustine
 npm run cli -- sources remove ~/Documents/Reading/Augustine
 ```
 
 `sources add` accepts several paths at once, so a scanned parent folder can be linked in one pass. Folders inside the sync root, overlapping links, and non-directories are rejected. If a linked folder becomes unreachable — an unmounted volume, a cloud folder mid-sync — the sync warns and keeps the record and its indexed document text rather than treating the absence as a deletion.
+
+#### Broken links, and repairing them
+
+The link itself travels between devices, but the folder does not. Each linked directory publishes a small record to `linked-sources/` in the sync root — the object's name, tags and the path it was linked at, never the folder's contents — so restoring your knowledge base on another Mac brings the project or reference material back as **an object with a broken link** rather than losing it. A link is broken whenever nothing is at the recorded path: the folder moved, its drive is not mounted, or the path only ever existed on another machine.
+
+A broken link keeps everything except the files: the object, its tags, its links from notes, and the document text already indexed. Sync skips the folder and warns instead of reading the absence as a deletion.
+
+To repair one, point it at the folder again:
+
+```bash
+npm run cli -- sources list                              # "unavailable" marks a broken link
+npm run cli -- sources relink <path-or-object-id> <new-path>
+```
+
+In the desktop app, **Settings → Linked directories** marks a broken link **Unavailable** and offers **Relink…**, which opens a folder picker; the object's own page shows the same repair banner. Relinking keeps the object — the same id, tags and links — which is what separates it from linking the folder afresh, since a new link would create a new object with none of that history.
+
+Removing a link is called **Unlink** throughout, never Delete: the object and its tracking go, and the folder stays on disk exactly as it was. Unlinking on one device removes the published record, so other devices unlink it too — again without touching anyone's folder.
 
 ### Document search inside folders
 

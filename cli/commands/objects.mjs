@@ -339,6 +339,9 @@ export async function handleObjectsCommand(action, args, ctx) {
 
     if (remoteDeleteTarget?.linked && remoteDeleteTarget.objectId) {
       ctx.removeLinkedSourceForObject(type, remoteDeleteTarget.objectId);
+      // DEC-85: this is an unlink, not a delete — the directory is still on disk.
+      console.log(`Unlinked ${type} ${reference} (directory left untouched)`);
+      return true;
     }
     console.log(`Deleted ${type} ${reference}`);
     return true;

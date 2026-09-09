@@ -1,13 +1,13 @@
 import { Button, DatePicker, Alert, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input } from 'aslan-ui';
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Pin, PinOff, Plus, Save, Trash2, FolderPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FolderSearch, Link2Off, Loader2, Pin, PinOff, Plus, Save, Trash2, FolderPlus } from 'lucide-react';
 import type { MentionOption } from '../common/MentionPopup'
 import RichMarkdownEditor from '../common/RichMarkdownEditor'
 import ProjectFileBrowser from './ProjectFileBrowser';
 import HabitPanel from '../habits/HabitPanel';
 
 import { AuthorSelect } from './AuthorSelect'
-import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, type ResolvedObjectRef, type AuthorSummary, DATE_MENTION_HREF_PREFIX, convertTopicNoteToProject } from '../../lib/cliService'
+import { deleteObject, getObject, resolveObjectFromLinkPath, writeObject, listAuthors, createAuthor, deleteAuthor, listTags, getLinkedSourceForObject, relinkSourceViaPicker, removeLinkedSource, type ResolvedObjectRef, type AuthorSummary, type LinkedSource, type LinkedSourceType, DATE_MENTION_HREF_PREFIX, convertTopicNoteToProject } from '../../lib/cliService'
 import { normalizeNoteBlocks, joinBlockMarkdown } from '../../lib/noteBlocks'
 import { getTodayDate } from '../../lib/dateUtils'
 import { getObjectDisplayTitle, isObjectType } from '../../lib/objectTypeDefinitions'
@@ -527,6 +527,63 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
     }
   };
 
+  // DEC-85: a linked directory object is unlinked, never deleted — its folder is
+  // the user's, sitting outside the sync root — and it shows a repair banner when
+  // nothing is at the recorded path.
+  const [confirmingUnlink, setConfirmingUnlink] = useState(false);
+  const [linkedSource, setLinkedSource] = useState<LinkedSource | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const objectId = String(object?.id ?? '');
+  const isLinkableType = type === 'project' || type === 'ref-material';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isLinkableType || !objectId) {
+      setLinkedSource(null);
+      return () => { cancelled = true; };
+    }
+    void (async () => {
+      try {
+        const source = await getLinkedSourceForObject(type as LinkedSourceType, objectId);
+        if (!cancelled) setLinkedSource(source);
+      } catch {
+        if (!cancelled) setLinkedSource(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLinkableType, objectId, type]);
+
+  const handleRelink = async () => {
+    if (!linkedSource) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      if (await relinkSourceViaPicker(linkedSource)) {
+        setLinkedSource(await getLinkedSourceForObject(linkedSource.objectType, linkedSource.objectId));
+        onSave?.({ ...(object ?? {}), id: objectId, type });
+      }
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!linkedSource) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await removeLinkedSource(linkedSource.path);
+      setConfirmingUnlink(false);
+      onSave?.({ ...(object ?? {}), id: objectId, type, unlinked: true });
+    } catch (e) {
+      setLinkError(e instanceof Error ? e.message : String(e));
+      setLinkBusy(false);
+    }
+  };
+
   const isPinned = tags.some(isPinnedTag);
   const canPin = type === 'topic-note' || type === 'daily-note' || type === 'project' || type === 'ref-material';
   const canDelete = Boolean(object?.id) && (type === 'topic-note' || type === 'daily-note');
@@ -938,6 +995,45 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   </div>
                 )}
 
+                {linkedSource && !linkedSource.available && (
+                  <div className="rounded-[12px] border border-[rgba(226,89,89,0.34)] bg-[rgba(226,89,89,0.10)] px-3.5 py-3">
+                    <p className="text-sm font-semibold text-[rgb(252,178,178)]">Linked folder not found</p>
+                    <p className="mt-1 break-all font-mono text-xs leading-5 text-[var(--color-text-secondary)]">
+                      {linkedSource.path}
+                    </p>
+                    <p className="mt-1.5 text-xs leading-5 text-[var(--color-text-secondary)]">
+                      Nothing is at that path on this Mac — the folder moved, its drive is not
+                      mounted, or this link came from another device. Notes, tags and links are all
+                      kept. Point it at the folder to repair the link.
+                    </p>
+                    {linkError && <Alert variant="destructive" className="mt-2 py-2 text-xs">{linkError}</Alert>}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={linkBusy}
+                        onClick={() => { void handleRelink(); }}
+                      >
+                        {linkBusy
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <FolderSearch className="h-4 w-4" />}
+                        Relink…
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={linkBusy}
+                        onClick={() => { setLinkError(null); setConfirmingUnlink(true); }}
+                      >
+                        <Link2Off className="h-4 w-4" />
+                        Unlink
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="min-h-[280px] overflow-hidden py-1">
                   <ProjectFileBrowser object={object} type={type} embedded />
                 </div>
@@ -984,6 +1080,19 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                   >
                     {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                     {deleting ? 'Deleting…' : 'Delete'}
+                  </Button>
+                )}
+                {linkedSource && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => { setLinkError(null); setConfirmingUnlink(true); }}
+                    disabled={saving || linkBusy}
+                    size="sm"
+                    title="Unlink this folder — the folder itself stays on disk"
+                  >
+                    <Link2Off className="h-4 w-4" />
+                    Unlink
                   </Button>
                 )}
                 <Button
@@ -1306,6 +1415,29 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           </DialogContent>
         ) : null}
       </Dialog>
+
+      {confirmingUnlink && linkedSource && (
+        <Dialog open onOpenChange={(open) => { if (!open && !linkBusy) setConfirmingUnlink(false); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Unlink this folder?</DialogTitle>
+              <DialogDescription>
+                {`“${linkedSource.name}” stops being tracked here: its tags, links and indexed file text go. The folder itself stays exactly where it is on disk — nothing inside it is touched or deleted.`}
+              </DialogDescription>
+            </DialogHeader>
+            {linkError && <Alert variant="destructive" className="py-2 text-xs">{linkError}</Alert>}
+            <DialogFooter>
+              <Button variant="outline" size="sm" disabled={linkBusy} onClick={() => setConfirmingUnlink(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" disabled={linkBusy} onClick={() => { void handleUnlink(); }}>
+                {linkBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Link2Off className="mr-1.5 h-4 w-4" />}
+                {linkBusy ? 'Unlinking…' : 'Unlink'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={showConvertDialog} onOpenChange={(open) => { if (!open) setShowConvertDialog(false); }}>
         {showConvertDialog ? (

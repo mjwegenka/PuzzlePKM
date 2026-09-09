@@ -63,6 +63,7 @@ const TOPIC_NOTES_SUBFOLDER = 'topic-notes';
 const PROJECTS_SUBFOLDER = 'projects';
 const REF_MATERIALS_SUBFOLDER = 'ref-materials';
 const HABITS_SUBFOLDER = 'habits';
+const LINKED_SOURCES_SUBFOLDER = 'linked-sources';
 const SYNC_INTERVAL_MINUTES_DEFAULT = 15;
 const BLOCK_ID_PATTERN = /^blk-[a-f0-9]{12}$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -3649,7 +3650,25 @@ function removeLinkedSourceRow(db, objectType, objectId) {
 }
 
 function removeLinkedSourceForObject(objectType, objectId) {
-  return withDb((db) => removeLinkedSourceRow(db, objectType, objectId));
+  return withDb((db) => {
+    const record = objectType === 'project' ? getProject(db, objectId) : getRefMat(db, objectId);
+    const removed = removeLinkedSourceRow(db, objectType, objectId);
+    // DEC-85: drop the published registration too, so the unlink travels and the
+    // next sync does not restore what was just unlinked.
+    if (record) removeLinkedSourceSyncFile(record.name, objectId);
+    return removed;
+  });
+}
+
+/** Best-effort: a file we cannot remove is retried by the next sync. */
+function removeLinkedSourceSyncFile(name, objectId) {
+  try {
+    const path = linkedSourceSyncPath(getSyncRootFolder(), name, objectId);
+    const localPath = resolveLocalSyncPath(path);
+    if (existsSync(localPath) && statSync(localPath).isFile()) unlinkSync(localPath);
+  } catch {
+    /* ignore */
+  }
 }
 
 function getLinkedSourceRecord(db, source) {
@@ -3713,6 +3732,58 @@ function attachLinkedDirectory({ path, objectType, name, tags = [] } = {}) {
   });
 }
 
+/**
+ * DEC-85: point an existing registration at a different directory. This is the
+ * repair for a broken link — a folder that moved, or a path from another device
+ * that does not exist here — and it keeps the object, its tags, and its links
+ * rather than making a new one the way `sources add` would.
+ */
+function relinkLinkedDirectory(reference, newPath) {
+  const lookup = normalize(reference);
+  if (!lookup) throw new Error('A linked directory path or id is required.');
+
+  const directoryPath = validateLinkedSourcePath(newPath);
+  const managedRootPath = resolveLocalSyncPath(getSyncRootFolder());
+  if (isPathInside(directoryPath, managedRootPath)) {
+    throw new Error(`${directoryPath} is inside the sync root (${managedRootPath}); it is scanned automatically.`);
+  }
+
+  return withDb((db) => {
+    const source = getLinkedSourceByPath(db, lookup)
+      ?? mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE id = ? OR object_id = ?').get(lookup, lookup));
+    if (!source) throw new Error(`Linked directory not found: ${lookup}`);
+
+    for (const existing of listLinkedSources(db)) {
+      if (existing.objectId === source.objectId) continue;
+      if (existing.path.toLowerCase() === directoryPath.toLowerCase()) {
+        throw new Error(`${directoryPath} is already linked as a ${existing.objectType}.`);
+      }
+      if (isPathInside(directoryPath, existing.path) || isPathInside(existing.path, directoryPath)) {
+        throw new Error(`${directoryPath} overlaps the linked directory ${existing.path}.`);
+      }
+    }
+
+    const record = getLinkedSourceRecord(db, source);
+    if (!record) throw new Error(`The ${source.objectType} behind ${source.path} no longer exists.`);
+
+    const now = getIsoNow();
+    db.prepare('UPDATE sync_sources SET path = ?, updated_at = ?, last_seen_at = ? WHERE id = ?')
+      .run(directoryPath, now, now, source.id);
+    const updateRecord = source.objectType === 'project' ? updateProjectRecord : updateRefMatRecord;
+    // updatedAt moves so the new path wins on every other device.
+    updateRecord(db, source.objectId, { syncPath: directoryPath, updatedAt: now });
+    // The old folder's indexed text describes a directory this object no longer
+    // points at; the next sync indexes the new one.
+    clearDocumentIndexForObject(db, source.objectType, source.objectId);
+
+    return {
+      source: getLinkedSourceForObject(db, source.objectType, source.objectId),
+      previousPath: source.path,
+      record: getLinkedSourceRecord(db, source),
+    };
+  });
+}
+
 /** Unregister a linked directory. Deletes the record only; the directory is untouched. */
 function detachLinkedDirectory(reference) {
   const lookup = normalize(reference);
@@ -3723,9 +3794,12 @@ function detachLinkedDirectory(reference) {
       ?? mapLinkedSourceRow(db.prepare('SELECT * FROM sync_sources WHERE id = ? OR object_id = ?').get(lookup, lookup));
     if (!source) throw new Error(`Linked directory not found: ${lookup}`);
 
+    const record = getLinkedSourceRecord(db, source);
     removeLinkedSourceRow(db, source.objectType, source.objectId);
     if (source.objectType === 'project') deleteProjectRecord(db, source.objectId);
     else deleteRefMatRecord(db, source.objectId);
+    // DEC-85: the published registration goes with it, so other devices unlink too.
+    if (record) removeLinkedSourceSyncFile(record.name, source.objectId);
     return source;
   });
 }
@@ -3882,6 +3956,24 @@ function habitSyncPath(rootFolder, name, id) {
   return `${habitsFolderPath(rootFolder)}/${habitFilename(name, id)}`;
 }
 
+// DEC-85: one file per linked directory, recording the registration rather than
+// the directory's contents. A linked directory stays outside the sync root, so
+// without this a restore on another device loses the object entirely.
+function linkedSourcesFolderPath(rootFolder) {
+  const root = (rootFolder || DEFAULT_NOTES_ROOT).replace(/\/$/, '');
+  return `${root}/${LINKED_SOURCES_SUBFOLDER}`;
+}
+
+function linkedSourceFilename(name, id) {
+  const slug = slugify(name || 'untitled');
+  const suffix = id ? `-${id.slice(0, 8)}` : '';
+  return `${slug}${suffix}.md`;
+}
+
+function linkedSourceSyncPath(rootFolder, name, id) {
+  return `${linkedSourcesFolderPath(rootFolder)}/${linkedSourceFilename(name, id)}`;
+}
+
 // DEC-80: projects/ and ref-materials/ are deliberately absent. Linking a directory
 // in place is now the default way to add them, so an empty managed folder would be
 // clutter. They are created on demand only when a root-backed object is written into
@@ -4003,6 +4095,55 @@ function refMaterialToMetaYaml(fields) {
 }
 
 const HABIT_LOG_HEADING = '## Log';
+
+const LINKED_SOURCE_BODY_NOTE = [
+  'This file records a linked directory, not its contents.',
+  '',
+  'The directory itself lives outside the sync root and is never copied here. On a',
+  'device where that path does not exist, the object is restored with a broken link',
+  'and can be pointed at the directory again from Settings.',
+].join('\n');
+
+/** DEC-85: the registration, serialized. The directory's files stay where they are. */
+function linkedSourceToMarkdown(fields) {
+  const fm = serializeFrontMatter({
+    id: fields.objectId,
+    type: 'linked-source',
+    objectType: fields.objectType,
+    name: fields.name,
+    path: fields.path,
+    author: fields.objectType === 'ref-material' ? (fields.author || null) : null,
+    startDate: fields.objectType === 'project' ? (fields.startDate || null) : null,
+    endDate: fields.objectType === 'project' ? (fields.endDate || null) : null,
+    tags: Array.isArray(fields.tagNames) ? fields.tagNames : [],
+    createdAt: fields.createdAt,
+    updatedAt: fields.updatedAt,
+  });
+  return `${fm}\n\n${LINKED_SOURCE_BODY_NOTE}\n`;
+}
+
+function parseLinkedSourceMarkdown(content) {
+  const { data } = parseFrontMatter(content);
+  if (typeof data.id !== 'string' || !data.id) return null;
+  const objectType = normalize(data.objectType).toLowerCase();
+  if (!LINKED_SOURCE_TYPES.has(objectType)) return null;
+  const path = normalize(data.path);
+  if (!path) return null;
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+  if (!name) return null;
+  return {
+    id: data.id,
+    objectType,
+    name,
+    path,
+    author: typeof data.author === 'string' ? data.author : '',
+    startDate: typeof data.startDate === 'string' ? data.startDate : '',
+    endDate: typeof data.endDate === 'string' ? data.endDate : '',
+    tagNames: Array.isArray(data.tags) ? data.tags.map(String).filter(Boolean) : [],
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
 
 /**
  * One file per practice: front matter describes the habit, the body lists every
@@ -5217,6 +5358,140 @@ let lastDailyNoteCleanupAt = 0;
 // DEC-80: Linked directories are read-only. Reconciliation only confirms they are
 // still reachable — an unavailable path (unmounted volume, moved folder) is reported
 // and skipped, never treated as a remote deletion.
+/**
+ * DEC-85: mirror each linked registration into `linked-sources/` so it survives a
+ * restore. Only the registration travels — never the directory's contents — so a
+ * device that lacks the path restores the object with a broken link, which the
+ * relink flow repairs. Unlinking on one device removes the file, which unlinks it
+ * on the others and leaves every directory untouched.
+ */
+async function reconcileLinkedSourceRecordsDb(db, token, rootFolder) {
+  const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
+
+  const localSources = [];
+  for (const source of listLinkedSources(db)) {
+    const record = getLinkedSourceRecord(db, source);
+    if (!record) continue;
+    localSources.push({ source, record });
+  }
+
+  const { files, folderFound } = await listSyncMdFiles(linkedSourcesFolderPath(rootFolder));
+  const remoteById = new Map();
+  for (const file of files) {
+    try {
+      const parsed = parseLinkedSourceMarkdown(await syncDownloadText(file.path));
+      if (parsed) remoteById.set(parsed.id, { ...parsed, syncPath: file.path });
+    } catch (e) {
+      result.errors.push(`linked-source read ${file.path}: ${String(e)}`);
+    }
+  }
+
+  // Remote → local: restore registrations this device has never seen.
+  for (const remote of remoteById.values()) {
+    try {
+      const existingSource = getLinkedSourceForObject(db, remote.objectType, remote.id);
+      const existingRecord = remote.objectType === 'project' ? getProject(db, remote.id) : getRefMat(db, remote.id);
+
+      if (!existingRecord) {
+        const shared = {
+          id: remote.id,
+          name: remote.name,
+          syncPath: remote.path,
+          tags: addInboxTag(remote.tagNames),
+          createdAt: remote.createdAt,
+          updatedAt: remote.updatedAt,
+        };
+        if (remote.objectType === 'project') {
+          createProjectRecord(db, { ...shared, startDate: remote.startDate, endDate: remote.endDate });
+        } else {
+          createRefMatRecord(db, { ...shared, author: remote.author });
+        }
+        result.imported++;
+      }
+
+      if (!existingSource) {
+        // The path is recorded as written on the device that linked it; it may not
+        // exist here, and that is the broken-link state the repair flow fixes.
+        const now = getIsoNow();
+        db.prepare(`
+          INSERT INTO sync_sources (id, object_type, object_id, path, read_only, created_at, updated_at, last_seen_at)
+          VALUES (?, ?, ?, ?, 1, ?, ?, NULL)
+        `).run(randomUUID(), remote.objectType, remote.id, remote.path, now, now);
+        if (!existsSync(remote.path)) {
+          result.warnings.push(`Linked directory restored but missing here: ${remote.path}. Relink it from Settings.`);
+        }
+      }
+
+      markRemotePresence(db, remote.objectType, remote.id, remote.updatedAt ?? getIsoNow());
+    } catch (e) {
+      result.errors.push(`linked-source ${remote.id}: ${String(e)}`);
+    }
+  }
+
+  // Local → remote: publish new registrations and edits, and follow unlinks.
+  for (const { source, record } of localSources) {
+    try {
+      const canonicalPath = linkedSourceSyncPath(rootFolder, record.name, source.objectId);
+      const remote = remoteById.get(source.objectId);
+
+      if (!remote && folderFound && hasKnownRemoteCopy(db, source.objectType, source.objectId)) {
+        // Unlinked on another device: drop the registration and the record here,
+        // and leave this device's directory exactly where it is.
+        removeLinkedSourceRow(db, source.objectType, source.objectId);
+        if (source.objectType === 'project') deleteProjectRecord(db, source.objectId);
+        else deleteRefMatRecord(db, source.objectId);
+        result.deleted++;
+        continue;
+      }
+
+      const localTime = new Date(record.updatedAt ?? 0).getTime();
+      const remoteTime = new Date(remote?.updatedAt ?? 0).getTime();
+      const renamed = remote?.syncPath && normalizeSyncPath(remote.syncPath) !== normalizeSyncPath(canonicalPath);
+
+      // Relinking stamps updatedAt, so the newest record carries the winning path:
+      // whichever side that is, the other follows it rather than fighting over it.
+      if (remote && remoteTime > localTime) {
+        const updateRecord = source.objectType === 'project' ? updateProjectRecord : updateRefMatRecord;
+        if (remote.path !== source.path) {
+          db.prepare('UPDATE sync_sources SET path = ?, updated_at = ?, last_seen_at = NULL WHERE id = ?')
+            .run(remote.path, getIsoNow(), source.id);
+          clearDocumentIndexForObject(db, source.objectType, source.objectId);
+        }
+        updateRecord(db, source.objectId, {
+          name: remote.name,
+          syncPath: remote.path,
+          tags: mergeRemoteTagsPreservingImportedInbox(record.tags, remote.tagNames),
+          updatedAt: remote.updatedAt,
+        });
+        result.updated++;
+        continue;
+      }
+
+      if (!remote || localTime > remoteTime || renamed) {
+        await syncUploadText(canonicalPath, linkedSourceToMarkdown({
+          objectId: source.objectId,
+          objectType: source.objectType,
+          name: record.name,
+          path: source.path,
+          author: record.author,
+          startDate: record.startDate,
+          endDate: record.endDate,
+          tagNames: getTagDisplayNames(db, source.objectId),
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        }));
+        if (renamed && remote?.syncPath) await deleteSyncPath(remote.syncPath);
+        markRemotePresence(db, source.objectType, source.objectId, getIsoNow());
+        result.uploaded++;
+      }
+    } catch (e) {
+      result.errors.push(`linked-source upload ${source.objectId}: ${String(e)}`);
+    }
+  }
+
+  return result;
+}
+
 async function reconcileLinkedSourcesDb(db) {
   const result = { imported: 0, updated: 0, uploaded: 0, deleted: 0, warnings: [], errors: [] };
 
@@ -5813,6 +6088,7 @@ async function runSync() {
     const projectResult = await reconcileProjectsDb(db, token, rootFolder);
     const refMaterialResult = await reconcileRefMaterialsDb(db, token, rootFolder);
     const habitResult = await reconcileHabitsDb(db, token, rootFolder);
+    const linkedRecordResult = await reconcileLinkedSourceRecordsDb(db, token, rootFolder);
     const linkedSourceResult = await reconcileLinkedSourcesDb(db);
     const metadataCleanupResult = await scrubLegacySyncPathMetadataFromSyncFiles(rootFolder);
     const staleDailyNoteCleanupResult = await maybeCleanupStaleDailyNotes(db);
@@ -5822,12 +6098,12 @@ async function runSync() {
     return {
       documentsIndexed: documentResult.indexed + documentResult.updated,
       documentsRemoved: documentResult.removed,
-      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + linkedSourceResult.imported,
-      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + linkedSourceResult.updated,
-      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded + linkedSourceResult.uploaded,
-      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + linkedSourceResult.deleted + staleDailyNoteCleanupResult,
-      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings, ...documentResult.warnings],
-      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...metadataCleanupResult.errors, ...documentResult.errors],
+      imported: dailyResult.imported + topicResult.imported + projectResult.imported + refMaterialResult.imported + habitResult.imported + linkedSourceResult.imported + linkedRecordResult.imported,
+      updated: dailyResult.updated + topicResult.updated + projectResult.updated + refMaterialResult.updated + habitResult.updated + linkedSourceResult.updated + linkedRecordResult.updated,
+      uploaded: dailyResult.uploaded + topicResult.uploaded + projectResult.uploaded + refMaterialResult.uploaded + habitResult.uploaded + linkedSourceResult.uploaded + linkedRecordResult.uploaded,
+      deleted: dailyResult.deleted + topicResult.deleted + projectResult.deleted + refMaterialResult.deleted + habitResult.deleted + linkedSourceResult.deleted + linkedRecordResult.deleted + staleDailyNoteCleanupResult,
+      warnings: [...dailyResult.warnings, ...topicResult.warnings, ...projectResult.warnings, ...refMaterialResult.warnings, ...habitResult.warnings, ...linkedSourceResult.warnings, ...linkedRecordResult.warnings, ...documentResult.warnings],
+      errors: [...dailyResult.errors, ...topicResult.errors, ...projectResult.errors, ...refMaterialResult.errors, ...habitResult.errors, ...linkedSourceResult.errors, ...linkedRecordResult.errors, ...metadataCleanupResult.errors, ...documentResult.errors],
     };
   });
 }
@@ -6312,6 +6588,7 @@ function createCommandContext(rl) {
     saveSyncRootFolder,
     attachLinkedDirectory,
     detachLinkedDirectory,
+    relinkLinkedDirectory,
     listLinkedSourcesWithStatus,
     scanLinkedSourceCandidates,
     attachLinkedDirectories,
