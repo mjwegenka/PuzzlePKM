@@ -252,7 +252,7 @@ export default function NavigationSidebar({ onNavigate, currentSection, onNaviga
       lastSyncedLabel={syncing ? 'Syncing…' : syncError ? 'Sync error' : `Last Sync ${formatSyncStatusCompact(lastSyncedAt)}`}
     >
       <div className="ui-scroller flex flex-1 flex-col overflow-auto px-0.5 pb-2">
-        <div className="mb-4 px-1 pb-2">
+        <div className="mb-2 px-1 pb-0.5">
         {navItems.map((item) => {
           const selected = currentSection === item.id;
           return (

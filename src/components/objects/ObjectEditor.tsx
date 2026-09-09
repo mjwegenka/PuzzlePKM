@@ -787,7 +787,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
   const showContent = type !== 'project' && type !== 'ref-material';
   const tagsEditor = (
     <>
-      <div className="mb-4 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <p className="text-xs font-bold uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
           Tags
         </p>
@@ -890,8 +890,8 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
         {isFileObject ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
-              <div className="space-y-6 py-2">
-                <div className="space-y-3">
+              <div className="py-2">
+                <div>
                 <label className="block text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">
                   {type === 'project' ? 'Project name' : 'Reference name'}
                 </label>
@@ -922,7 +922,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
                 )}
 
                 {type === 'ref-material' && (
-                  <div className="space-y-3 py-1.5">
+                  <div className="py-1.5">
                   <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                     Author (optional)
                   </label>
@@ -1021,10 +1021,10 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
           <>
             <div className={flatTop ? 'min-h-0 flex-1 overflow-auto px-6 pb-2 pt-6' : 'min-h-0 flex-1 overflow-auto pb-2'}>
               {/* ── TOP: Title and Date (always first) ── */}
-              <div className="mb-7 shrink-0 space-y-6 py-2">
+              <div className="shrink-0 py-2">
 
                 {showTitle && (
-                  <div className="space-y-3">
+                  <div>
                     <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[var(--color-text-disabled)]">
                       {type === 'topic-note' ? 'Title' : 'Name'}
                     </label>
@@ -1062,7 +1062,7 @@ export default function ObjectEditor({ object, type, flatTop = false, onSave, on
               {/* Habits belong to the day, so the panel sits between the note's
                   header and its body (DEC-81). */}
               {type === 'daily-note' && date && (
-                <div className="mb-5">
+                <div>
                   <HabitPanel date={date} />
                 </div>
               )}

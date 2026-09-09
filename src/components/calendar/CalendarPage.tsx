@@ -5,7 +5,7 @@ import * as Popover from '@radix-ui/react-popover'
 import { CalendarIcon, Search, SlidersHorizontal, SquarePen, X } from 'lucide-react'
 import ObjectEditor from '../objects/ObjectEditor'
 import EditorErrorBoundary from '../common/EditorErrorBoundary'
-import HabitEditDialog from '../habits/HabitEditDialog'
+import HabitLogDialog from '../habits/HabitLogDialog'
 import MentionPopup, { type MentionOption } from '../common/MentionPopup'
 
 import { listMetaBundle, getObject, rankSearchCandidates } from '../../lib/cliService'
@@ -98,9 +98,9 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
   // Habit markers open the day they happened on, so the calendar needs the
   // daily note behind each date.
   const [dailyNoteIdByDate, setDailyNoteIdByDate] = useState<Map<string, string>>(new Map())
-  // A habit created from the calendar is normally being added because it
-  // happened on that day, so the dialog offers to log it there too.
-  const [creatingHabitOn, setCreatingHabitOn] = useState<string | null>(null)
+  // Adding a habit from a day means it happened on that day, so the dialog
+  // logs an occurrence of an existing habit; creating one is the second step.
+  const [loggingHabitOn, setLoggingHabitOn] = useState<string | null>(null)
   const [searchCandidates, setSearchCandidates] = useState<CalendarSearchCandidate[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
@@ -483,6 +483,8 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
     <div className="flex min-h-0 flex-1 gap-3">
       <div className="ui-shell-panel flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface-elevated)]">
         <SharedCalendarPage
+          month={currentMonth}
+          onMonthChange={setCurrentMonth}
           items={calendarPageItems}
           onItemClick={(item) => {
             if (item.originalObject) {
@@ -508,8 +510,8 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
                   <DropdownMenuItem onSelect={() => { void startCreateForDate(createTargetDate, 'topic-note') }}>
                     New Topic Note
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setCreatingHabitOn(createTargetDate)}>
-                    New Habit
+                  <DropdownMenuItem onSelect={() => setLoggingHabitOn(createTargetDate)}>
+                    Log Habit…
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -648,12 +650,11 @@ export default function CalendarPage({ onOpenObjectTab, onStartCreateObject, tag
        </div>
       )}
 
-      {creatingHabitOn && (
-        <HabitEditDialog
-          habit={null}
-          logOnDate={creatingHabitOn}
-          onClose={() => setCreatingHabitOn(null)}
-          onSaved={() => { setCreatingHabitOn(null); void loadEvents() }}
+      {loggingHabitOn && (
+        <HabitLogDialog
+          date={loggingHabitOn}
+          onClose={() => setLoggingHabitOn(null)}
+          onChanged={() => { void loadEvents() }}
         />
       )}
 

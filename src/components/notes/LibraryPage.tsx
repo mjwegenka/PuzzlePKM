@@ -1307,7 +1307,9 @@ export default function LibraryPage({
     <>
       <LibraryLayout
         isDetailOpen={Boolean(activeObject || isCreating)}
-        isGalleryMode={isGalleryMode}
+        // The gallery's columns are built below rather than by the layout, so
+        // the task list can sit above them at full width instead of being
+        // fragmented across a column break.
         fileListWidth={fileListWidth}
         onFileListWidthChange={setFileListWidth}
         listScrollerRef={listScrollerRef}
@@ -1458,7 +1460,9 @@ export default function LibraryPage({
                 {boardFilter || showInbox || hasActiveBoardFilters ? 'No matches found for the current filters.' : 'Nothing here yet.'}
               </div>
             ) : isGalleryMode ? (
-              renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))
+              <div className="w-full" style={{ columnWidth: '272px', columnGap: '12px', maxWidth: '100%' }}>
+                {renderedCards.map((entry) => renderBoardCard(entry, { gallery: true }))}
+              </div>
             ) : (
               renderedCards.map((entry) => renderBoardCard(entry))
             )}
